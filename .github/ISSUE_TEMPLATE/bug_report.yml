@@ -1,0 +1,137 @@
+name: 🐛 Bug Report
+description: Report a bug or issue with LightShowPi Neo
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the information below to help us diagnose and fix the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Tell us what happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Set configuration to '...'
+        2. Run command '....'
+        3. Observe error '....'
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen
+      placeholder: Lights should sync to music without errors
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened
+      placeholder: Lights flash randomly and script crashes
+    validations:
+      required: true
+
+  - type: dropdown
+    id: pi-model
+    attributes:
+      label: Raspberry Pi Model
+      description: Which Raspberry Pi are you using?
+      options:
+        - Pi 3 Model B
+        - Pi 3 Model B+
+        - Pi 3 Model A+
+        - Pi 4 (2GB)
+        - Pi 4 (4GB)
+        - Pi 4 (8GB)
+        - Pi 5 (4GB)
+        - Pi 5 (8GB)
+        - Other (please specify in additional context)
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python Version
+      description: Output of `python --version` or `python3 --version`
+      placeholder: "Python 3.9.2"
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS Version
+      description: Output of `cat /etc/os-release | grep PRETTY_NAME`
+      placeholder: "Raspbian GNU/Linux 11 (bullseye)"
+    validations:
+      required: true
+
+  - type: input
+    id: lsp-version
+    attributes:
+      label: LightShowPi Version
+      description: Which version or commit are you using?
+      placeholder: "v4.0 or commit hash"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Please copy and paste any relevant log output from `logs/` directory
+      render: shell
+      placeholder: |
+        Paste logs here...
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Relevant sections from your config/overrides.cfg (remove sensitive info)
+      render: ini
+      placeholder: |
+        [hardware]
+        gpio_pins = 0,1,2,3,4,5,6,7
+
+        [audio_processing]
+        chunk_size = 4096
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: |
+        Add any other context about the problem here. Screenshots, videos, or photos of your setup can be very helpful!
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm you have completed the following
+      options:
+        - label: I have searched for similar issues and this is not a duplicate
+          required: true
+        - label: I have checked the documentation and FAQ
+          required: true
+        - label: I am using a supported Pi model (3, 4, or 5)
+          required: true
+        - label: I have included relevant logs and configuration
+          required: true

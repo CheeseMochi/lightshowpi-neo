@@ -1,0 +1,96 @@
+# Ignore decoder.py and fileinfo.py (if installed locally from old version)
+decoder.py
+fileinfo.py
+
+# Ignore install log file + build_dir
+build_dir
+install.log
+
+# Python
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+*.manifest
+*.spec
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.conda/
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+test-results/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+sftp-config.json
+
+# OS Files
+.DS_Store
+.directory
+Thumbs.db
+*.bak
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# Music and media (typically large files)
+music/**/*.mp3
+music/**/*.wav
+music/**/*.flac
+music/**/*.ogg
+music/**/*.m4a
+!music/sample/
+
+# LED configs (except defaults)
+Led[0-9].cfg
+led[0-9].cfg
+
+# User configuration overrides
+config/overrides.cfg
+config/overrides*.cfg
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

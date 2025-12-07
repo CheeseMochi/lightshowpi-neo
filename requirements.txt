@@ -1,0 +1,68 @@
+# ============================================================================
+# LightShowPi Requirements
+# Modern Python 3 dependencies (all from PyPI)
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Core Audio & Signal Processing
+# ----------------------------------------------------------------------------
+numpy>=1.24.0,<2.0.0  # FFT calculations, array operations, audio processing
+soundfile>=0.12.1  # Audio file decoding (replaces git-based decoder)
+pyalsaaudio>=0.10.0  # ALSA audio input/output
+mutagen>=1.47.0  # Audio file metadata reading (ID3, etc.)
+
+# ----------------------------------------------------------------------------
+# Hardware Control (Raspberry Pi)
+# ----------------------------------------------------------------------------
+lgpio>=0.2.2.0  # Modern GPIO library (replaces deprecated wiringPi)
+gpiozero>=1.6.0  # High-level GPIO library for button manager
+spidev>=3.6  # SPI communication for LED strips
+pyserial>=3.5  # Serial communication for devices
+
+# I2C Expander Support (MCP23008, MCP23017, etc.)
+adafruit-circuitpython-mcp230xx>=2.5.0  # I2C GPIO expanders
+adafruit-blinka>=8.20.0  # CircuitPython compatibility layer
+
+# ----------------------------------------------------------------------------
+# LED Control
+# ----------------------------------------------------------------------------
+# BiblioPixel>=3.20210812.1  # LED strip/matrix control framework (OPTIONAL)
+#   Note: BiblioPixel only supports Python <=3.7 and is unmaintained.
+#   Only needed for RGB LED strips/matrices. Most users don't need this.
+#   Install separately if needed: pip install BiblioPixel==3.20210812.1
+Pillow>=10.0.0  # Image processing for LED effects
+
+# ----------------------------------------------------------------------------
+# Web Framework (Modern Webapp)
+# ----------------------------------------------------------------------------
+fastapi>=0.104.0  # Modern async web framework
+uvicorn[standard]>=0.24.0  # ASGI server for FastAPI
+python-multipart>=0.0.6  # File upload support
+jinja2>=3.1.2  # Template engine
+websockets>=12.0  # WebSocket support for real-time updates
+
+# ----------------------------------------------------------------------------
+# Configuration & Utilities
+# ----------------------------------------------------------------------------
+python-dotenv>=1.0.0  # Environment variable management
+
+# ----------------------------------------------------------------------------
+# Development & Testing
+# ----------------------------------------------------------------------------
+pytest>=7.4.0  # Testing framework
+pytest-cov>=4.1.0  # Test coverage reporting
+pytest-asyncio>=0.21.0  # Async test support
+black>=23.10.0  # Code formatter
+flake8>=6.1.0  # Linter
+mypy>=1.6.0  # Type checker
+
+# ----------------------------------------------------------------------------
+# Notes on Removed Dependencies
+# ----------------------------------------------------------------------------
+# - wiringpi/wiringpipy: Replaced with lgpio (deprecated, was from git)
+# - decoder: Replaced with soundfile (was from Bitbucket git)
+# - rpi-audio-levels: Removed, using numpy CPU-based FFT (was from git)
+# - pygooglevoice: Removed with SMS feature (was from GitHub git)
+# - twython: Removed with Twitter feature
+# - beautifulsoup4: Removed (was only used for SMS parsing)
+# - emoji: Removed (was only used for Twitter)

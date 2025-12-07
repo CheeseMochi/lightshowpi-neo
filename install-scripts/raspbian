@@ -1,0 +1,18 @@
+#!/bin/bash
+
+## Package manager installation command
+INSTALL_COMMAND="apt-get install -q=2 -y"
+
+## System packages to be installed
+## Note: Python dependencies are now managed via requirements.txt
+SYSTEM_DEPS=(python3-pip python3-dev python3-venv curl faad flac gcc git lame \
+             mpg123 make unzip vorbis-tools pianobar libjpeg-dev libtiff-dev \
+             libatlas-base-dev libportaudio2 i2c-tools)
+
+## Miscellaneous checks
+
+# The ffmpeg library changed starting with Debian 8
+# Try to install ffmpeg first, then libav-tools
+echo -ne "\e[0;31mNOTE:\e[m " >&2
+echo "Installing ffmpeg..."
+$INSTALL_COMMAND ffmpeg

@@ -1,0 +1,52 @@
+# ============================================================================
+# LightShowPi Development Requirements (Cross-platform testing)
+# For macOS/Windows development - excludes Linux/Pi-specific packages
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Core Audio & Signal Processing (cross-platform)
+# ----------------------------------------------------------------------------
+numpy>=1.24.0,<2.0.0
+soundfile>=0.12.1
+mutagen>=1.47.0
+pyserial>=3.5  # Serial communication (cross-platform)
+
+# ----------------------------------------------------------------------------
+# LED Control (cross-platform parts)
+# ----------------------------------------------------------------------------
+#BiblioPixel>=3.20210812.1
+Pillow>=10.0.0
+
+# ----------------------------------------------------------------------------
+# Web Framework (cross-platform)
+# ----------------------------------------------------------------------------
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+jinja2>=3.1.2
+websockets>=12.0
+
+# ----------------------------------------------------------------------------
+# Configuration & Utilities (cross-platform)
+# ----------------------------------------------------------------------------
+python-dotenv>=1.0.0
+
+# ----------------------------------------------------------------------------
+# Development & Testing (cross-platform)
+# ----------------------------------------------------------------------------
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.0
+black>=23.10.0
+flake8>=6.1.0
+mypy>=1.6.0
+
+# ----------------------------------------------------------------------------
+# Excluded from dev requirements (Linux/Raspberry Pi only):
+# ----------------------------------------------------------------------------
+# pyalsaaudio - ALSA audio (Linux only)
+# lgpio - GPIO library (Raspberry Pi only)
+# spidev - SPI communication (Linux only)
+# pyserial - Serial communication (hardware dependent)
+# adafruit-circuitpython-mcp230xx - I2C expanders (hardware dependent)
+# adafruit-blinka - CircuitPython compatibility (hardware dependent)
