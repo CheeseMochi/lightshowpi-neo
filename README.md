@@ -10,7 +10,7 @@
 
 **LightShowPi Neo** is a modernized fork of the original LightShowPi that synchronizes Christmas light displays to music on Raspberry Pi. Rebuilt for Python 3.9+, Pi 3/4/5, and pure PyPI dependencies.
 
-**Latest Version:** Neo 1.0 (2025) • [See what's different from original →](FORK.md)
+**Latest Version:** v0.9.0 Beta 1 (December 2025) • [See what's different from original →](FORK.md)
 
 > **⚠️ Important:** This is an independent fork, not the official LightShowPi. For the original project, visit [lightshowpi.org](http://lightshowpi.org/)
 
@@ -65,13 +65,13 @@
 **Optional Hardware:**
 - GPIO expanders (MCP23017/MCP23008) for additional channels
 - USB audio interface for audio-in mode
-- Physical buttons for manual control (GPIO 20, 21, 26, 8)
+- Physical buttons for manual control
 - Arduino/NodeMCU for network client setups
 
 ### Software
 
 - **Python:** 3.9 or newer
-- **OS:** Raspbian/Raspberry Pi OS (Bullseye or newer)
+- **OS:** Raspbian/Raspberry Pi OS (Bookworm or newer)
 - **Dependencies:** All available via PyPI (see `requirements.txt`)
 
 ---
@@ -79,74 +79,143 @@
 ## 🚀 Quick Start
 
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/CheeseMochi/lightshowpi-neo.git
 cd lightshowpi-neo
 
-# Set environment variable (add to ~/.bashrc for persistence)
+# 2. Install system dependencies
+sudo ./install.sh
+
+# 3. Install Miniconda (if not already installed)
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh
+bash Miniconda3-latest-Linux-aarch64.sh
+source ~/.bashrc
+
+# 4. Create conda environment
+conda env create -f environment.yml
+conda activate lightshowpi-neo
+
+# 5. Link system lgpio to conda environment
+./bin/link_lgpio.sh
+
+# 6. Set environment variable
 export SYNCHRONIZED_LIGHTS_HOME=$(pwd)
 echo "export SYNCHRONIZED_LIGHTS_HOME=$(pwd)" >> ~/.bashrc
 
-# Run the installer (interactive setup)
-sudo ./install.sh
-
-# Test your installation
+# 7. Verify installation
 pytest -v
 
-# Run a test show
-python py/synchronized_lights.py --playlist config/playlist.playlist
+# 8. Run your first lightshow!
+sudo $(which python) py/synchronized_lights.py
 ```
+
+For detailed installation options (venv vs conda), see [Installation](#installation) section below.
+
 
 ---
 
 ## 📦 Installation
 
-### Automated Installation (Recommended)
+Installation consists of two main steps:
+1. **Install system dependencies** (required for all users)
+2. **Set up Python environment** (choose conda OR venv)
 
-The `install.sh` script handles all dependencies and configuration:
+---
+
+### Step 1: Install System Dependencies (Required)
+
+**All users must complete this step first**, regardless of whether you use conda or venv.
+
+#### Option A: Automated (Recommended)
 
 ```bash
 sudo ./install.sh
 ```
 
-**What it does:**
-- Installs system packages (ALSA, GPIO libraries, etc.)
-- Sets up Python virtual environment (optional)
-- Installs all Python dependencies from requirements.txt
-- Configures audio output
-- Sets correct file permissions
-- Creates necessary directories
+This script:
+- Checks for supported Raspberry Pi hardware (Pi 3/4/5)
+- Installs python3-lgpio, ALSA libraries, and other system packages
+- Displays next steps for Python environment setup
 
-### Manual Installation
-
-<details>
-<summary>Click to expand manual installation steps</summary>
-
-#### 1. Install System Dependencies
+#### Option B: Manual
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y \
-    python3-dev \
-    python3-pip \
-    python3-venv \
+    python3-lgpio \
     libasound2-dev \
-    libatlas-base-dev \
-    git
+    libasound2 \
+    alsa-utils \
 ```
 
-#### 2. Create Virtual Environment (Recommended)
+---
+
+### Step 2: Set Up Python Environment (Choose One)
+
+After installing system dependencies, choose **either** Method A (conda) **or** Method B (venv).
+
+<details open>
+<summary><b>Method A: Using Conda (Recommended)</b></summary>
+
+Conda provides better dependency management and Python version control.
+
+#### 1. Install Miniconda (if not already installed)
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+# Download Miniconda for ARM64 (Raspberry Pi)
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh
+
+# Install Miniconda
+bash Miniconda3-latest-Linux-aarch64.sh
+
+# Follow prompts, then restart your shell or run:
+source ~/.bashrc
 ```
 
-#### 3. Install Python Dependencies
+#### 2. Create Conda Environment
 
 ```bash
-pip install -r requirements.txt
+# Create environment from environment.yml
+conda env create -f environment.yml
+
+# Activate the environment
+conda activate lightshowpi-neo
 ```
+
+This installs all Python dependencies automatically (numpy, pydantic, fastapi, etc.).
+
+#### 3. Link System lgpio to Conda Environment
+
+Since lgpio is installed system-wide via apt, symlink it into your conda environment:
+
+```bash
+./bin/link_lgpio.sh
+```
+
+**Verify it works:**
+```bash
+python -c "import lgpio; print('lgpio version:', lgpio.__version__)"
+```
+
+<details>
+<summary><b>Troubleshooting: Python version mismatch</b></summary>
+
+If the symlink fails (e.g., system Python 3.11 vs conda Python 3.13), compile lgpio for your conda Python:
+
+```bash
+# Install lgpio development libraries
+sudo apt-get install -y liblgpio-dev liblgpio1
+
+# Install lgpio via pip in conda environment
+LDFLAGS="-L/usr/lib/aarch64-linux-gnu -L/usr/lib" \
+CFLAGS="-I/usr/include" \
+pip install lgpio
+
+# Verify
+python -c "import lgpio; print('lgpio version:', lgpio.__version__)"
+```
+
+</details>
 
 #### 4. Set Environment Variable
 
@@ -155,14 +224,59 @@ export SYNCHRONIZED_LIGHTS_HOME=$(pwd)
 echo "export SYNCHRONIZED_LIGHTS_HOME=$(pwd)" >> ~/.bashrc
 ```
 
-#### 5. Configure Audio (if needed)
+#### 5. Verify Installation
 
 ```bash
-# Test audio output
-speaker-test -t wav -c 2
+pytest -v
+```
 
-# Adjust volume
-alsamixer
+</details>
+
+<details>
+<summary><b>Method B: Using venv (Alternative)</b></summary>
+
+Standard Python virtual environment without conda.
+
+#### 1. Create Virtual Environment
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+#### 2. Install Python Dependencies
+
+```bash
+pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+```
+
+#### 3. Link System lgpio to venv
+
+Since lgpio is installed system-wide via apt, symlink it into your venv:
+
+```bash
+./bin/link_lgpio.sh
+```
+
+**Verify it works:**
+```bash
+python -c "import lgpio; print('lgpio version:', lgpio.__version__)"
+```
+
+**Note:** If symlink fails due to Python version mismatch, you'll need to compile lgpio from source or use conda instead.
+
+#### 4. Set Environment Variable
+
+```bash
+export SYNCHRONIZED_LIGHTS_HOME=$(pwd)
+echo "export SYNCHRONIZED_LIGHTS_HOME=$(pwd)" >> ~/.bashrc
+```
+
+#### 5. Verify Installation
+
+```bash
+pytest -v
 ```
 
 </details>
@@ -231,8 +345,6 @@ pin_modes = pwm,pwm,pwm,pwm,pwm,pwm,pwm,pwm
 # Enable MCP23017 I2C expander
 devices = {"mcp23017":[{"address": 32, "pinBase": 65, "i2c_bus": 1}]}
 ```
-
-For detailed configuration, see the [Configuration Guide](config/README.md).
 
 ---
 
@@ -337,21 +449,56 @@ For more details, see [Testing Documentation](tests/README.md).
 
 ## 🎮 Usage
 
+### GPIO Permissions and Sudo
+
+**IMPORTANT:** GPIO access requires root permissions on Raspberry Pi. You have two options:
+
+#### Option 1: Run with sudo (Recommended for conda users)
+
+When using conda/miniconda environments, the easiest way is to run with `sudo` while preserving your environment:
+
+```bash
+# Activate conda environment first
+conda activate lightshowpi-neo
+
+# Run with sudo, sourcing the conda activation
+sudo bash -c "source /home/$(whoami)/miniconda3/bin/activate lightshowpi-neo && python py/synchronized_lights.py"
+
+# Or use this shorter form for the active environment
+sudo $(which python) py/synchronized_lights.py
+```
+
+#### Option 2: Add user to gpio group (Alternative)
+
+If you don't want to use sudo, add your user to the `gpio` group:
+
+```bash
+sudo usermod -a -G gpio $USER
+# Logout and login again for group membership to take effect
+```
+
+**Note:** Even with gpio group membership, some operations may still require sudo depending on your system configuration.
+
+**Testing GPIO with sudo:**
+```bash
+# Test GPIO hardware
+sudo $(which python) tests/test_gpio_hardware.py
+
+# Test hardware controller
+sudo $(which python) py/hardware_controller.py --test
+```
+
 ### Basic Playlist Mode
 
 ```bash
-# Play from default playlist
+# Play from default playlist (configured in config file)
+python py/synchronized_lights.py
+
+# Play from a specific playlist file
 python py/synchronized_lights.py --playlist config/playlist.playlist
 
 # Play specific song
 python py/synchronized_lights.py --file music/song.mp3
-```
-
-### Audio-In Mode (Stream from Spotify, etc.)
-
-```bash
-# Enable audio-in mode in config
-python py/synchronized_lights.py
 ```
 
 ### Advanced Options
@@ -480,48 +627,45 @@ flake8 py/
 
 ## 📝 Release Notes
 
-### Neo 1.0 (2025) - Initial Release
+### v0.9.0 Beta 1 (December 2025) - Beta Release
 
 **🎉 LightShowPi Neo - Modern Python 3 Resurrection**
 
-This is the first official release of **LightShowPi Neo**, a complete modernization fork of the original LightShowPi (v3.21). While based on the original codebase, Neo represents a significant divergence with breaking changes and new direction.
+This is the first **beta release** of **LightShowPi Neo**, a modernization fork of the original LightShowPi for Python 3.13 and Raspberry Pi 3/4/5. Core functionality works, API and web UI are operational, but many planned features are not yet implemented.
 
-**Hardware:**
-- ✅ Raspberry Pi 3, 4, 5 support
-- ❌ Dropped Pi 1, 2, Zero (insufficient performance)
-- Requires 40-pin GPIO header (all supported models)
+**⚠️ Beta Status:** This release is functional but not feature-complete. See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the complete roadmap to v1.0.
 
-**Dependencies:**
+**Core System:**
+- ✅ Python 3.13 Support - Full compatibility with latest Python
+- ✅ Raspberry Pi 5 Support - Works on Pi 3, 4, and 5
+- ✅ Modern GPIO - Uses lgpio instead of deprecated RPi.GPIO/wiringPi
+- ✅ Pure PyPI Dependencies - All dependencies installable via pip/conda
+- ✅ Conda Environment Support - First-class conda/miniconda support
+
+**NEW: API Backend & Web Frontend:**
+- ✅ FastAPI REST API - Modern async API for remote control
+- ✅ React 18 UI - Modern single-page application
+- ✅ Real-time Dashboard - Live status updates
+- ✅ Schedule Manager - Visual interface for creating/editing schedules
+- ✅ JWT Authentication - Secure token-based authentication
+
+**Technical Improvements:**
 - ✅ All dependencies migrated to PyPI
 - ✅ Replaced deprecated wiringPi with modern lgpio
 - ✅ Replaced git-based decoder with soundfile
-- ✅ Removed GPU FFT dependency (CPU sufficient on Pi 3+)
-- ✅ Created requirements.txt with pinned versions
+- ✅ Updated Pydantic v2, PyJWT, Python 3.13 compatibility
+- ✅ Comprehensive test suite (76+ tests)
 
-**Features:**
-- ❌ Removed SMS support (deprecated)
-- ❌ Removed Twitter integration (deprecated)
-- ❌ Removed FM broadcasting (deprecated)
-- ✅ Added button manager with configuration support
-- ✅ Added comprehensive test suite (76+ tests)
+**What's Missing (Planned for v1.0):**
+- Button manager API integration
+- Public web hosting
+- Control plane architecture
+- Test mode for individual channels
+- Song upload via web UI
+- User management
+- Systemd service
 
-**Performance:**
-- Optimized defaults for Pi 3+ (larger chunk size: 4096)
-- Better audio quality with CPU-based numpy FFT
-- Simplified platform detection
-
-**Developer Experience:**
-- ✅ Full pytest test coverage
-- ✅ Modern code formatting and linting
-- ✅ GitHub-ready with templates and workflows
-- ✅ API documentation for future webapp
-- ✅ Updated installation process
-
-**Migration Guide:**
-- Update to Pi 3+ hardware
-- Run new `install.sh` script
-- Update config files (remove SMS/Twitter/FM sections)
-- Test with `pytest` before deploying
+For complete release notes and roadmap, see [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 <details>
 <summary>Previous Versions (Click to expand)</summary>
@@ -577,9 +721,9 @@ This is the first official release of **LightShowPi Neo**, a complete modernizat
 
 ---
 
-## 👥 Contributors
+## 👥 LightshowPi Contributors
 
-A huge thanks to all those who have contributed to LightShowPi:
+A huge thanks to all those who have contributed to the original LightShowPi:
 
 **Core Team:**
 - Todd Giles ([@toddgiles](mailto:todd@lightshowpi.org)) - Original creator
@@ -592,8 +736,6 @@ A huge thanks to all those who have contributed to LightShowPi:
 - Chase Cromwell, Bruce Goheen, Paul Dunn, Stephen Burning
 - Eric Higdon, Brandon Lyon, Paul Barnett, Anthony Tod
 - Brent Reinhard, Caleb H, Filippo B
-
-And many others who have reported issues, tested features, and shared their amazing light shows!
 
 ---
 

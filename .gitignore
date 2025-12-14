@@ -94,3 +94,17 @@ config/overrides*.cfg
 *.tmp
 *.temp
 .cache/
+
+# API Backend
+api/data/*.db
+api/data/*.db-journal
+.env
+
+# Web Frontend
+web/node_modules/
+web/dist/
+web/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

@@ -843,11 +843,11 @@ def step():
 
 
 def test():
-    model, header = Platform.get_model()
+    pi_info = Platform.get_hardware_info()
 
     print("We are going to do some basic tests to make sure")
     print("your hardware is working as expected.")
-    print("Raspberry Pi %s" % model)
+    print("Raspberry Pi %s" % pi_info['model'])
     print("You have %s channels defined" % str(cm.hardware.gpio_len))
     print("They are using gpio pins %s" % ", ".join(map(str, cm.hardware.gpio_pins)))
     print("You have configured your relays as active %s" % (
@@ -880,8 +880,8 @@ def test():
 
             if answer in no:
                 print("Lets make sure you're using the correct gpio pins")
-                print("Here is what the %s header looks like\n" % model)
-                print(header)
+                print("Here is what the %s header looks like\n" % pi_info['model'])
+                print(Platform.get_gpio_header())
                 print
                 print("Make sure you are using the correct pins as listed above")
 

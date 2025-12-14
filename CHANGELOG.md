@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Neo 1.0] - 2025-01-XX
+## [Neo 1.0] - 2026-01-XX
 
 ### 🎉 Initial Release - LightShowPi Neo
 

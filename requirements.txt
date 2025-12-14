@@ -8,14 +8,25 @@
 # ----------------------------------------------------------------------------
 numpy>=1.24.0,<2.0.0  # FFT calculations, array operations, audio processing
 soundfile>=0.12.1  # Audio file decoding (replaces git-based decoder)
-pyalsaaudio>=0.10.0  # ALSA audio input/output
+pyalsaaudio>=0.10.0  # ALSA audio input/output (requires libasound2-dev or alsa-lib)
 mutagen>=1.47.0  # Audio file metadata reading (ID3, etc.)
 
 # ----------------------------------------------------------------------------
 # Hardware Control (Raspberry Pi)
 # ----------------------------------------------------------------------------
-lgpio>=0.2.2.0  # Modern GPIO library (replaces deprecated wiringPi)
-gpiozero>=1.6.0  # High-level GPIO library for button manager
+gpiozero>=1.6.0  # High-level GPIO library for button manager (needs lgpio backend)
+# NOTE: lgpio must be installed on Raspberry Pi. Two methods:
+#
+# METHOD 1 (recommended): Install via apt and symlink
+#   sudo apt-get install python3-lgpio
+#   # Then symlink into your virtual environment (or use ./bin/link_lgpio.sh):
+#   python -c "import sys, os, glob; sp=[p for p in sys.path if 'site-packages' in p][0]; [os.symlink(f, os.path.join(sp, os.path.basename(f))) for pattern in ['/usr/lib/python3/dist-packages/lgpio*', '/usr/lib/python3/dist-packages/_lgpio*', '/usr/lib/python3.*/dist-packages/lgpio*', '/usr/lib/python3.*/dist-packages/_lgpio*'] for f in glob.glob(pattern) if os.path.isfile(f) or (os.path.isdir(f) and f.endswith('.egg-info')) if not os.path.exists(os.path.join(sp, os.path.basename(f)))]"
+#
+# METHOD 2 (backup - if Python versions don't match): Compile from pip
+#   sudo apt-get install liblgpio-dev liblgpio1
+#   LDFLAGS="-L/usr/lib/aarch64-linux-gnu -L/usr/lib" CFLAGS="-I/usr/include" pip install lgpio
+#
+# lgpio provides GPIO backend for gpiozero and expander support (MCP23017, etc.)
 spidev>=3.6  # SPI communication for LED strips
 pyserial>=3.5  # Serial communication for devices
 
@@ -33,13 +44,24 @@ adafruit-blinka>=8.20.0  # CircuitPython compatibility layer
 Pillow>=10.0.0  # Image processing for LED effects
 
 # ----------------------------------------------------------------------------
-# Web Framework (Modern Webapp)
+# Web Framework & API Backend
 # ----------------------------------------------------------------------------
 fastapi>=0.104.0  # Modern async web framework
 uvicorn[standard]>=0.24.0  # ASGI server for FastAPI
 python-multipart>=0.0.6  # File upload support
 jinja2>=3.1.2  # Template engine
 websockets>=12.0  # WebSocket support for real-time updates
+
+# Authentication & Security
+bcrypt>=4.1.0  # Password hashing
+PyJWT>=2.8.0  # JWT token generation and validation
+python-jose[cryptography]>=3.3.0  # JWT utilities
+
+# Scheduling & Background Tasks
+APScheduler>=3.10.0  # Advanced Python scheduler for cron-like tasks
+
+# Data Validation
+pydantic>=2.5.0  # Data validation and settings management
 
 # ----------------------------------------------------------------------------
 # Configuration & Utilities

@@ -124,6 +124,11 @@ class Networking(object):
 
         :type args: list | tuple
         """
+        # Check if network stream is still available (may be None during shutdown)
+        if self.network_stream is None:
+            log.debug("Network stream closed, skipping broadcast")
+            return
+
         if self.networking == "server":
             try:
                 data = pickle.dumps(args)

@@ -17,5 +17,8 @@ if [ -z ${SYNCHRONIZED_LIGHTS_HOME} ]; then
 fi 
 
 $SYNCHRONIZED_LIGHTS_HOME/bin/stop_music_and_lights $$
-$SYNCHRONIZED_LIGHTS_HOME/bin/play_sms $* &
-$SYNCHRONIZED_LIGHTS_HOME/bin/check_sms $* &
+
+# Start lightshow with sudo, preserving active Python environment (venv/conda)
+# Note: Runs in background so script completes but lightshow continues
+cd $SYNCHRONIZED_LIGHTS_HOME
+sudo $(which python) py/synchronized_lights.py $* &

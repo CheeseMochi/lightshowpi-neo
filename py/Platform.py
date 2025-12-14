@@ -76,7 +76,20 @@ def pi_version():
         # Not running on Linux/Pi
         return None
 
-    # Match a line like 'Hardware   : BCM2711'
+    # Try new format first (Model field - newer kernels/OS)
+    # This is more specific and directly tells us which Pi it is
+    model = get_pi_model(cpuinfo)
+    if model:
+        if 'Pi 5' in model or 'Raspberry Pi 5' in model:
+            return PI_5
+        elif 'Pi 4' in model or 'Raspberry Pi 4' in model:
+            return PI_4
+        elif 'Pi 3' in model or 'Raspberry Pi 3' in model:
+            return PI_3
+        # If it's Pi 1, 2, Zero, etc. - return None (unsupported)
+        return None
+
+    # Fall back to old format (Hardware field - older kernels/OS)
     match = re.search(r'^Hardware\s+:\s+(\w+)$', cpuinfo,
                       flags=re.MULTILINE | re.IGNORECASE)
 
@@ -89,18 +102,17 @@ def pi_version():
     if hardware == 'BCM2711':
         return PI_4
 
-    # Pi 5 (check if BCM2712 is used for Pi 5)
+    # Pi 5
     if hardware == 'BCM2712':
         return PI_5
 
     # Pi 3 uses BCM2835 on 4.9+ kernel or BCM2837 on older kernels
     if hardware == 'BCM2835' or hardware == 'BCM2837':
-        # Verify it's actually a Pi 3 and not a Pi 1/2/Zero
-        model = get_pi_model(cpuinfo)
-        if model and 'Pi 3' in model:
-            return PI_3
-        # If we can't determine model or it's not Pi 3, reject it
-        return None
+        # BCM2835 is also used by Pi 1 and Zero, so we need to verify
+        # this is actually a Pi 3 (not possible without Model field)
+        # On older systems without Model field, we have to assume it's supported
+        # This is safe because Pi 1/2/Zero users are unlikely to be on modern LightShowPi
+        return PI_3
 
     # Unsupported hardware (Pi 1: BCM2708, Pi 2: BCM2709, etc.)
     return None

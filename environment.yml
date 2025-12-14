@@ -1,0 +1,149 @@
+name: lightshowpi-neo
+channels:
+  - defaults
+  - conda-forge
+
+dependencies:
+  # Python version
+  - python>=3.9,<3.14
+
+  # ----------------------------------------------------------------------------
+  # Core Audio & Signal Processing (conda)
+  # ----------------------------------------------------------------------------
+  - numpy>=1.24.0,<2.0.0
+  - pillow>=10.0.0
+
+  # ----------------------------------------------------------------------------
+  # Web Framework & API Backend (conda)
+  # ----------------------------------------------------------------------------
+  - fastapi>=0.104.0
+  - uvicorn>=0.24.0
+  - jinja2>=3.1.2
+  - websockets>=12.0
+  - python-multipart>=0.0.6
+
+  # ----------------------------------------------------------------------------
+  # Authentication & Security (conda)
+  # ----------------------------------------------------------------------------
+  - bcrypt>=4.1.0
+  - pyjwt>=2.8.0
+  - pydantic>=2.5.0
+
+  # ----------------------------------------------------------------------------
+  # Scheduling & Background Tasks (conda)
+  # ----------------------------------------------------------------------------
+  - apscheduler>=3.10.0
+
+  # ----------------------------------------------------------------------------
+  # Configuration & Utilities (conda)
+  # ----------------------------------------------------------------------------
+  - python-dotenv>=1.0.0
+
+  # ----------------------------------------------------------------------------
+  # System Libraries (conda)
+  # ----------------------------------------------------------------------------
+  - alsa-lib  # ALSA headers required for pyalsaaudio
+
+  # ----------------------------------------------------------------------------
+  # Development & Testing (conda)
+  # ----------------------------------------------------------------------------
+  - pytest>=7.4.0
+  - pytest-cov>=4.1.0
+  - black>=23.10.0
+  - flake8>=6.1.0
+  - mypy>=1.6.0
+
+  # ----------------------------------------------------------------------------
+  # Packages not available in conda (install via pip)
+  # ----------------------------------------------------------------------------
+  - pip
+  - pip:
+      # Audio Processing
+      - soundfile>=0.12.1
+      - mutagen>=1.47.0
+      - pyalsaaudio>=0.10.0  # Requires alsa-lib from conda
+
+      # Hardware Control (Raspberry Pi specific)
+      - gpiozero>=1.6.0  # High-level GPIO library (needs lgpio backend)
+      # NOTE: lgpio must be installed via apt and symlinked (see installation notes)
+      - spidev>=3.6
+      - pyserial>=3.5
+
+      # I2C Expander Support
+      - adafruit-circuitpython-mcp230xx>=2.5.0
+      - adafruit-blinka>=8.20.0
+
+      # Additional Security
+      - python-jose[cryptography]>=3.3.0
+
+      # Additional Testing
+      - pytest-asyncio>=0.21.0
+
+# ----------------------------------------------------------------------------
+# Installation Instructions
+# ----------------------------------------------------------------------------
+#
+# 1. Install system dependencies (on Raspberry Pi):
+#      sudo apt-get update
+#      sudo apt-get install -y python3-lgpio libasound2-dev
+#
+# 2. Create environment:
+#      conda env create -f environment.yml
+#
+# 3. Activate environment:
+#      conda activate lightshowpi-neo
+#
+# 4. Symlink system lgpio into conda environment:
+#      ./bin/link_lgpio.sh
+#    Or manually:
+#      python -c "import sys, os, glob; sp=[p for p in sys.path if 'site-packages' in p][0]; [os.symlink(f, os.path.join(sp, os.path.basename(f))) for pattern in ['/usr/lib/python3/dist-packages/lgpio*', '/usr/lib/python3/dist-packages/_lgpio*', '/usr/lib/python3.*/dist-packages/lgpio*', '/usr/lib/python3.*/dist-packages/_lgpio*'] for f in glob.glob(pattern) if os.path.isfile(f) or (os.path.isdir(f) and f.endswith('.egg-info')) if not os.path.exists(os.path.join(sp, os.path.basename(f)))]"
+#
+# 5. Verify lgpio works:
+#      python -c "import lgpio; print('lgpio OK')"
+#
+# Update environment:
+#   conda env update -f environment.yml --prune
+#
+# Export environment (for sharing):
+#   conda env export > environment-lock.yml
+#
+# Remove environment:
+#   conda env remove -n lightshowpi-neo
+#
+# ----------------------------------------------------------------------------
+# Platform Notes
+# ----------------------------------------------------------------------------
+#
+# This environment.yml works on:
+#   - Linux ARM64 (Raspberry Pi with Miniconda)
+#   - Linux x86_64
+#   - macOS (Intel and Apple Silicon)
+#   - Windows (most packages)
+#
+# Hardware-specific packages (gpiozero, spidev, etc.) will install but may
+# not function on non-Raspberry Pi systems. Tests will skip automatically.
+#
+# IMPORTANT - Raspberry Pi lgpio Setup:
+#   PRIMARY METHOD: Install via apt and symlink (recommended)
+#     sudo apt-get install python3-lgpio
+#     # Then symlink into conda env (see Installation Instructions above)
+#
+#   BACKUP METHOD: If Python versions don't match, compile from pip:
+#     sudo apt-get install liblgpio-dev liblgpio1
+#     conda activate lightshowpi-neo
+#     LDFLAGS="-L/usr/lib/aarch64-linux-gnu -L/usr/lib" \
+#     CFLAGS="-I/usr/include" \
+#     pip install lgpio
+#
+#   Why prefer symlink?
+#     - No compilation needed (faster, fewer dependencies)
+#     - Auto-updates when apt updates lgpio
+#     - Same code either way (both use system liblgpio.so)
+#     - Works if Python versions match (check: python3 --version vs python --version)
+#
+#   Why use pip method?
+#     - Python version mismatch (e.g., system=3.11, conda=3.13)
+#     - C extension ABI incompatibility
+#     - Compiles lgpio specifically for your conda Python version
+#
+# ----------------------------------------------------------------------------

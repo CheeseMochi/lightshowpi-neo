@@ -62,7 +62,6 @@ numpy: for FFT calculation
 import configparser
 import argparse
 import atexit
-import audioop
 from collections import deque
 import errno
 import json
@@ -464,7 +463,8 @@ class Lightshow(object):
             if len(data) == self.chunk_size:
                 # if the maximum of the absolute value of all samples in
                 # data is below a threshold we will disregard it
-                audio_max = audioop.max(data, 2)
+                # audioop.max removed in Python 3.13, using numpy instead
+                audio_max = np.abs(np.frombuffer(data, dtype=np.int16)).max()
                 if audio_max < 250:
                     # we will fill the matrix with zeros and turn the lights off
                     matrix = np.zeros(cm.hardware.gpio_len, dtype="float32")
