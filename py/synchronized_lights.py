@@ -100,8 +100,19 @@ class AudioFileWrapper:
     """Wraps soundfile.SoundFile to match the old decoder.py API"""
 
     def __init__(self, sf_file):
-        self.sf_file = sf_file
+        # Handle both string paths and already-opened SoundFile objects
+        if isinstance(sf_file, str):
+            self.sf_file = sf.SoundFile(sf_file)
+            self._owns_file = True
+        else:
+            self.sf_file = sf_file
+            self._owns_file = False
         self._read_buffer = []
+
+    def close(self):
+        """Close the underlying SoundFile if we opened it"""
+        if self._owns_file and self.sf_file:
+            self.sf_file.close()
 
     def getframerate(self):
         """Return sample rate"""

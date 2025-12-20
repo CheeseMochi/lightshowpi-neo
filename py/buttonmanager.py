@@ -25,41 +25,21 @@ import configuration_manager
 # Set up logging
 log = logging.getLogger(__name__)
 
-# Load configuration
-cm = configuration_manager.Configuration()
+# Configuration and constants - will be initialized in main() or set to defaults
+cm = None
+lightshome = None
 
-# Get lightshow home directory from environment
-lightshome = os.getenv("SYNCHRONIZED_LIGHTS_HOME")
-if not lightshome:
-    log.error("SYNCHRONIZED_LIGHTS_HOME environment variable not set")
-    sys.exit(1)
-
-# Load button configuration from defaults.cfg
-try:
-    ENABLED = cm.config.getboolean('buttons', 'enabled')
-    REPEAT_PIN = cm.config.getint('buttons', 'repeat_pin')
-    SKIP_PIN = cm.config.getint('buttons', 'skip_pin')
-    AUDIO_PIN = cm.config.getint('buttons', 'audio_toggle_pin')
-    OUTLET_PIN = cm.config.getint('buttons', 'outlet_relay_pin')
-    DEFAULT_COOLDOWN = cm.config.getint('buttons', 'button_cooldown')
-    DEFAULT_AUDIO_TIMEOUT = cm.config.getint('buttons', 'audio_auto_shutoff')
-    REPEAT_MAX_ITERATIONS = cm.config.getint('buttons', 'repeat_max_iterations')
-    REPEAT_HOLD_TIME = cm.config.getint('buttons', 'repeat_hold_time')
-    LOG_BUTTON_PRESSES = cm.config.getboolean('buttons', 'log_button_presses')
-except Exception as e:
-    log.error(f"Failed to load button configuration: {e}")
-    log.error("Using default values. Please check config/defaults.cfg [buttons] section")
-    # Fallback to defaults
-    ENABLED = False
-    REPEAT_PIN = 20
-    SKIP_PIN = 21
-    AUDIO_PIN = 26
-    OUTLET_PIN = 8
-    DEFAULT_COOLDOWN = 5
-    DEFAULT_AUDIO_TIMEOUT = 300
-    REPEAT_MAX_ITERATIONS = 10
-    REPEAT_HOLD_TIME = 5
-    LOG_BUTTON_PRESSES = True
+# Default configuration values (used if config not loaded or for tests)
+ENABLED = False
+REPEAT_PIN = 20
+SKIP_PIN = 21
+AUDIO_PIN = 26
+OUTLET_PIN = 8
+DEFAULT_COOLDOWN = 5
+DEFAULT_AUDIO_TIMEOUT = 300
+REPEAT_MAX_ITERATIONS = 10
+REPEAT_HOLD_TIME = 5
+LOG_BUTTON_PRESSES = True
 
 # State variables
 audio_cooldown = 0
@@ -72,9 +52,8 @@ API_BASE_URL = "http://localhost:5000/api"
 API_TOKEN: Optional[str] = None
 BUTTON_MODE = "auto"  # Can be: "api", "direct", or "auto"
 
-# Set up shell environment for subprocess calls
+# Shell environment - will be set up in main()
 shellenv = dict()
-shellenv['SYNCHRONIZED_LIGHTS_HOME'] = lightshome
 
 
 def init_api(mode: str) -> bool:
@@ -392,6 +371,39 @@ def main():
         level=getattr(logging, args.log_level.upper()),
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
+
+    # Load configuration
+    global cm, lightshome, shellenv
+    global ENABLED, REPEAT_PIN, SKIP_PIN, AUDIO_PIN, OUTLET_PIN
+    global DEFAULT_COOLDOWN, DEFAULT_AUDIO_TIMEOUT, REPEAT_MAX_ITERATIONS
+    global REPEAT_HOLD_TIME, LOG_BUTTON_PRESSES
+
+    cm = configuration_manager.Configuration()
+    lightshome = os.getenv("SYNCHRONIZED_LIGHTS_HOME")
+    if not lightshome:
+        log.error("SYNCHRONIZED_LIGHTS_HOME environment variable not set")
+        sys.exit(1)
+
+    # Set up shell environment
+    shellenv['SYNCHRONIZED_LIGHTS_HOME'] = lightshome
+
+    # Load button configuration from defaults.cfg
+    try:
+        ENABLED = cm.config.getboolean('buttons', 'enabled')
+        REPEAT_PIN = cm.config.getint('buttons', 'repeat_pin')
+        SKIP_PIN = cm.config.getint('buttons', 'skip_pin')
+        AUDIO_PIN = cm.config.getint('buttons', 'audio_toggle_pin')
+        OUTLET_PIN = cm.config.getint('buttons', 'outlet_relay_pin')
+        DEFAULT_COOLDOWN = cm.config.getint('buttons', 'button_cooldown')
+        DEFAULT_AUDIO_TIMEOUT = cm.config.getint('buttons', 'audio_auto_shutoff')
+        REPEAT_MAX_ITERATIONS = cm.config.getint('buttons', 'repeat_max_iterations')
+        REPEAT_HOLD_TIME = cm.config.getint('buttons', 'repeat_hold_time')
+        LOG_BUTTON_PRESSES = cm.config.getboolean('buttons', 'log_button_presses')
+        log.debug("Configuration loaded successfully")
+    except Exception as e:
+        log.warning(f"Failed to load button configuration: {e}")
+        log.warning("Using default values")
+        # Keep the default values already set at module level
 
     # Handle cleanup mode
     if args.cleanup:
