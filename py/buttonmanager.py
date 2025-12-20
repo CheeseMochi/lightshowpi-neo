@@ -323,6 +323,8 @@ def toggleRepeat():
 
 def audiobutton():
     """Handle audio toggle button press with cooldown."""
+    global audio_cooldown, audio_turnoff
+
     if time.time() > audio_cooldown:
         log.debug("Audio button pressed")
 
@@ -331,7 +333,6 @@ def audiobutton():
             if call_api("/buttons/audio/toggle"):
                 log.debug("Audio toggle triggered via API")
                 # Update local cooldown and state
-                global audio_cooldown, audio_turnoff
                 audio_cooldown = time.time() + DEFAULT_COOLDOWN
                 if not outlet.is_lit:
                     audio_turnoff = time.time() + DEFAULT_AUDIO_TIMEOUT

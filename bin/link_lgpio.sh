@@ -45,23 +45,28 @@ echo "  Virtual env: $VENV_PY_VERSION"
 
 if [ "$SYSTEM_PY_VERSION" != "$VENV_PY_VERSION" ]; then
     echo ""
-    echo "⚠️  WARNING: Python version mismatch detected!"
-    echo "   System Python ($SYSTEM_PY_VERSION) != Environment Python ($VENV_PY_VERSION)"
+    echo "❌ ERROR: Python version mismatch detected!"
+    echo "   System Python: $SYSTEM_PY_VERSION"
+    echo "   Virtual env:   $VENV_PY_VERSION"
     echo ""
-    echo "   Symlinking may not work because lgpio is a C extension."
-    echo "   If the import test fails, use the pip method instead:"
+    echo "Symlinking will NOT work because lgpio is a compiled C extension"
+    echo "that is specific to each Python version."
     echo ""
-    echo "   sudo apt-get install liblgpio-dev liblgpio1"
-    echo "   LDFLAGS=\"-L/usr/lib/aarch64-linux-gnu -L/usr/lib\" \\"
-    echo "   CFLAGS=\"-I/usr/include\" \\"
-    echo "   pip install lgpio"
+    echo "SOLUTION: Install lgpio directly in your virtual environment:"
     echo ""
-    read -p "Continue with symlink anyway? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Aborted."
-        exit 0
-    fi
+    echo "  # Install development libraries first:"
+    echo "  sudo apt-get update"
+    echo "  sudo apt-get install -y liblgpio-dev liblgpio1"
+    echo ""
+    echo "  # Then install lgpio with pip:"
+    echo "  LDFLAGS=\"-L/usr/lib/aarch64-linux-gnu -L/usr/lib\" \\"
+    echo "  CFLAGS=\"-I/usr/include\" \\"
+    echo "  pip install lgpio"
+    echo ""
+    echo "Alternatively, create a conda environment with the system Python version:"
+    echo "  conda create -n lightshowpi-neo python=$SYSTEM_PY_VERSION"
+    echo ""
+    exit 1
 fi
 echo ""
 

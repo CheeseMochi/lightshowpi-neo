@@ -112,35 +112,166 @@ verify "Installation of ALSA packages failed"
 echo ""
 log "System dependencies installed successfully!"
 echo ""
+
+# Check if running non-interactively
+if [ ! -t 0 ]; then
+    echo "Running in non-interactive mode - skipping optional setup steps"
+    echo "Run ./install.sh interactively to complete full setup"
+    exit 0
+fi
+
+# Ask if user wants automated setup
 echo "========================================================================"
-echo "  NEXT STEPS - Complete Installation"
+echo "  Optional: Automated Setup"
 echo "========================================================================"
 echo ""
-echo "System dependencies are now installed."
-echo "To complete the installation, follow these steps from README.md:"
+echo "Would you like to automatically complete the remaining setup steps?"
+echo "This will:"
+echo "  - Create conda environment (if conda is installed)"
+echo "  - Link lgpio library"
+echo "  - Set SYNCHRONIZED_LIGHTS_HOME environment variable"
+echo "  - Create initial configuration file"
 echo ""
-echo "1. Install Miniconda (if not already installed):"
-echo "   wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh"
-echo "   bash Miniconda3-latest-Linux-aarch64.sh"
+read -p "Continue with automated setup? (y/N) " -n 1 -r
 echo ""
-echo "2. Create conda environment:"
-echo "   conda env create -f environment.yml"
-echo "   conda activate lightshowpi-neo"
+
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo ""
+    echo "========================================================================"
+    echo "  NEXT STEPS - Manual Installation"
+    echo "========================================================================"
+    echo ""
+    echo "To complete the installation manually, see README.md or run:"
+    echo ""
+    echo "1. Install Miniconda (if not already installed):"
+    echo "   wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh"
+    echo "   bash Miniconda3-latest-Linux-aarch64.sh"
+    echo ""
+    echo "2. Create conda environment:"
+    echo "   conda env create -f environment.yml"
+    echo "   conda activate lightshowpi-neo"
+    echo ""
+    echo "3. Link system lgpio to conda environment:"
+    echo "   ./bin/link_lgpio.sh"
+    echo ""
+    echo "4. Set environment variable (add to ~/.bashrc):"
+    echo "   export SYNCHRONIZED_LIGHTS_HOME=$INSTALL_DIR"
+    echo ""
+    echo "5. Configure your setup:"
+    echo "   cp config/defaults.cfg config/overrides.cfg"
+    echo "   nano config/overrides.cfg"
+    echo ""
+    echo "========================================================================"
+    exit 0
+fi
+
+# Automated setup starts here
 echo ""
-echo "3. Link system lgpio to conda environment:"
-echo "   ./bin/link_lgpio.sh"
+log "Starting automated setup..."
+
+# Step 1: Check for conda
+if command -v conda &> /dev/null; then
+    log "✓ Found conda installation"
+
+    # Check if environment already exists
+    if conda env list | grep -q "lightshowpi-neo"; then
+        log "⚠  Environment 'lightshowpi-neo' already exists - skipping creation"
+    else
+        log "Creating conda environment from environment.yml..."
+        # Run as the original user (not root)
+        sudo -u $SUDO_USER conda env create -f "$INSTALL_DIR/environment.yml"
+        verify "Failed to create conda environment"
+        log "✓ Conda environment created"
+    fi
+else
+    echo ""
+    echo "⚠  WARNING: conda not found - skipping environment creation"
+    echo "   Install Miniconda first, then re-run this script or manually:"
+    echo "     conda env create -f environment.yml"
+    echo ""
+fi
+
+# Step 2: Set environment variable
+log "Setting up SYNCHRONIZED_LIGHTS_HOME environment variable..."
+
+# Determine shell config file
+if [ -n "$SUDO_USER" ]; then
+    USER_HOME=$(eval echo ~$SUDO_USER)
+else
+    USER_HOME=$HOME
+fi
+
+# Check which shell config to use
+if [ -f "$USER_HOME/.bashrc" ]; then
+    SHELL_RC="$USER_HOME/.bashrc"
+elif [ -f "$USER_HOME/.zshrc" ]; then
+    SHELL_RC="$USER_HOME/.zshrc"
+else
+    SHELL_RC="$USER_HOME/.bashrc"
+fi
+
+# Check if already set
+if grep -q "SYNCHRONIZED_LIGHTS_HOME" "$SHELL_RC" 2>/dev/null; then
+    log "⚠  SYNCHRONIZED_LIGHTS_HOME already set in $SHELL_RC - skipping"
+else
+    echo "" >> "$SHELL_RC"
+    echo "# LightShowPi Neo" >> "$SHELL_RC"
+    echo "export SYNCHRONIZED_LIGHTS_HOME=$INSTALL_DIR" >> "$SHELL_RC"
+    log "✓ Added SYNCHRONIZED_LIGHTS_HOME to $SHELL_RC"
+fi
+
+# Set for current session
+export SYNCHRONIZED_LIGHTS_HOME=$INSTALL_DIR
+
+# Step 3: Create initial config if it doesn't exist
+if [ ! -f "$INSTALL_DIR/config/overrides.cfg" ]; then
+    log "Creating initial configuration file..."
+    cp "$INSTALL_DIR/config/defaults.cfg" "$INSTALL_DIR/config/overrides.cfg"
+    # Make it writable by the user
+    if [ -n "$SUDO_USER" ]; then
+        chown $SUDO_USER:$SUDO_USER "$INSTALL_DIR/config/overrides.cfg"
+    fi
+    log "✓ Created config/overrides.cfg from defaults"
+    echo "   Edit this file to customize your setup"
+else
+    log "⚠  config/overrides.cfg already exists - skipping"
+fi
+
+# Step 4: Link lgpio (only if conda env was created)
+if conda env list | grep -q "lightshowpi-neo" 2>/dev/null; then
+    log "Linking system lgpio to conda environment..."
+    echo ""
+    echo "Note: You'll need to manually run link_lgpio.sh after activating the environment:"
+    echo "  conda activate lightshowpi-neo"
+    echo "  ./bin/link_lgpio.sh"
+    echo ""
+else
+    log "⚠  Conda environment not available - skipping lgpio link"
+    log "   Run ./bin/link_lgpio.sh manually after creating the environment"
+fi
+
 echo ""
-echo "4. Set environment variable (add to ~/.bashrc):"
-echo "   export SYNCHRONIZED_LIGHTS_HOME=$INSTALL_DIR"
+log "========================================================================"
+log "  Installation Complete!"
+log "========================================================================"
 echo ""
-echo "5. Configure your setup:"
-echo "   cp config/defaults.cfg config/overrides.cfg"
-echo "   nano config/overrides.cfg"
+echo "Next steps:"
 echo ""
-echo "6. Test your installation:"
-echo "   pytest -v"
+if conda env list | grep -q "lightshowpi-neo" 2>/dev/null; then
+    echo "1. Start a new shell or run: source $SHELL_RC"
+    echo "2. Activate environment: conda activate lightshowpi-neo"
+    echo "3. Link lgpio: ./bin/link_lgpio.sh"
+    echo "4. Edit configuration: nano config/overrides.cfg"
+    echo "5. Test: pytest -v"
+else
+    echo "1. Install Miniconda, then run: conda env create -f environment.yml"
+    echo "2. Activate environment: conda activate lightshowpi-neo"
+    echo "3. Link lgpio: ./bin/link_lgpio.sh"
+    echo "4. Start a new shell or run: source $SHELL_RC"
+    echo "5. Edit configuration: nano config/overrides.cfg"
+    echo "6. Test: pytest -v"
+fi
 echo ""
-echo "For detailed instructions, see README.md"
 echo "For API/Web UI setup, see RELEASE_NOTES.md"
 echo ""
 echo "========================================================================"
