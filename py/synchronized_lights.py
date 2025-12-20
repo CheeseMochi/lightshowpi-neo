@@ -168,26 +168,13 @@ cache_group.add_argument('--readcache', type=bool, default=True,
 cache_group.add_argument('--createcache', action="store_true",
                          help='create light timing cache without audio playback or lightshow.')
 
-if parser.parse_args().createcache:
-    parser.set_defaults(readcache=False)
-
-# Setup log file
-log.basicConfig(filename=LOG_DIR + '/music_and_lights.play.dbg',
-                format='[%(asctime)s] %(levelname)s {%(pathname)s:%(lineno)d} - %(message)s',
-                level=log.INFO)
-
-args = parser.parse_args()
-
-# import hardware_controller
+# Module-level imports
 import hardware_controller
 
-hc = hardware_controller.Hardware(param_config=args.config)
-
-# get copy of configuration manager
-cm = hc.cm
-
-if not args.playlist:
-    args.playlist=cm.lightshow.playlist_path
+# These will be initialized in main when running as script
+args = None
+hc = None
+cm = None
 
 class Lightshow(object):
     def __init__(self):
@@ -1029,7 +1016,31 @@ class Lightshow(object):
 
 
 if __name__ == "__main__":
+    # Parse command-line arguments
+    # Check for createcache flag first to adjust defaults
+    temp_args = parser.parse_args()
+    if temp_args.createcache:
+        parser.set_defaults(readcache=False)
 
+    # Parse args again with updated defaults
+    args = parser.parse_args()
+
+    # Setup log file
+    log.basicConfig(filename=LOG_DIR + '/music_and_lights.play.dbg',
+                    format='[%(asctime)s] %(levelname)s {%(pathname)s:%(lineno)d} - %(message)s',
+                    level=log.INFO)
+
+    # Initialize hardware controller
+    hc = hardware_controller.Hardware(param_config=args.config)
+
+    # Get copy of configuration manager
+    cm = hc.cm
+
+    # Set default playlist if not specified
+    if not args.playlist:
+        args.playlist = cm.lightshow.playlist_path
+
+    # Set log level
     if args.log:
         level = levels.get(args.log.upper())
     elif cm.lightshow.log_level != "":

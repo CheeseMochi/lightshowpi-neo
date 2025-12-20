@@ -186,23 +186,28 @@ def call_api(endpoint: str, method: str = "POST") -> bool:
         log.error(f"API call failed: {e}")
         return False
 
-# Initialize buttons and output
-repeat_button = Button(REPEAT_PIN)
-repeat_button.hold_time = REPEAT_HOLD_TIME
-repeat_button.hold_repeat = False
-skip_button = Button(SKIP_PIN)
-audio_button = Button(AUDIO_PIN)
-outlet = LED(OUTLET_PIN)
+# Button and LED objects - initialized in main() to avoid GPIO access at import time
+repeat_button = None
+skip_button = None
+audio_button = None
+outlet = None
 
 def doCleanup():
     """Clean shutdown - close all GPIO resources and reset state."""
     log.info("Button manager shutting down...")
     cm.update_state('play_now', "0")
-    outlet.off()
-    outlet.close()
-    repeat_button.close()
-    skip_button.close()
-    audio_button.close()
+
+    # Only clean up if buttons were initialized
+    if outlet is not None:
+        outlet.off()
+        outlet.close()
+    if repeat_button is not None:
+        repeat_button.close()
+    if skip_button is not None:
+        skip_button.close()
+    if audio_button is not None:
+        audio_button.close()
+
     time.sleep(1)
     log.info("Button manager shutdown complete")
     sys.exit(0)
@@ -404,6 +409,17 @@ def main():
     # Initialize API integration based on mode
     log.info(f"Requested mode: {args.mode.upper()}")
     init_api(args.mode)
+
+    # Initialize GPIO hardware (buttons and output)
+    global repeat_button, skip_button, audio_button, outlet
+    log.debug("Initializing GPIO buttons and LED output...")
+    repeat_button = Button(REPEAT_PIN)
+    repeat_button.hold_time = REPEAT_HOLD_TIME
+    repeat_button.hold_repeat = False
+    skip_button = Button(SKIP_PIN)
+    audio_button = Button(AUDIO_PIN)
+    outlet = LED(OUTLET_PIN)
+    log.debug("GPIO initialization complete")
 
     # Set up button callbacks
     repeat_button.when_held = toggleRepeat
