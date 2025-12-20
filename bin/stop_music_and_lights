@@ -1,9 +1,10 @@
 #!/bin/bash
 #
 # Ensure that all the music and lights are off
+# Stops: synchronized_lights.py + buttonmanager.py (but not API/web)
 #
 # Author: Todd Giles (todd.giles@gmail.com)
-# Modifications: Chris Usey (chris.usey@gmail.com), Sean Millar (sean.millar@gmail.com) 
+# Modifications: Chris Usey (chris.usey@gmail.com), Sean Millar (sean.millar@gmail.com)
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
@@ -11,7 +12,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 if [ -z ${SYNCHRONIZED_LIGHTS_HOME} ]; then
     cat ${DIR}/env_error_msg
     exit 1
-fi 
+fi
 
 id=$1
 
@@ -19,18 +20,31 @@ if [ -z "$id" ]; then
     id="xxxx"
 fi
 
+echo "Stopping lightshow and button manager..."
+
+# Kill synchronized_lights.py and buttonmanager.py processes
 for OUTPUT in $(pgrep -f lightshowpi); do
     if [ ${OUTPUT} != ${id} ] && [ ${OUTPUT} != $$ ]; then
         out=`ps -p ${OUTPUT} -o cmd`
 
-        if [[ ${out} == *"${SYNCHRONIZED_LIGHTS_HOME}"* ]] && [[ ${out} != *"web"* ]]; then
-            echo "killing:"
-            echo  ${out}
+        # Kill lightshowpi processes except web/API
+        if [[ ${out} == *"${SYNCHRONIZED_LIGHTS_HOME}"* ]] && [[ ${out} != *"web"* ]] && [[ ${out} != *"api"* ]]; then
+            echo "Killing: ${out}"
             sudo kill ${OUTPUT}
         fi
+    fi
+done
 
+# Also explicitly kill button manager if running
+for OUTPUT in $(pgrep -f "buttonmanager.py"); do
+    if [ ${OUTPUT} != ${id} ] && [ ${OUTPUT} != $$ ]; then
+        echo "Killing button manager (PID ${OUTPUT})"
+        sudo kill ${OUTPUT}
     fi
 done
 
 # Turn off lights and set back to inputs
-sudo python $SYNCHRONIZED_LIGHTS_HOME/py/hardware_controller.py --state=cleanup
+echo "Cleaning up GPIO..."
+sudo -E $(which python) $SYNCHRONIZED_LIGHTS_HOME/py/hardware_controller.py --state=cleanup
+
+echo "✓ Lightshow stopped"

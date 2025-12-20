@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # Start the music and lights show (killing any existing instances first)
+# Starts: synchronized_lights.py + buttonmanager.py
 #
 # Author: Todd Giles (todd.giles@gmail.com)
 # Modifications: Chris Usey (chris.usey@gmail.com), Sean Millar (sean.millar@gmail.com)
@@ -14,11 +15,28 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 if [ -z ${SYNCHRONIZED_LIGHTS_HOME} ]; then
     cat $DIR/env_error_msg
     exit 1
-fi 
+fi
 
+# Stop any existing instances
 $SYNCHRONIZED_LIGHTS_HOME/bin/stop_music_and_lights $$
 
-# Start lightshow with sudo, preserving active Python environment (venv/conda)
-# Note: Runs in background so script completes but lightshow continues
 cd $SYNCHRONIZED_LIGHTS_HOME
-sudo $(which python) py/synchronized_lights.py $* &
+
+# Start lightshow with sudo, preserving environment (-E) and Python path
+# -E preserves environment variables (SYNCHRONIZED_LIGHTS_HOME, conda env, etc.)
+# $(which python) uses the active conda/venv Python binary
+echo "Starting synchronized_lights.py..."
+sudo -E $(which python) py/synchronized_lights.py $* &
+
+# Start button manager if enabled in config
+# Check if buttons are enabled before starting
+BUTTONS_ENABLED=$(python -c "import sys; sys.path.insert(0, 'py'); import configuration_manager; cm = configuration_manager.Configuration(); print(cm.config.getboolean('buttons', 'enabled'))" 2>/dev/null)
+
+if [ "$BUTTONS_ENABLED" = "True" ]; then
+    echo "Starting button manager..."
+    sudo -E $(which python) py/buttonmanager.py --mode auto &
+    sleep 1
+    echo "✓ Lightshow and button manager started"
+else
+    echo "✓ Lightshow started (buttons disabled in config)"
+fi

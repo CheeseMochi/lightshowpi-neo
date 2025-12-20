@@ -1,0 +1,68 @@
+#!/bin/bash
+#
+# Start lightshow CLIENT (receives sACN from server)
+# Starts: synchronized_lights.py in client mode
+#
+# This is for CLIENT Pis in a distributed setup that receive light commands
+# from the server Pi over the network.
+#
+# IMPORTANT: Your config must have:
+#   [network]
+#   networking = sacn_client
+#   [lightshow]
+#   mode = client
+#
+# Usage: start_lightshow_client [ --config=filename.cfg ]
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Check that the home environment variable is set
+if [ -z ${SYNCHRONIZED_LIGHTS_HOME} ]; then
+    cat $DIR/env_error_msg
+    exit 1
+fi
+
+# Stop any existing instances
+$SYNCHRONIZED_LIGHTS_HOME/bin/stop_lightshow_client $$
+
+cd $SYNCHRONIZED_LIGHTS_HOME
+
+echo "========================================"
+echo "Starting LightShowPi Client"
+echo "========================================"
+echo ""
+
+# Verify client configuration
+echo "Checking configuration..."
+NETWORK_MODE=$(python -c "import sys; sys.path.insert(0, 'py'); import configuration_manager; cm = configuration_manager.Configuration(); print(cm.network.networking)" 2>/dev/null)
+LIGHTSHOW_MODE=$(python -c "import sys; sys.path.insert(0, 'py'); import configuration_manager; cm = configuration_manager.Configuration(); print(cm.lightshow.mode)" 2>/dev/null)
+
+if [ "$NETWORK_MODE" != "sacn_client" ]; then
+    echo "⚠ WARNING: networking mode is '$NETWORK_MODE' (expected 'sacn_client')"
+    echo "   Update config/overrides.cfg: networking = sacn_client"
+fi
+
+if [ "$LIGHTSHOW_MODE" != "client" ]; then
+    echo "⚠ WARNING: lightshow mode is '$LIGHTSHOW_MODE' (expected 'client')"
+    echo "   Update config/overrides.cfg: mode = client"
+fi
+
+echo ""
+echo "Starting client (will receive sACN from server)..."
+sudo -E $(which python) py/synchronized_lights.py $* &
+
+sleep 2
+
+echo ""
+echo "========================================"
+echo "✓ LightShowPi Client Started"
+echo "========================================"
+echo ""
+echo "This Pi is now listening for sACN commands from the server."
+echo ""
+echo "Server should be configured with:"
+echo "  [network]"
+echo "  networking = sacn_server"
+echo ""
+echo "To stop: bin/stop_lightshow_client"
+echo ""

@@ -1,0 +1,86 @@
+#!/bin/bash
+#
+# Start the FULL lightshow server (killing any existing instances first)
+# Starts: synchronized_lights.py + buttonmanager.py + API server + web UI
+#
+# This is for the SERVER Pi in a distributed setup, or for a standalone Pi
+# that wants web UI control.
+#
+# Usage: start_lightshow_server [ --config=filename.cfg ]
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Check that the home environment variable is set
+if [ -z ${SYNCHRONIZED_LIGHTS_HOME} ]; then
+    cat $DIR/env_error_msg
+    exit 1
+fi
+
+# Stop any existing instances (including API)
+$SYNCHRONIZED_LIGHTS_HOME/bin/stop_lightshow_server $$
+
+cd $SYNCHRONIZED_LIGHTS_HOME
+
+echo "========================================"
+echo "Starting LightShowPi Server (Full Stack)"
+echo "========================================"
+echo ""
+
+# 1. Start lightshow
+echo "[1/4] Starting synchronized_lights.py..."
+sudo -E $(which python) py/synchronized_lights.py $* &
+sleep 2
+
+# 2. Start button manager if enabled
+BUTTONS_ENABLED=$(python -c "import sys; sys.path.insert(0, 'py'); import configuration_manager; cm = configuration_manager.Configuration(); print(cm.config.getboolean('buttons', 'enabled'))" 2>/dev/null)
+
+if [ "$BUTTONS_ENABLED" = "True" ]; then
+    echo "[2/4] Starting button manager (API mode)..."
+    sudo -E $(which python) py/buttonmanager.py --mode api &
+    sleep 1
+else
+    echo "[2/4] Button manager disabled in config (skipping)"
+fi
+
+# 3. Start API server
+if [ -f "py/api/main.py" ]; then
+    echo "[3/4] Starting API server..."
+    cd py/api
+    python main.py > ../../logs/api.log 2>&1 &
+    API_PID=$!
+    cd ../..
+    sleep 2
+
+    # Check if API started successfully
+    if ps -p $API_PID > /dev/null; then
+        echo "    ✓ API server started (PID $API_PID)"
+        echo "    ✓ API available at: http://localhost:5000"
+    else
+        echo "    ✗ API server failed to start (check logs/api.log)"
+    fi
+else
+    echo "[3/4] API not found (skipping)"
+fi
+
+# 4. Start web UI (if exists)
+if [ -d "web/build" ]; then
+    echo "[4/4] Web UI available at: http://localhost:5000"
+    echo "    (served by API server)"
+elif [ -d "web" ]; then
+    echo "[4/4] Web UI source found but not built"
+    echo "    Run: cd web && npm run build"
+else
+    echo "[4/4] Web UI not found (skipping)"
+fi
+
+echo ""
+echo "========================================"
+echo "✓ LightShowPi Server Started"
+echo "========================================"
+echo ""
+echo "Access your lightshow:"
+echo "  • Web UI:  http://$(hostname -I | awk '{print $1}'):5000"
+echo "  • API:     http://$(hostname -I | awk '{print $1}'):5000/api"
+echo ""
+echo "To stop: bin/stop_lightshow_server"
+echo ""

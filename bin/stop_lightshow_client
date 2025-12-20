@@ -1,0 +1,41 @@
+#!/bin/bash
+#
+# Stop the lightshow client
+# Stops: synchronized_lights.py
+#
+# Author: LightShowPi Neo contributors
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Check that the home environment variable is set
+if [ -z ${SYNCHRONIZED_LIGHTS_HOME} ]; then
+    cat ${DIR}/env_error_msg
+    exit 1
+fi
+
+id=$1
+
+if [ -z "$id" ]; then
+    id="xxxx"
+fi
+
+echo "Stopping LightShowPi Client..."
+
+# Kill synchronized_lights.py processes
+for OUTPUT in $(pgrep -f lightshowpi); do
+    if [ ${OUTPUT} != ${id} ] && [ ${OUTPUT} != $$ ]; then
+        out=`ps -p ${OUTPUT} -o cmd`
+
+        # Kill lightshowpi processes
+        if [[ ${out} == *"${SYNCHRONIZED_LIGHTS_HOME}"* ]]; then
+            echo "Killing: $(echo ${out} | cut -d' ' -f1-3)..."
+            sudo kill ${OUTPUT}
+        fi
+    fi
+done
+
+# Turn off lights and clean up GPIO
+echo "Cleaning up GPIO..."
+sudo -E $(which python) $SYNCHRONIZED_LIGHTS_HOME/py/hardware_controller.py --state=cleanup
+
+echo "✓ LightShowPi Client stopped"

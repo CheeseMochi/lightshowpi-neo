@@ -1,0 +1,64 @@
+#!/bin/bash
+#
+# Stop the FULL lightshow server
+# Stops: synchronized_lights.py + buttonmanager.py + API server
+#
+# Author: LightShowPi Neo contributors
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Check that the home environment variable is set
+if [ -z ${SYNCHRONIZED_LIGHTS_HOME} ]; then
+    cat ${DIR}/env_error_msg
+    exit 1
+fi
+
+id=$1
+
+if [ -z "$id" ]; then
+    id="xxxx"
+fi
+
+echo "Stopping LightShowPi Server (all components)..."
+
+# Kill all lightshowpi processes (including API)
+for OUTPUT in $(pgrep -f lightshowpi); do
+    if [ ${OUTPUT} != ${id} ] && [ ${OUTPUT} != $$ ]; then
+        out=`ps -p ${OUTPUT} -o cmd`
+
+        if [[ ${out} == *"${SYNCHRONIZED_LIGHTS_HOME}"* ]]; then
+            echo "Killing: $(echo ${out} | cut -d' ' -f1-3)..."
+            sudo kill ${OUTPUT}
+        fi
+    fi
+done
+
+# Kill button manager explicitly
+for OUTPUT in $(pgrep -f "buttonmanager.py"); do
+    if [ ${OUTPUT} != ${id} ] && [ ${OUTPUT} != $$ ]; then
+        echo "Killing button manager (PID ${OUTPUT})"
+        sudo kill ${OUTPUT}
+    fi
+done
+
+# Kill API server explicitly
+for OUTPUT in $(pgrep -f "py/api/main.py"); do
+    if [ ${OUTPUT} != ${id} ] && [ ${OUTPUT} != $$ ]; then
+        echo "Killing API server (PID ${OUTPUT})"
+        kill ${OUTPUT}
+    fi
+done
+
+# Also kill uvicorn processes that might be running the API
+for OUTPUT in $(pgrep -f "uvicorn.*main:app"); do
+    if [ ${OUTPUT} != ${id} ] && [ ${OUTPUT} != $$ ]; then
+        echo "Killing uvicorn server (PID ${OUTPUT})"
+        kill ${OUTPUT}
+    fi
+done
+
+# Turn off lights and clean up GPIO
+echo "Cleaning up GPIO..."
+sudo -E $(which python) $SYNCHRONIZED_LIGHTS_HOME/py/hardware_controller.py --state=cleanup
+
+echo "✓ LightShowPi Server stopped (all components)"
