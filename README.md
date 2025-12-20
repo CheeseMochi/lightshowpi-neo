@@ -78,38 +78,48 @@
 
 ## 🚀 Quick Start
 
+### Automated Installation (Recommended)
+
 ```bash
 # 1. Clone the repository
 git clone https://github.com/CheeseMochi/lightshowpi-neo.git
 cd lightshowpi-neo
 
-# 2. Install system dependencies
-sudo ./install.sh
-
-# 3. Install Miniconda (if not already installed)
+# 2. Install Miniconda (if not already installed)
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh
 bash Miniconda3-latest-Linux-aarch64.sh
 source ~/.bashrc
 
-# 4. Create conda environment
-conda env create -f environment.yml
-conda activate lightshowpi-neo
+# 3. Run the installer (installs system deps + optional automated setup)
+sudo ./install.sh
+# When prompted, choose 'y' to automate conda env, config, and environment variable setup
 
-# 5. Link system lgpio to conda environment
+# 4. Start a new shell or reload your shell config
+source ~/.bashrc
+
+# 5. Activate conda environment and link lgpio
+conda activate lightshowpi-neo
 ./bin/link_lgpio.sh
 
-# 6. Set environment variable
-export SYNCHRONIZED_LIGHTS_HOME=$(pwd)
-echo "export SYNCHRONIZED_LIGHTS_HOME=$(pwd)" >> ~/.bashrc
-
-# 7. Verify installation
+# 6. Verify installation
 pytest -v
 
-# 8. Run your first lightshow!
+# 7. Run your first lightshow!
 sudo $(which python) py/synchronized_lights.py
 ```
 
-For detailed installation options (venv vs conda), see [Installation](#installation) section below.
+**What install.sh automates:**
+- ✅ System package installation (lgpio, ALSA, etc.)
+- ✅ Conda environment creation (if conda detected)
+- ✅ `SYNCHRONIZED_LIGHTS_HOME` environment variable
+- ✅ Initial `config/overrides.cfg` creation
+
+**What you still do manually:**
+- Install Miniconda itself (user consent required)
+- Link lgpio after activating environment
+- Configure your GPIO pins and settings
+
+For detailed installation options (venv, manual steps), see [Installation](#installation) section below.
 
 
 ---
@@ -126,18 +136,26 @@ Installation consists of two main steps:
 
 **All users must complete this step first**, regardless of whether you use conda or venv.
 
-#### Option A: Automated (Recommended)
+#### Option A: Automated Installer (Recommended)
 
 ```bash
 sudo ./install.sh
 ```
 
-This script:
-- Checks for supported Raspberry Pi hardware (Pi 3/4/5)
-- Installs python3-lgpio, ALSA libraries, and other system packages
-- Displays next steps for Python environment setup
+**What this script does:**
 
-#### Option B: Manual
+1. **Always:**
+   - Checks for supported Raspberry Pi hardware (Pi 3/4/5)
+   - Installs python3-lgpio, ALSA libraries, and other system packages
+
+2. **Optionally** (if you answer 'y' when prompted):
+   - Creates conda environment from `environment.yml` (if conda is installed)
+   - Adds `SYNCHRONIZED_LIGHTS_HOME` to your `.bashrc` or `.zshrc`
+   - Creates initial `config/overrides.cfg` from defaults
+
+**Note:** The script is idempotent - safe to run multiple times. It will skip steps that are already complete.
+
+#### Option B: Manual Installation
 
 ```bash
 sudo apt-get update
@@ -147,6 +165,8 @@ sudo apt-get install -y \
     libasound2 \
     alsa-utils \
 ```
+
+Then proceed with manual Python environment setup below.
 
 ---
 
@@ -158,6 +178,8 @@ After installing system dependencies, choose **either** Method A (conda) **or** 
 <summary><b>Method A: Using Conda (Recommended)</b></summary>
 
 Conda provides better dependency management and Python version control.
+
+> **💡 Tip:** If you ran `sudo ./install.sh` and chose automated setup (answered 'y'), steps 2, 4, and the config file are already done! Skip to step 3 (link lgpio).
 
 #### 1. Install Miniconda (if not already installed)
 
@@ -174,6 +196,8 @@ source ~/.bashrc
 
 #### 2. Create Conda Environment
 
+**If you used automated install.sh, this step is already done.**
+
 ```bash
 # Create environment from environment.yml
 conda env create -f environment.yml
@@ -185,6 +209,8 @@ conda activate lightshowpi-neo
 This installs all Python dependencies automatically (numpy, pydantic, fastapi, etc.).
 
 #### 3. Link System lgpio to Conda Environment
+
+**This step is always required** - must be run after activating the conda environment.
 
 Since lgpio is installed system-wide via apt, symlink it into your conda environment:
 
@@ -200,8 +226,9 @@ python -c "import lgpio; print('lgpio version:', lgpio.__version__)"
 <details>
 <summary><b>Troubleshooting: Python version mismatch</b></summary>
 
-If the symlink fails (e.g., system Python 3.11 vs conda Python 3.13), compile lgpio for your conda Python:
+If the symlink fails with a Python version mismatch error (e.g., system Python 3.11 vs conda Python 3.13), you have two options:
 
+**Option 1: Install lgpio via pip (recommended)**
 ```bash
 # Install lgpio development libraries
 sudo apt-get install -y liblgpio-dev liblgpio1
@@ -215,20 +242,40 @@ pip install lgpio
 python -c "import lgpio; print('lgpio version:', lgpio.__version__)"
 ```
 
+**Option 2: Recreate conda environment with matching Python version**
+```bash
+# Check system Python version
+python3 --version
+
+# Create conda environment with matching version
+conda create -n lightshowpi-neo python=3.11  # Use your system Python version
+conda activate lightshowpi-neo
+pip install -r requirements.txt
+
+# Now symlink will work
+./bin/link_lgpio.sh
+```
+
 </details>
 
 #### 4. Set Environment Variable
+
+**If you used automated install.sh, this step is already done.**
 
 ```bash
 export SYNCHRONIZED_LIGHTS_HOME=$(pwd)
 echo "export SYNCHRONIZED_LIGHTS_HOME=$(pwd)" >> ~/.bashrc
 ```
 
+Restart your shell or run `source ~/.bashrc` to apply changes.
+
 #### 5. Verify Installation
 
 ```bash
 pytest -v
 ```
+
+**Expected:** All tests should pass. If you see import errors for lgpio, go back to step 3.
 
 </details>
 
@@ -284,7 +331,15 @@ pytest -v
 ### Post-Installation Setup
 
 1. **Add music files** to the `music/` directory (MP3, WAV, FLAC supported)
-2. **Configure GPIO pins** in `config/defaults.cfg` or `config/overrides.cfg`
+2. **Configure GPIO pins** in `config/overrides.cfg`:
+   ```bash
+   # If automated install.sh created this file, edit it:
+   nano config/overrides.cfg
+
+   # If not created, copy from defaults first:
+   cp config/defaults.cfg config/overrides.cfg
+   nano config/overrides.cfg
+   ```
 3. **Test without hardware** using terminal mode:
    ```bash
    python py/synchronized_lights.py --playlist config/playlist.playlist
