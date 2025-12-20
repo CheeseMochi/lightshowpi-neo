@@ -25,9 +25,10 @@ from api.core.auth import AuthManager
 from api.models.schemas import (
     UserLogin, Token, SystemHealth, LightshowState
 )
-from api.routers import lightshow, schedules
+from api.routers import lightshow, schedules, buttons
 from api.services.lightshow_manager import LightshowManager
 from api.services.scheduler import SchedulerService
+from api.services.button_manager import ButtonManagerService
 
 # Configure logging
 logging.basicConfig(
@@ -42,6 +43,7 @@ auth_manager = None
 api_config = None
 lightshow_manager = None
 scheduler_service = None
+button_manager = None
 
 # API version
 API_VERSION = "1.0.0"
@@ -54,7 +56,7 @@ async def lifespan(app: FastAPI):
 
     Handles startup and shutdown tasks.
     """
-    global db, auth_manager, api_config, lightshow_manager, scheduler_service
+    global db, auth_manager, api_config, lightshow_manager, scheduler_service, button_manager
 
     # Startup
     log.info("Starting LightShowPi Neo API...")
@@ -86,6 +88,18 @@ async def lifespan(app: FastAPI):
     # Initialize lightshow manager
     lightshow_manager = LightshowManager(api_config)
     lightshow.set_manager(lightshow_manager)
+
+    # Initialize button manager
+    button_config = {
+        'button_manager': {
+            'enabled': True,  # Can be overridden by config
+            'audio_timeout': 300,
+            'cooldown': 5
+        }
+    }
+    button_manager = ButtonManagerService(button_config, lightshow_manager)
+    buttons.set_button_manager(button_manager)
+    log.info("Button manager service initialized")
 
     # Initialize and start scheduler
     scheduler_service = SchedulerService(db, lightshow_manager)
@@ -130,6 +144,7 @@ app.add_middleware(
 # Include routers
 app.include_router(lightshow.router)
 app.include_router(schedules.router)
+app.include_router(buttons.router)
 
 
 # Dependency to get database

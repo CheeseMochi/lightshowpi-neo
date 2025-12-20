@@ -37,6 +37,7 @@ from collections import defaultdict
 
 import configuration_manager
 import networking
+import networking_sacn
 
 # LED module is optional (only needed for RGB LED strips/matrices)
 try:
@@ -375,8 +376,15 @@ class Hardware(object):
 
         self.set_overrides()
         if self.server:
-            data = networking.BcastOverrides(always_off=always_off,always_on=always_on,inverted=inverted)
-            self.broadcast(data)
+            # Check if using sACN with control plane
+            if hasattr(self.network, 'broadcast_overrides'):
+                # sACN mode - use control plane (JSON over UDP)
+                self.network.broadcast_overrides(always_off=always_off, always_on=always_on, inverted=inverted)
+                logging.info(f"Sent overrides via sACN control plane")
+            else:
+                # Legacy mode - use pickle broadcast
+                data = networking.BcastOverrides(always_off=always_off,always_on=always_on,inverted=inverted)
+                self.broadcast(data)
         else:
             if self.network.get_overrides:
                 for channel in range(cm.hardware.gpio_len):
@@ -393,6 +401,21 @@ class Hardware(object):
     def receive_and_process(self):
         channels = self.network.channels
 
+        # Check for control messages first (sACN control plane)
+        if hasattr(self.network, 'receive_control_message'):
+            ctrl_msg = self.network.receive_control_message()
+            if ctrl_msg:
+                # Handle different control message types
+                if ctrl_msg.get('type') == 'overrides':
+                    # Apply override configuration
+                    self.set_custom_overrides(
+                        always_off=ctrl_msg.get('always_off', []),
+                        always_on=ctrl_msg.get('always_on', []),
+                        inverted=ctrl_msg.get('inverted', [])
+                    )
+                    logging.info(f"Received overrides via sACN control plane")
+
+        # Receive data (sACN or legacy)
         data = self.network.receive()
         temp_override = True
 

@@ -1,0 +1,47 @@
+[Unit]
+Description=LightShowPi Neo Button Manager
+Documentation=https://github.com/yourusername/lightshowpi
+After=network-online.target lightshowpi-api.service
+Wants=network-online.target
+# Start after API if it's enabled, but don't require it (can run in direct mode)
+PartOf=lightshowpi-api.service
+
+[Service]
+Type=simple
+User=root
+Group=gpio
+
+# Environment
+Environment="SYNCHRONIZED_LIGHTS_HOME=/home/pi/lightshowpi"
+Environment="PATH=/home/pi/miniconda3/envs/lightshowpi-neo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Working directory
+WorkingDirectory=/home/pi/lightshowpi
+
+# Start command
+# Mode: auto (try API, fall back to direct if unavailable)
+# Log Level: INFO (change to DEBUG for troubleshooting)
+ExecStart=/home/pi/miniconda3/envs/lightshowpi-neo/bin/python py/buttonmanager.py --mode auto --log-level INFO
+
+# Stop command (cleanup GPIO resources)
+ExecStop=/home/pi/miniconda3/envs/lightshowpi-neo/bin/python py/buttonmanager.py --cleanup
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lightshowpi-buttons
+
+# Security settings
+# Note: Runs as root for GPIO access, consider using gpio group permissions instead
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target

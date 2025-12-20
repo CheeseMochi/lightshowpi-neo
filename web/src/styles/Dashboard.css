@@ -35,6 +35,18 @@
   animation: slideDown 0.3s ease-out;
 }
 
+/* Warning Banner */
+.warning-banner {
+  background-color: var(--warning-color);
+  color: white;
+  padding: var(--spacing-md) var(--spacing-lg);
+  margin: 0;
+  text-align: center;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(255, 193, 7, 0.3);
+  animation: slideDown 0.3s ease-out;
+}
+
 @keyframes slideDown {
   from {
     transform: translateY(-100%);
@@ -122,6 +134,16 @@
   color: white;
 }
 
+.status-active {
+  background-color: var(--success-color);
+  color: white;
+}
+
+.status-inactive {
+  background-color: var(--bg-dark);
+  color: var(--text-secondary);
+}
+
 /* Controls Card */
 .controls-card {
   grid-column: span 1;
@@ -131,6 +153,37 @@
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: var(--spacing-md);
+}
+
+/* Button Controls Card */
+.button-controls-card {
+  grid-column: span 1;
+}
+
+.button-status-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.button-status-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md);
+  background-color: var(--bg-dark);
+  border-radius: var(--border-radius);
+}
+
+.button-status-item .label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.button-status-item .value {
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 /* Events Card */

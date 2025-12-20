@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { lightshow, schedules as schedulesApi } from '../services/api';
+import { lightshow, schedules as schedulesApi, buttons } from '../services/api';
 import ScheduleManager from './ScheduleManager';
 import '../styles/Dashboard.css';
 
@@ -9,15 +9,21 @@ export default function Dashboard({ onLogout }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showSchedules, setShowSchedules] = useState(false);
+  const [buttonStatus, setButtonStatus] = useState(null);
+  const [buttonHealth, setButtonHealth] = useState(null);
 
   // Auto-refresh status every 2 seconds
   useEffect(() => {
     fetchStatus();
     fetchUpcomingEvents();
+    fetchButtonStatus();
+    fetchButtonHealth();
 
     const interval = setInterval(() => {
       fetchStatus();
       fetchUpcomingEvents();
+      fetchButtonStatus();
+      fetchButtonHealth();
     }, 2000);
 
     return () => clearInterval(interval);
@@ -41,6 +47,24 @@ export default function Dashboard({ onLogout }) {
       setUpcomingEvents(events);
     } catch (err) {
       console.error('Failed to fetch upcoming events:', err);
+    }
+  };
+
+  const fetchButtonStatus = async () => {
+    try {
+      const data = await buttons.getStatus();
+      setButtonStatus(data);
+    } catch (err) {
+      console.error('Failed to fetch button status:', err);
+    }
+  };
+
+  const fetchButtonHealth = async () => {
+    try {
+      const data = await buttons.getHealth();
+      setButtonHealth(data);
+    } catch (err) {
+      console.error('Failed to fetch button health:', err);
     }
   };
 
@@ -71,6 +95,35 @@ export default function Dashboard({ onLogout }) {
     }
   };
 
+  const handleButtonSkip = async () => {
+    try {
+      await buttons.skip();
+      await fetchButtonStatus();
+      await fetchStatus();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleRepeatToggle = async () => {
+    try {
+      await buttons.repeatToggle();
+      await fetchButtonStatus();
+      await fetchStatus();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleAudioToggle = async () => {
+    try {
+      await buttons.audioToggle();
+      await fetchButtonStatus();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   if (loading) {
     return <div className="dashboard-loading">Loading...</div>;
   }
@@ -94,6 +147,11 @@ export default function Dashboard({ onLogout }) {
       </header>
 
       {error && <div className="error-banner">{error}</div>}
+      {buttonHealth && !buttonHealth.healthy && (
+        <div className="warning-banner">
+          ⚠ {buttonHealth.warning}
+        </div>
+      )}
 
       <div className="dashboard-content">
         {/* Status Panel */}
@@ -168,6 +226,55 @@ export default function Dashboard({ onLogout }) {
             </button>
           </div>
         </div>
+
+        {/* Button Controls */}
+        {buttonStatus && buttonStatus.enabled && (
+          <div className="card button-controls-card">
+            <h2>Button Controls</h2>
+            <div className="button-status-grid">
+              <div className="button-status-item">
+                <span className="label">Repeat Mode:</span>
+                <span className={`status-badge ${buttonStatus.repeat_mode ? 'status-active' : 'status-inactive'}`}>
+                  {buttonStatus.repeat_mode ? '✓ ON' : '✗ OFF'}
+                </span>
+              </div>
+              <div className="button-status-item">
+                <span className="label">Audio Output:</span>
+                <span className={`status-badge ${buttonStatus.audio_on ? 'status-active' : 'status-inactive'}`}>
+                  {buttonStatus.audio_on ? '✓ ON' : '✗ OFF'}
+                </span>
+              </div>
+              {buttonStatus.last_action && (
+                <div className="button-status-item">
+                  <span className="label">Last Action:</span>
+                  <span className="value">{buttonStatus.last_action}</span>
+                </div>
+              )}
+            </div>
+            <div className="controls-grid">
+              <button
+                onClick={handleButtonSkip}
+                className="btn btn-primary btn-large"
+              >
+                ⏭ Skip
+              </button>
+
+              <button
+                onClick={handleRepeatToggle}
+                className={`btn btn-large ${buttonStatus.repeat_mode ? 'btn-warning' : 'btn-success'}`}
+              >
+                🔁 Repeat {buttonStatus.repeat_mode ? 'OFF' : 'ON'}
+              </button>
+
+              <button
+                onClick={handleAudioToggle}
+                className={`btn btn-large ${buttonStatus.audio_on ? 'btn-danger' : 'btn-success'}`}
+              >
+                🔊 Audio {buttonStatus.audio_on ? 'OFF' : 'ON'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Upcoming Events */}
         <div className="card events-card">

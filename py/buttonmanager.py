@@ -4,6 +4,10 @@ Manages physical button inputs for controlling the lightshow:
 - Repeat mode (hold to enable continuous play)
 - Skip to next song
 - Toggle audio output relay
+
+Can operate in two modes:
+- API mode: Calls REST API endpoints (preferred)
+- Direct mode: Uses state file (fallback if API unavailable)
 """
 
 import argparse
@@ -12,6 +16,8 @@ import os
 import signal
 import sys
 import time
+import requests
+from typing import Optional
 
 from gpiozero import Button, LED
 import configuration_manager
@@ -60,9 +66,125 @@ audio_cooldown = 0
 audio_turnoff = 0
 repeat_mode = False
 
+# API integration
+API_ENABLED = False
+API_BASE_URL = "http://localhost:5000/api"
+API_TOKEN: Optional[str] = None
+BUTTON_MODE = "auto"  # Can be: "api", "direct", or "auto"
+
 # Set up shell environment for subprocess calls
 shellenv = dict()
 shellenv['SYNCHRONIZED_LIGHTS_HOME'] = lightshome
+
+
+def init_api(mode: str) -> bool:
+    """Initialize API connection and authenticate based on mode.
+
+    Args:
+        mode: Operating mode - "api", "direct", or "auto"
+
+    Returns:
+        True if API is available and authenticated, False otherwise
+
+    Raises:
+        SystemExit: If mode is "api" and API is unavailable
+    """
+    global API_ENABLED, API_TOKEN, BUTTON_MODE
+
+    BUTTON_MODE = mode
+
+    # If direct mode requested, skip API initialization
+    if mode == "direct":
+        log.info("Button manager mode: DIRECT (state file only)")
+        log.info("API integration disabled by user - using state file for button actions")
+        return False
+
+    # Try to connect to API
+    try:
+        # Check if API is accessible
+        log.debug(f"Checking API availability at {API_BASE_URL}/health")
+        response = requests.get(f"{API_BASE_URL}/health", timeout=2)
+        if response.status_code != 200:
+            if mode == "api":
+                log.error(f"API health check failed with status {response.status_code}")
+                log.error("Button manager mode is set to 'api' but API is not available")
+                log.error("Either start the API or use --mode direct/auto")
+                sys.exit(1)
+            else:
+                log.warning("API health check failed - falling back to direct mode")
+                return False
+
+        # Try to authenticate (use default credentials for now)
+        # TODO: Make credentials configurable
+        log.debug("Authenticating with API...")
+        auth_response = requests.post(
+            f"{API_BASE_URL}/auth/login",
+            json={"username": "admin", "password": "admin123"},
+            timeout=2
+        )
+
+        if auth_response.status_code == 200:
+            API_TOKEN = auth_response.json()["access_token"]
+            API_ENABLED = True
+            log.info("✓ Button manager mode: API")
+            log.info("✓ API integration enabled - using REST API for button actions")
+            return True
+        else:
+            if mode == "api":
+                log.error(f"API authentication failed with status {auth_response.status_code}")
+                log.error("Button manager mode is set to 'api' but authentication failed")
+                log.error("Check API credentials or use --mode direct/auto")
+                sys.exit(1)
+            else:
+                log.warning("API authentication failed - falling back to direct mode")
+                log.warning(f"Auth failed with status {auth_response.status_code}")
+                return False
+
+    except requests.exceptions.RequestException as e:
+        if mode == "api":
+            log.error(f"Cannot connect to API: {e}")
+            log.error("Button manager mode is set to 'api' but API is not available")
+            log.error(f"Make sure API is running at {API_BASE_URL}")
+            log.error("Either start the API or use --mode direct/auto")
+            sys.exit(1)
+        else:
+            log.warning(f"API not available: {e}")
+            log.info("⚠ Button manager mode: DIRECT (API unavailable, using state file)")
+            return False
+
+
+def call_api(endpoint: str, method: str = "POST") -> bool:
+    """Call an API endpoint with authentication.
+
+    Args:
+        endpoint: API endpoint path (e.g., "/buttons/skip")
+        method: HTTP method (GET or POST)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if not API_ENABLED or not API_TOKEN:
+        return False
+
+    try:
+        headers = {"Authorization": f"Bearer {API_TOKEN}"}
+        url = f"{API_BASE_URL}{endpoint}"
+
+        if method == "POST":
+            response = requests.post(url, headers=headers, timeout=2)
+        else:
+            response = requests.get(url, headers=headers, timeout=2)
+
+        if response.status_code in [200, 201]:
+            log.debug(f"API call successful: {method} {endpoint}")
+            return True
+        else:
+            log.warning(f"API call failed: {response.status_code} - {response.text}")
+            return False
+
+    except requests.exceptions.RequestException as e:
+        log.error(f"API call failed: {e}")
+        return False
 
 # Initialize buttons and output
 repeat_button = Button(REPEAT_PIN)
@@ -134,7 +256,22 @@ def audio_toggle():
 def playsong(songindex):
     """Queue a song to play (-1 = next song)."""
     log.info(f"Queueing song: {songindex}")
-    cm.update_state('play_now', songindex)
+
+    # Try API first if enabled
+    if API_ENABLED:
+        if call_api("/buttons/skip"):
+            log.debug("Skip triggered via API")
+        else:
+            log.error("⚠ API call failed for skip button - API may be down")
+            if BUTTON_MODE == "auto":
+                log.warning("Falling back to direct mode for this action")
+                cm.update_state('play_now', songindex)
+            # In "api" mode, we already exited if API wasn't available during init
+    else:
+        # Direct mode - use state file
+        cm.update_state('play_now', songindex)
+        log.debug("Skip triggered via state file (direct mode)")
+
     audio_on()
 
 
@@ -153,21 +290,61 @@ def songbutton(button):
 def toggleRepeat():
     """Toggle repeat mode on/off."""
     global repeat_mode
-    if not repeat_mode:
-        log.info("Repeat mode ENABLED")
-        playsong(-1)
-        repeat_mode = True
-    else:
-        log.info("Repeat mode DISABLED")
-        repeat_mode = False
-        audio_off()
+
+    # Try API first if enabled
+    if API_ENABLED:
+        if call_api("/buttons/repeat/toggle"):
+            log.debug("Repeat toggle triggered via API")
+            # API handles the state change, just update local state
+            repeat_mode = not repeat_mode
+            if repeat_mode:
+                log.info("Repeat mode ENABLED")
+            else:
+                log.info("Repeat mode DISABLED")
+        else:
+            log.error("⚠ API call failed for repeat toggle - API may be down")
+            if BUTTON_MODE == "auto":
+                log.warning("Falling back to direct mode for this action")
+                # Fall through to direct mode below
+            else:
+                return  # In api mode, don't fall back
+
+    # Direct mode or fallback
+    if not API_ENABLED or (BUTTON_MODE == "auto" and not repeat_mode):
+        if not repeat_mode:
+            log.info("Repeat mode ENABLED")
+            playsong(-1)
+            repeat_mode = True
+        else:
+            log.info("Repeat mode DISABLED")
+            repeat_mode = False
+            audio_off()
 
 
 def audiobutton():
     """Handle audio toggle button press with cooldown."""
     if time.time() > audio_cooldown:
         log.debug("Audio button pressed")
-        audio_toggle()
+
+        # Try API first if enabled
+        if API_ENABLED:
+            if call_api("/buttons/audio/toggle"):
+                log.debug("Audio toggle triggered via API")
+                # Update local cooldown and state
+                global audio_cooldown, audio_turnoff
+                audio_cooldown = time.time() + DEFAULT_COOLDOWN
+                if not outlet.is_lit:
+                    audio_turnoff = time.time() + DEFAULT_AUDIO_TIMEOUT
+                outlet.toggle()
+            else:
+                log.error("⚠ API call failed for audio toggle - API may be down")
+                if BUTTON_MODE == "auto":
+                    log.warning("Falling back to direct mode for this action")
+                    audio_toggle()
+                # In api mode, don't fall back
+        else:
+            # Direct mode
+            audio_toggle()
     else:
         log.debug(f"Audio button on cooldown ({audio_cooldown - time.time():.1f}s remaining)")
 
@@ -195,6 +372,12 @@ def main():
         help="Set logging level (DEBUG, INFO, WARNING, ERROR)",
         default="INFO"
     )
+    parser.add_argument(
+        '--mode',
+        help="Button manager mode: 'api' (require API), 'direct' (state file only), 'auto' (try API, fall back to direct)",
+        choices=['api', 'direct', 'auto'],
+        default='auto'
+    )
 
     args = parser.parse_args()
 
@@ -216,6 +399,10 @@ def main():
     log.info("Button Manager starting...")
     log.info(f"GPIO Pins - Repeat: {REPEAT_PIN}, Skip: {SKIP_PIN}, "
              f"Audio: {AUDIO_PIN}, Outlet: {OUTLET_PIN}")
+
+    # Initialize API integration based on mode
+    log.info(f"Requested mode: {args.mode.upper()}")
+    init_api(args.mode)
 
     # Set up button callbacks
     repeat_button.when_held = toggleRepeat

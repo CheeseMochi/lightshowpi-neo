@@ -1,0 +1,39 @@
+[Unit]
+Description=LightShowPi Neo API Server
+Documentation=https://github.com/yourusername/lightshowpi
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+
+# Environment
+Environment="SYNCHRONIZED_LIGHTS_HOME=/home/pi/lightshowpi"
+Environment="PATH=/home/pi/miniconda3/envs/lightshowpi-neo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Working directory
+WorkingDirectory=/home/pi/lightshowpi
+
+# Start command
+ExecStart=/home/pi/miniconda3/envs/lightshowpi-neo/bin/python -m api.main
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lightshowpi-api
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -181,6 +181,38 @@ export const schedules = {
 };
 
 // =============================================================================
+// Button Manager API
+// =============================================================================
+
+export const buttons = {
+  async getStatus() {
+    return apiRequest('/buttons/status');
+  },
+
+  async getHealth() {
+    return apiRequest('/buttons/health');
+  },
+
+  async skip() {
+    return apiRequest('/buttons/skip', {
+      method: 'POST'
+    });
+  },
+
+  async repeatToggle() {
+    return apiRequest('/buttons/repeat/toggle', {
+      method: 'POST'
+    });
+  },
+
+  async audioToggle() {
+    return apiRequest('/buttons/audio/toggle', {
+      method: 'POST'
+    });
+  }
+};
+
+// =============================================================================
 // System API
 // =============================================================================
 
