@@ -429,46 +429,49 @@ class Configuration(object):
         """
         lghtshw = dict()
         ls = 'lightshow'
-        lghtshw["mode"] = self.config.get(ls, 'mode')
-        lghtshw["use_fifo"] = self.config.getboolean(ls, 'use_fifo')
+        lghtshw["mode"] = self.config.get(ls, 'mode', fallback='playlist')
+        lghtshw["use_fifo"] = self.config.getboolean(ls, 'use_fifo', fallback=False)
         lghtshw["fifo"] = "/tmp/audio"
-        lghtshw["audio_in_card"] = self.config.get(ls, 'audio_in_card')
-        lghtshw["audio_out_card"] = self.config.get(ls, 'audio_out_card')
+        lghtshw["audio_in_card"] = self.config.get(ls, 'audio_in_card', fallback='default')
+        lghtshw["audio_out_card"] = self.config.get(ls, 'audio_out_card', fallback='default')
 
         if lghtshw["use_fifo"]:
             lghtshw["audio_out_card"] = ""
 
-        lghtshw["input_channels"] = self.config.getint(ls, 'input_channels')
-        lghtshw["input_sample_rate"] = self.config.getint(ls, 'input_sample_rate')
+        lghtshw["input_channels"] = self.config.getint(ls, 'input_channels', fallback=1)
+        lghtshw["input_sample_rate"] = self.config.getint(ls, 'input_sample_rate', fallback=48000)
 
-        lghtshw["songname_command"] = self.config.get(ls, 'songname_command')
+        lghtshw["songname_command"] = self.config.get(ls, 'songname_command', fallback='')
 
-        command_string = self.config.get(ls, 'stream_command_string')
+        command_string = self.config.get(ls, 'stream_command_string',
+                                         fallback='sudo mpg123 --stdout http://193.34.51.115:80')
         lghtshw["stream_command_string"] = shlex.split(command_string)
 
-        lghtshw["stream_song_delim"] = self.config.get(ls, 'stream_song_delim')
-        lghtshw["stream_song_exit_count"] = self.config.getint(ls, 'stream_song_exit_count')
+        lghtshw["stream_song_delim"] = self.config.get(ls, 'stream_song_delim',
+                                                       fallback='ICY-META: StreamTitle=')
+        lghtshw["stream_song_exit_count"] = self.config.getint(ls, 'stream_song_exit_count', fallback=0)
 
-        playlist_path = self.config.get(ls, 'playlist_path')
+        playlist_path = self.config.get(ls, 'playlist_path',
+                                        fallback='$SYNCHRONIZED_LIGHTS_HOME/music/sample/.playlist')
         playlist_path = playlist_path.replace('$SYNCHRONIZED_LIGHTS_HOME', self.home_dir)
         if playlist_path:
             lghtshw["playlist_path"] = playlist_path
         else:
             lghtshw["playlist_path"] = "/home/pi/music/.playlist"
 
-        lghtshw["randomize_playlist"] = self.config.getboolean(ls, 'randomize_playlist')
+        lghtshw["randomize_playlist"] = self.config.getboolean(ls, 'randomize_playlist', fallback=False)
 
         on_c = "always_on_channels"
-        lghtshw[on_c] = list(map(int, self.config.get(ls, on_c).split(",")))
+        lghtshw[on_c] = list(map(int, self.config.get(ls, on_c, fallback="-1").split(",")))
         off_c = "always_off_channels"
-        lghtshw[off_c] = list(map(int, self.config.get(ls, off_c).split(",")))
+        lghtshw[off_c] = list(map(int, self.config.get(ls, off_c, fallback="-1").split(",")))
         ic = "invert_channels"
-        lghtshw[ic] = list(map(int, self.config.get(ls, ic).split(",")))
+        lghtshw[ic] = list(map(int, self.config.get(ls, ic, fallback="-1").split(",")))
 
         # setup up preshow
         preshow = None
-        preshow_configuration = self.config.get(ls, 'preshow_configuration')
-        preshow_script = self.config.get(ls, 'preshow_script')
+        preshow_configuration = self.config.get(ls, 'preshow_configuration', fallback='')
+        preshow_script = self.config.get(ls, 'preshow_script', fallback='')
 
         if preshow_configuration and not preshow_script:
             try:
@@ -477,15 +480,15 @@ class Configuration(object):
                 msg = "Preshow_configuration not defined or not in JSON format."
                 logging.error(msg + str(error))
         else:
-            if os.path.isfile(preshow_script):
+            if preshow_script and os.path.isfile(preshow_script):
                 preshow = preshow_script
 
         lghtshw['preshow'] = preshow
 
         # setup postshow
         postshow = None
-        postshow_configuration = self.config.get(ls, 'postshow_configuration')
-        postshow_script = self.config.get(ls, 'postshow_script')
+        postshow_configuration = self.config.get(ls, 'postshow_configuration', fallback='')
+        postshow_script = self.config.get(ls, 'postshow_script', fallback='')
 
         if postshow_configuration and not postshow_script:
             try:
@@ -494,19 +497,19 @@ class Configuration(object):
                 msg = "Postshow_configuration not defined or not in JSON format."
                 logging.error(msg + str(error))
         else:
-            if os.path.isfile(postshow_script):
+            if postshow_script and os.path.isfile(postshow_script):
                 postshow = postshow_script
 
         lghtshw['postshow'] = postshow
-        lghtshw["decay_factor"] = self.config.getfloat(ls, 'decay_factor')
-        lghtshw["attenuate_pct"] = self.config.getfloat(ls, 'attenuate_pct')
-        lghtshw["light_delay"] = self.config.getfloat(ls, 'light_delay')
+        lghtshw["decay_factor"] = self.config.getfloat(ls, 'decay_factor', fallback=0.0)
+        lghtshw["attenuate_pct"] = self.config.getfloat(ls, 'attenuate_pct', fallback=0.0)
+        lghtshw["light_delay"] = self.config.getfloat(ls, 'light_delay', fallback=0.0)
 
-        lghtshw["log_level"] = self.config.get(ls, 'log_level').upper()
+        lghtshw["log_level"] = self.config.get(ls, 'log_level', fallback='INFO').upper()
 
         # Standard Deviation
-        lghtshw["SD_low"] = self.config.getfloat(ls, 'SD_low')
-        lghtshw["SD_high"] = self.config.getfloat(ls, 'SD_high')
+        lghtshw["SD_low"] = self.config.getfloat(ls, 'SD_low', fallback=0.5)
+        lghtshw["SD_high"] = self.config.getfloat(ls, 'SD_high', fallback=0.75)
 
         self.lightshow = Section(lghtshw)
 
@@ -533,29 +536,51 @@ class Configuration(object):
     def get_playlist(self, play_list=None):
         play_list = play_list or self.playlist_path
 
-        with open(play_list, 'rt') as playlist_fp:
-            fcntl.lockf(playlist_fp, fcntl.LOCK_SH)
-            playlist = csv.reader(playlist_fp, delimiter='\t')
-            songs = list()
+        # Check if playlist file exists
+        if not os.path.exists(play_list):
+            log.error(f"Playlist file not found: {play_list}")
+            print(f"\n{'='*70}")
+            print(f"ERROR: Playlist file not found!")
+            print(f"{'='*70}")
+            print(f"Looking for: {play_list}")
+            print(f"\nPlease either:")
+            print(f"  1. Create the playlist file with your songs")
+            print(f"  2. Update config/overrides.cfg with a valid playlist_path")
+            print(f"  3. Use --playlist option: bin/start_music_and_lights --playlist <file>")
+            print(f"\nPlaylist format (tab-separated):")
+            print(f"  Song Name<TAB>path/to/song.mp3")
+            print(f"{'='*70}\n")
+            sys.exit(1)
 
-            for song in playlist:
-                if len(song) < 2 or len(song) > 4:
-                    log.error('Invalid playlist.  Each line should be in the form: '
-                              '<song name><tab><path to song>')
-                    log.warning('Removing invalid entry')
-                    print("Error found in playlist")
-                    print("Deleting entry:", song)
-                    continue
+        try:
+            with open(play_list, 'rt') as playlist_fp:
+                fcntl.lockf(playlist_fp, fcntl.LOCK_SH)
+                playlist = csv.reader(playlist_fp, delimiter='\t')
+                songs = list()
 
-                elif len(song) > 2:
-                    song[2] = set(song[2].split(','))
+                for song in playlist:
+                    if len(song) < 2 or len(song) > 4:
+                        log.error('Invalid playlist.  Each line should be in the form: '
+                                  '<song name><tab><path to song>')
+                        log.warning('Removing invalid entry')
+                        print("Error found in playlist")
+                        print("Deleting entry:", song)
+                        continue
 
-                elif len(song) == 2:
-                    song.append(set())
+                    elif len(song) > 2:
+                        song[2] = set(song[2].split(','))
 
-                songs.append(song)
+                    elif len(song) == 2:
+                        song.append(set())
 
-            fcntl.lockf(playlist_fp, fcntl.LOCK_UN)
+                    songs.append(song)
+
+                fcntl.lockf(playlist_fp, fcntl.LOCK_UN)
+        except Exception as e:
+            log.error(f"Error reading playlist file: {e}")
+            print(f"\nERROR: Failed to read playlist file: {play_list}")
+            print(f"Error: {e}\n")
+            sys.exit(1)
 
         self.playlist = songs
 

@@ -90,11 +90,12 @@ class SchedulerService:
         Create APScheduler jobs for a schedule's start and stop times.
 
         Args:
-            schedule: Schedule dict from database with start_time, stop_time, days_of_week
+            schedule: Schedule dict from database with start_time, stop_time, mode, days_of_week
         """
         schedule_id = schedule['id']
         start_time = schedule['start_time']  # Format: "HH:MM"
         stop_time = schedule['stop_time']    # Format: "HH:MM"
+        mode = schedule.get('mode', 'playlist')  # Default to playlist mode
         days_of_week = schedule['days_of_week']  # Already parsed to list in get_schedules()
 
         # Parse start and stop times
@@ -117,6 +118,7 @@ class SchedulerService:
         self.scheduler.add_job(
             func=self._start_lightshow,
             trigger=start_trigger,
+            args=[mode],  # Pass mode to start function
             id=f"schedule_{schedule_id}_start",
             name=f"Start lightshow (Schedule {schedule_id})",
             replace_existing=True
@@ -141,13 +143,17 @@ class SchedulerService:
                 f"start at {start_time}, stop at {stop_time}, "
                 f"days {days_of_week}")
 
-    def _start_lightshow(self):
-        """Start the lightshow (called by scheduler)."""
-        log.info("Scheduled start triggered")
+    def _start_lightshow(self, mode: str = "playlist"):
+        """Start the lightshow (called by scheduler).
+
+        Args:
+            mode: Lightshow mode to start (playlist, ambient, audio-in, stream-in)
+        """
+        log.info(f"Scheduled start triggered (mode: {mode})")
         try:
-            success = self.lightshow.start()
+            success = self.lightshow.start(mode=mode)
             if success:
-                log.info("Lightshow started successfully by scheduler")
+                log.info(f"Lightshow started successfully by scheduler in {mode} mode")
             else:
                 log.warning("Failed to start lightshow (may already be running)")
         except Exception as e:
@@ -189,7 +195,7 @@ class SchedulerService:
 
             if enabled_only:
                 cursor.execute("""
-                    SELECT id, start_time, stop_time, enabled, days_of_week,
+                    SELECT id, start_time, stop_time, mode, enabled, days_of_week,
                            updated_by, updated_at
                     FROM schedule
                     WHERE enabled = 1
@@ -197,7 +203,7 @@ class SchedulerService:
                 """)
             else:
                 cursor.execute("""
-                    SELECT id, start_time, stop_time, enabled, days_of_week,
+                    SELECT id, start_time, stop_time, mode, enabled, days_of_week,
                            updated_by, updated_at
                     FROM schedule
                     ORDER BY start_time
@@ -225,7 +231,7 @@ class SchedulerService:
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, start_time, stop_time, enabled, days_of_week,
+                SELECT id, start_time, stop_time, mode, enabled, days_of_week,
                        updated_by, updated_at
                 FROM schedule
                 WHERE id = ?
@@ -244,6 +250,7 @@ class SchedulerService:
         start_time: str,
         stop_time: str,
         days_of_week: List[int],
+        mode: str = "playlist",
         enabled: bool = True,
         updated_by: Optional[str] = None
     ) -> int:
@@ -254,6 +261,7 @@ class SchedulerService:
             start_time: Start time in HH:MM format
             stop_time: Stop time in HH:MM format
             days_of_week: List of days (0=Sunday, 1=Monday, ..., 6=Saturday)
+            mode: Lightshow mode (playlist, ambient, audio-in, stream-in)
             enabled: Whether schedule is enabled
             updated_by: Username who created the schedule
 
@@ -265,9 +273,9 @@ class SchedulerService:
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO schedule (start_time, stop_time, enabled, days_of_week, updated_by)
-                VALUES (?, ?, ?, ?, ?)
-            """, (start_time, stop_time, enabled, days_json, updated_by))
+                INSERT INTO schedule (start_time, stop_time, mode, enabled, days_of_week, updated_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (start_time, stop_time, mode, enabled, days_json, updated_by))
 
             schedule_id = cursor.lastrowid
             log.info(f"Created schedule {schedule_id}")
@@ -283,6 +291,7 @@ class SchedulerService:
         schedule_id: int,
         start_time: Optional[str] = None,
         stop_time: Optional[str] = None,
+        mode: Optional[str] = None,
         days_of_week: Optional[List[int]] = None,
         enabled: Optional[bool] = None,
         updated_by: Optional[str] = None
@@ -294,6 +303,7 @@ class SchedulerService:
             schedule_id: ID of schedule to update
             start_time: New start time (optional)
             stop_time: New stop time (optional)
+            mode: New mode (optional)
             days_of_week: New days list (optional)
             enabled: New enabled status (optional)
             updated_by: Username who updated the schedule
@@ -312,6 +322,10 @@ class SchedulerService:
         if stop_time is not None:
             updates.append("stop_time = ?")
             params.append(stop_time)
+
+        if mode is not None:
+            updates.append("mode = ?")
+            params.append(mode)
 
         if days_of_week is not None:
             updates.append("days_of_week = ?")

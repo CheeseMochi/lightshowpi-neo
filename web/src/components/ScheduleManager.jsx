@@ -119,12 +119,17 @@ export default function ScheduleManager({ onBack, onLogout }) {
                       <span className="time-badge">{schedule.stop_time}</span>
                     </div>
 
-                    <div className="schedule-days">
-                      {schedule.days_of_week.map((day) => (
-                        <span key={day} className="day-badge">
-                          {DAYS[day]}
-                        </span>
-                      ))}
+                    <div className="schedule-meta">
+                      <div className="schedule-days">
+                        {schedule.days_of_week.map((day) => (
+                          <span key={day} className="day-badge">
+                            {DAYS[day]}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="schedule-mode">
+                        Mode: <span className="mode-value">{schedule.mode || 'playlist'}</span>
+                      </div>
                     </div>
                   </div>
 
@@ -165,6 +170,7 @@ export default function ScheduleManager({ onBack, onLogout }) {
 function ScheduleForm({ schedule, onClose, onLogout }) {
   const [startTime, setStartTime] = useState(schedule?.start_time || '18:00');
   const [stopTime, setStopTime] = useState(schedule?.stop_time || '22:00');
+  const [mode, setMode] = useState(schedule?.mode || 'playlist');
   const [daysOfWeek, setDaysOfWeek] = useState(
     schedule?.days_of_week || [0, 1, 2, 3, 4, 5, 6]
   );
@@ -187,6 +193,7 @@ function ScheduleForm({ schedule, onClose, onLogout }) {
       const data = {
         start_time: startTime,
         stop_time: stopTime,
+        mode: mode,
         days_of_week: daysOfWeek,
         enabled
       };
@@ -243,6 +250,21 @@ function ScheduleForm({ schedule, onClose, onLogout }) {
                 onChange={(e) => setStopTime(e.target.value)}
                 required
               />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="mode">Mode</label>
+              <select
+                id="mode"
+                value={mode}
+                onChange={(e) => setMode(e.target.value)}
+                className="mode-select"
+              >
+                <option value="playlist">Playlist</option>
+                <option value="ambient">Ambient</option>
+                <option value="audio-in">Audio In</option>
+                <option value="stream-in">Stream In</option>
+              </select>
             </div>
 
             <div className="form-group">

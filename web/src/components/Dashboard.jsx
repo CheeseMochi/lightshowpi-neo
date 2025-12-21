@@ -11,6 +11,7 @@ export default function Dashboard({ onLogout }) {
   const [showSchedules, setShowSchedules] = useState(false);
   const [buttonStatus, setButtonStatus] = useState(null);
   const [buttonHealth, setButtonHealth] = useState(null);
+  const [selectedMode, setSelectedMode] = useState('playlist');
 
   // Auto-refresh status every 2 seconds
   useEffect(() => {
@@ -70,7 +71,7 @@ export default function Dashboard({ onLogout }) {
 
   const handleStart = async () => {
     try {
-      await lightshow.start();
+      await lightshow.start(true, selectedMode);
       await fetchStatus();
     } catch (err) {
       setError(err.message);
@@ -193,6 +194,21 @@ export default function Dashboard({ onLogout }) {
         {/* Controls */}
         <div className="card controls-card">
           <h2>Controls</h2>
+          <div className="mode-selector">
+            <label htmlFor="mode-select">Mode:</label>
+            <select
+              id="mode-select"
+              value={selectedMode}
+              onChange={(e) => setSelectedMode(e.target.value)}
+              disabled={status?.state === 'playing'}
+              className="mode-select"
+            >
+              <option value="playlist">Playlist</option>
+              <option value="ambient">Ambient</option>
+              <option value="audio-in">Audio In</option>
+              <option value="stream-in">Stream In</option>
+            </select>
+          </div>
           <div className="controls-grid">
             <button
               onClick={handleStart}

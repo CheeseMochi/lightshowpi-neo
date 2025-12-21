@@ -99,6 +99,7 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     start_time TEXT NOT NULL,
                     stop_time TEXT NOT NULL,
+                    mode TEXT DEFAULT 'playlist',
                     enabled BOOLEAN DEFAULT 1,
                     days_of_week TEXT DEFAULT '[0,1,2,3,4,5,6]',
                     updated_by TEXT,
@@ -191,6 +192,23 @@ class Database:
             conn.commit()
             log.info("Database schema initialized successfully")
 
+    def migrate_schema(self):
+        """Apply database migrations for schema updates."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Migration: Add mode column to schedule table if it doesn't exist
+            cursor.execute("PRAGMA table_info(schedule)")
+            columns = [col[1] for col in cursor.fetchall()]
+
+            if 'mode' not in columns:
+                log.info("Migrating schedule table: adding mode column")
+                cursor.execute("""
+                    ALTER TABLE schedule ADD COLUMN mode TEXT DEFAULT 'playlist'
+                """)
+                conn.commit()
+                log.info("Migration completed: mode column added to schedule table")
+
     def insert_default_data(self):
         """Insert default data if tables are empty."""
         with self.get_connection() as conn:
@@ -231,6 +249,7 @@ def init_database(db_path: Optional[str] = None) -> Database:
     """
     db = Database(db_path)
     db.initialize_schema()
+    db.migrate_schema()
     db.insert_default_data()
     return db
 

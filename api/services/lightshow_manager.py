@@ -89,13 +89,14 @@ class LightshowManager:
         except Exception as e:
             log.error(f"Error reading subprocess output: {e}")
 
-    def start(self, playlist: Optional[str] = None, song: Optional[str] = None) -> bool:
+    def start(self, playlist: Optional[str] = None, song: Optional[str] = None, mode: Optional[str] = None) -> bool:
         """
         Start the lightshow.
 
         Args:
             playlist: Optional path to playlist file
             song: Optional path to single song file
+            mode: Optional lightshow mode (playlist, ambient, audio-in, stream-in)
 
         Returns:
             bool: True if started successfully
@@ -112,7 +113,16 @@ class LightshowManager:
                 # Build command
                 cmd = [self.python_bin, self.synchronized_lights_script]
 
-                if playlist:
+                # Add mode if specified
+                if mode:
+                    cmd.extend(["--mode", mode])
+                    log.info(f"Starting in {mode} mode")
+
+                # For non-ambient modes, handle playlist/song
+                if mode and mode == "ambient":
+                    # Ambient mode doesn't need playlist/song
+                    pass
+                elif playlist:
                     playlist = os.path.expandvars(playlist)
                     if not os.path.exists(playlist):
                         log.error(f"Playlist file not found: {playlist}")
@@ -131,30 +141,33 @@ class LightshowManager:
                     cmd.extend(["--file", song])
                     self.current_song = song
                 else:
-                    # Use default playlist from config
-                    try:
-                        default_playlist = self.config.lightshow.playlist_path
-                        if default_playlist:
-                            # Expand environment variables in path
-                            default_playlist = os.path.expandvars(default_playlist)
-                            # Validate file exists
-                            if not os.path.exists(default_playlist):
-                                log.error(f"Default playlist file not found: {default_playlist}")
+                    # For playlist mode (default), use default playlist from config
+                    # For other modes (audio-in, stream-in), config provides the mode
+                    if not mode or mode == "playlist":
+                        try:
+                            default_playlist = self.config.lightshow.playlist_path
+                            if default_playlist:
+                                # Expand environment variables in path
+                                default_playlist = os.path.expandvars(default_playlist)
+                                # Validate file exists
+                                if not os.path.exists(default_playlist):
+                                    log.error(f"Default playlist file not found: {default_playlist}")
+                                    self.state = LightshowState.ERROR
+                                    self.error_message = f"Playlist file not found: {default_playlist}"
+                                    return False
+                                cmd.extend(["--playlist", default_playlist])
+                                self.current_playlist = default_playlist
+                            else:
+                                log.error("No playlist or song specified")
                                 self.state = LightshowState.ERROR
-                                self.error_message = f"Playlist file not found: {default_playlist}"
+                                self.error_message = "No playlist or song specified"
                                 return False
-                            cmd.extend(["--playlist", default_playlist])
-                            self.current_playlist = default_playlist
-                        else:
-                            log.error("No playlist or song specified")
+                        except AttributeError:
+                            log.error("No playlist configured in defaults.cfg")
                             self.state = LightshowState.ERROR
-                            self.error_message = "No playlist or song specified"
+                            self.error_message = "No playlist configured"
                             return False
-                    except AttributeError:
-                        log.error("No playlist configured in defaults.cfg")
-                        self.state = LightshowState.ERROR
-                        self.error_message = "No playlist configured"
-                        return False
+                    # For audio-in, stream-in modes, no playlist needed
 
                 log.info(f"Starting lightshow: {' '.join(cmd)}")
 

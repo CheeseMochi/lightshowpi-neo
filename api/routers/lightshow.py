@@ -66,8 +66,11 @@ async def start_lightshow(
     """
     config = get_api_config()
 
-    # Start the lightshow
-    success = manager.start()
+    # Start the lightshow with optional mode and playlist
+    success = manager.start(
+        mode=request.mode.value if request.mode else None,
+        playlist=request.playlist
+    )
 
     if not success:
         raise HTTPException(

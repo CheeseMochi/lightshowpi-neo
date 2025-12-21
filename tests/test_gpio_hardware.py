@@ -42,13 +42,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'py'))
 
 import Platform
 
-# Check if running on Raspberry Pi
-if Platform.platform_detect() != Platform.RASPBERRY_PI:
-    print("ERROR: This test must be run on a Raspberry Pi")
-    print(f"Detected platform: {Platform.platform_detect()}")
-    sys.exit(1)
-
-import gpio_adapter as wiringpi
+# Conditionally import gpio_adapter (only available on Raspberry Pi)
+try:
+    import gpio_adapter as wiringpi
+except (ImportError, RuntimeError):
+    wiringpi = None
 
 # Configure logging
 logging.basicConfig(
@@ -289,6 +287,16 @@ class GPIOTester:
 
 
 def main():
+    # Check if running on Raspberry Pi
+    if Platform.platform_detect() != Platform.RASPBERRY_PI:
+        print("ERROR: This test must be run on a Raspberry Pi")
+        print(f"Detected platform: {Platform.platform_detect()}")
+        return 1
+
+    if wiringpi is None:
+        print("ERROR: gpio_adapter not available")
+        return 1
+
     parser = argparse.ArgumentParser(description='GPIO Hardware Test for LightShowPi Neo')
     parser.add_argument('--loopback', action='store_true',
                         help='Run loopback tests (requires jumper wires)')

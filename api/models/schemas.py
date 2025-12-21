@@ -29,6 +29,14 @@ class StopMode(str, Enum):
     STOP = "stop"    # Stop completely and disable schedule
 
 
+class LightshowMode(str, Enum):
+    """Lightshow operating modes."""
+    PLAYLIST = "playlist"  # Play music with synchronized lights
+    AMBIENT = "ambient"    # Lights on steady, no music
+    AUDIO_IN = "audio-in"  # Real-time audio input mode
+    STREAM_IN = "stream-in"  # Stream input mode
+
+
 class ClientStatus(str, Enum):
     """Status of a client Pi."""
     ONLINE = "online"
@@ -107,6 +115,7 @@ class ScheduleCreate(BaseModel):
     """Request model for creating a new schedule."""
     start_time: str = Field(..., pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
     stop_time: str = Field(..., pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
+    mode: LightshowMode = LightshowMode.PLAYLIST
     enabled: bool = True
     days_of_week: List[int] = Field(default=[0, 1, 2, 3, 4, 5, 6])
 
@@ -123,6 +132,7 @@ class ScheduleUpdate(BaseModel):
     """Request model for updating a schedule (all fields optional)."""
     start_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
     stop_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
+    mode: Optional[LightshowMode] = None
     enabled: Optional[bool] = None
     days_of_week: Optional[List[int]] = None
 
@@ -140,6 +150,7 @@ class ScheduleResponse(BaseModel):
     id: int
     start_time: str
     stop_time: str
+    mode: str
     enabled: bool
     days_of_week: List[int]
     updated_by: Optional[str] = None
@@ -193,6 +204,8 @@ class SongUpload(BaseModel):
 # Lightshow control models
 class LightshowStart(BaseModel):
     """Request model for starting the lightshow."""
+    mode: Optional[LightshowMode] = None
+    playlist: Optional[str] = None
     resume_schedule: bool = True
 
 

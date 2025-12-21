@@ -166,6 +166,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--log', default=None,
                     help='Set the logging level. levels:INFO, DEBUG, WARNING, ERROR, CRITICAL')
 parser.add_argument('--config', default=None, help='Config File Override')
+parser.add_argument('--mode', default=None,
+                    help='Lightshow mode override (playlist, ambient, audio-in, stream-in). Overrides config file.')
 
 file_group = parser.add_mutually_exclusive_group()
 file_group.add_argument('--playlist', default=None,
@@ -1017,6 +1019,90 @@ class Lightshow(object):
 
             hc.clean_up()
 
+    def ambient_mode(self):
+        """Ambient mode - hold lights steady without playing music
+
+        This mode keeps specified lights on at configured brightness levels
+        without playing any audio. Useful for "lights on" periods after the
+        show ends, or as ambient lighting.
+
+        Configuration in defaults.cfg:
+            [ambient]
+            channels = 0,1,3,4,5,6  # Which channels to turn on
+            brightness = 1.0         # Brightness level (0.0 to 1.0)
+        """
+        log.info("Ambient mode starting")
+        print("="*70)
+        print("AMBIENT MODE - Lights On (No Music)")
+        print("="*70)
+        print("Press CTRL+C to stop")
+        print()
+
+        # Initialize hardware
+        hc.initialize()
+
+        # Get ambient configuration
+        try:
+            # Parse channel list (comma-separated channel numbers)
+            channel_str = cm.config.get('ambient', 'channels', fallback='')
+            if channel_str:
+                channels = [int(ch.strip()) for ch in channel_str.split(',')]
+            else:
+                # Default: all channels
+                channels = list(range(cm.hardware.gpio_len))
+
+            # Get brightness (0.0 to 1.0)
+            brightness = cm.config.getfloat('ambient', 'brightness', fallback=1.0)
+            brightness = max(0.0, min(1.0, brightness))  # Clamp to 0-1
+
+            log.info(f"Ambient mode: channels={channels}, brightness={brightness}")
+            print(f"Channels: {channels}")
+            print(f"Brightness: {brightness*100:.0f}%")
+            print()
+        except Exception as e:
+            log.error(f"Error reading ambient configuration: {e}")
+            print(f"Error in configuration: {e}")
+            print("Using defaults: all channels at 100%")
+            channels = list(range(cm.hardware.gpio_len))
+            brightness = 1.0
+
+        # Create brightness array - all off except specified channels
+        brightness_array = [0.0] * cm.hardware.gpio_len
+        for ch in channels:
+            if 0 <= ch < cm.hardware.gpio_len:
+                brightness_array[ch] = brightness
+            else:
+                log.warning(f"Channel {ch} out of range, skipping")
+
+        # Set lights and hold
+        log.info("Setting lights to ambient pattern...")
+        hc.set_array(brightness_array)
+
+        # Update state
+        cm.update_state('now_playing', "1")
+
+        print("Lights set - holding steady")
+        print("Press CTRL+C to stop")
+
+        try:
+            # Hold indefinitely (until Ctrl+C or external stop)
+            while True:
+                # In server mode, broadcast to clients
+                if self.server:
+                    hc.network.broadcast(brightness_array)
+
+                # Sleep to reduce CPU usage
+                time.sleep(1)
+
+        except KeyboardInterrupt:
+            log.info("CTRL+C pressed, stopping ambient mode")
+            print("\nStopping...")
+        finally:
+            # Clean up
+            cm.update_state('now_playing', "0")
+            hc.clean_up()
+            print("Ambient mode stopped")
+
     def launch_curses(self, screen):
         self.terminal.init(screen)
 
@@ -1060,18 +1146,26 @@ if __name__ == "__main__":
         level = levels.get('INFO')
     log.getLogger().setLevel(level)
 
-    # Make sure one of --playlist or --file was specified
-    if args.file is None and args.playlist is None:
-        print("One of --playlist or --file must be specified")
-        sys.exit()
-
     lightshow = Lightshow()
 
-    if "-in" in cm.lightshow.mode:
+    # Determine mode - command line overrides config file
+    mode = args.mode if args.mode else cm.lightshow.mode
+
+    # Check mode and run appropriate function
+    if mode == "ambient":
+        # Ambient mode - hold lights steady without music
+        log.info("Starting in AMBIENT mode (lights on, no music)")
+        lightshow.ambient_mode()
+
+    elif "-in" in mode:
         lightshow.audio_in()
 
     elif lightshow.client:
         lightshow.network_client()
 
     else:
+        # Playlist mode - make sure playlist/file was specified
+        if args.file is None and args.playlist is None:
+            print("One of --playlist or --file must be specified")
+            sys.exit()
         lightshow.play_song()

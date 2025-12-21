@@ -106,6 +106,7 @@ async def create_schedule(
         schedule_id = scheduler.create_schedule(
             start_time=schedule_data.start_time,
             stop_time=schedule_data.stop_time,
+            mode=schedule_data.mode.value,  # Convert enum to string
             days_of_week=schedule_data.days_of_week,
             enabled=schedule_data.enabled,
             updated_by=current_user.get("username")
@@ -155,6 +156,7 @@ async def update_schedule(
             schedule_id=schedule_id,
             start_time=schedule_data.start_time,
             stop_time=schedule_data.stop_time,
+            mode=schedule_data.mode.value if schedule_data.mode else None,  # Convert enum to string
             days_of_week=schedule_data.days_of_week,
             enabled=schedule_data.enabled,
             updated_by=current_user.get("username")

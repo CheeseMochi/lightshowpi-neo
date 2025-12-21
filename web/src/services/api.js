@@ -120,10 +120,14 @@ export const lightshow = {
     return apiRequest('/lightshow/status');
   },
 
-  async start(resumeSchedule = true) {
+  async start(resumeSchedule = true, mode = null, playlist = null) {
     return apiRequest('/lightshow/start', {
       method: 'POST',
-      body: JSON.stringify({ resume_schedule: resumeSchedule })
+      body: JSON.stringify({
+        resume_schedule: resumeSchedule,
+        mode: mode,
+        playlist: playlist
+      })
     });
   },
 
