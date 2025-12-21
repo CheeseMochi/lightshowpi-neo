@@ -52,8 +52,8 @@ Third party dependencies:
 alsaaudio: for audio input/output
     http://pyalsaaudio.sourceforge.net/
 
-soundfile: audio file decoding (MP3, OGG, FLAC, WAV, etc.)
-    https://pypi.org/project/soundfile/
+audioread: audio file decoding (MP3, OGG, FLAC, WAV, M4A/AAC, etc.)
+    https://pypi.org/project/audioread/
 
 numpy: for FFT calculation
     http://www.numpy.org/
@@ -82,7 +82,7 @@ from threading import Thread
 import csv
 
 import alsaaudio as aa
-import soundfile as sf
+import audioread
 import numpy as np
 from numpy import where, clip, round, nan_to_num
 
@@ -95,54 +95,106 @@ import RunningStats
 # ============================================================================
 # Audio Decoder Compatibility Wrapper
 # ============================================================================
-# Wrapper for soundfile to provide decoder.py-compatible API
+# Wrapper for audioread to provide decoder.py-compatible API
 class AudioFileWrapper:
-    """Wraps soundfile.SoundFile to match the old decoder.py API"""
+    """Wraps audioread to match the old decoder.py API
 
-    def __init__(self, sf_file):
-        # Handle both string paths and already-opened SoundFile objects
-        if isinstance(sf_file, str):
-            self.sf_file = sf.SoundFile(sf_file)
+    Supports many formats including MP3, WAV, FLAC, OGG, M4A/AAC via ffmpeg/GStreamer
+    """
+
+    def __init__(self, audio_file):
+        """Initialize wrapper with audioread file object
+
+        Args:
+            audio_file: audioread audio file object or path string
+        """
+        if isinstance(audio_file, str):
+            self.audio_file = audioread.audio_open(audio_file)
             self._owns_file = True
         else:
-            self.sf_file = sf_file
+            self.audio_file = audio_file
             self._owns_file = False
-        self._read_buffer = []
+
+        # Get audio properties
+        self.samplerate = self.audio_file.samplerate
+        self.channels = self.audio_file.channels
+        self.duration = self.audio_file.duration
+
+        # Create iterator for reading data
+        self._data_iterator = self.audio_file.read_data()
+        self._buffer = b''
+        self._finished = False
 
     def close(self):
-        """Close the underlying SoundFile if we opened it"""
-        if self._owns_file and self.sf_file:
-            self.sf_file.close()
+        """Close the underlying audio file if we opened it"""
+        if self._owns_file and self.audio_file:
+            self.audio_file.__exit__(None, None, None)
 
     def getframerate(self):
         """Return sample rate"""
-        return self.sf_file.samplerate
+        return self.samplerate
 
     def getnchannels(self):
         """Return number of channels"""
-        return self.sf_file.channels
+        return self.channels
 
     def getnframes(self):
         """Return total number of frames"""
-        return len(self.sf_file)
+        # Calculate total frames from duration and sample rate
+        return int(self.duration * self.samplerate)
 
     def readframes(self, n):
-        """Read n frames and return as bytes (int16)"""
-        # Read audio data as numpy array
-        data = self.sf_file.read(n, dtype='int16', always_2d=False)
-        # Convert to bytes to match decoder API
-        return data.tobytes()
+        """Read n frames and return as bytes (int16)
+
+        Args:
+            n: Number of frames to read
+
+        Returns:
+            bytes: Raw audio data as int16 bytes
+        """
+        # Calculate bytes needed (2 bytes per sample for int16, * channels)
+        bytes_needed = n * 2 * self.channels
+
+        # Read from iterator until we have enough data
+        while len(self._buffer) < bytes_needed and not self._finished:
+            try:
+                chunk = next(self._data_iterator)
+                self._buffer += chunk
+            except StopIteration:
+                self._finished = True
+                break
+
+        # Extract requested data from buffer
+        if len(self._buffer) >= bytes_needed:
+            data = self._buffer[:bytes_needed]
+            self._buffer = self._buffer[bytes_needed:]
+        else:
+            # Return what we have (end of file)
+            data = self._buffer
+            self._buffer = b''
+
+        return data
 
 
 class decoder:
-    """Compatibility module to replace old decoder.py"""
+    """Compatibility module to replace old decoder.py
+
+    Supports MP3, WAV, FLAC, OGG, M4A/AAC and other formats via audioread
+    """
 
     @staticmethod
     def open(filename, force_header=False):
-        """Open an audio file and return a decoder-compatible wrapper"""
-        # soundfile automatically handles various formats
-        sf_file = sf.SoundFile(filename)
-        return AudioFileWrapper(sf_file)
+        """Open an audio file and return a decoder-compatible wrapper
+
+        Args:
+            filename: Path to audio file
+            force_header: Ignored (kept for compatibility)
+
+        Returns:
+            AudioFileWrapper: Wrapper object with decoder-compatible API
+        """
+        audio_file = audioread.audio_open(filename)
+        return AudioFileWrapper(audio_file)
 
 
 # Make sure SYNCHRONIZED_LIGHTS_HOME environment variable is set

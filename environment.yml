@@ -12,6 +12,7 @@ dependencies:
   # ----------------------------------------------------------------------------
   - numpy>=2.0.0
   - pillow>=10.0.0
+  - audioread>=3.0.0
 
   # ----------------------------------------------------------------------------
   # Web Framework & API Backend (conda)
@@ -61,7 +62,6 @@ dependencies:
   # ----------------------------------------------------------------------------
   - pip:
       # Audio Processing
-      - soundfile>=0.12.1
       - mutagen>=1.47.0
       - pyalsaaudio>=0.10.0  # Requires alsa-lib from conda
 
