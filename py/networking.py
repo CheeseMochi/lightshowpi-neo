@@ -68,7 +68,7 @@ class Networking(object):
             self.network_stream.bind(('', 0))
             self.network_stream.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             log.info("streaming on port: " + str(self.port))
-        except socket.error(msg):
+        except socket.error as msg:
             log.error('Failed create socket or bind. Error code: ' +
                       str(msg[0]) + ' : ' + msg[1])
             print("error creating and binding socket for broadcast")
@@ -86,7 +86,7 @@ class Networking(object):
 
             log.info("client channels mapped as\n" + str(self.channels))
             log.info("listening on port: " + str(self.port))
-        except socket.error(msg):
+        except socket.error as msg:
             log.error('Failed create socket or bind. Error code: ' +
                       str(msg[0]) + ' : ' + msg[1])
             self.network_stream.close()

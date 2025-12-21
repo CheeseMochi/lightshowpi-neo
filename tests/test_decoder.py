@@ -1,5 +1,5 @@
 """
-Tests for decoder wrapper - soundfile-based audio decoding (replaces git-based decoder).
+Tests for decoder wrapper - audioread-based audio decoding (replaces git-based decoder).
 
 Note: Many tests require pyalsaaudio which is Linux-only (ALSA).
 These tests will be skipped on macOS/Windows - this is expected behavior.
@@ -18,28 +18,33 @@ ALSA_AVAILABLE = sys.platform.startswith('linux')
 
 
 @pytest.fixture
-def mock_soundfile():
-    """Mock soundfile module for testing."""
-    sf_mock = MagicMock()
-
-    # Mock file object
+def mock_audioread():
+    """Mock audioread module for testing."""
+    # Mock audio file object
     file_mock = MagicMock()
     file_mock.samplerate = 44100
     file_mock.channels = 2
-    file_mock.frames = 100000
-    file_mock.read.return_value = np.zeros((1024, 2), dtype=np.int16)
+    file_mock.duration = 2.0  # 2 seconds
     file_mock.__enter__.return_value = file_mock
     file_mock.__exit__.return_value = None
 
-    sf_mock.SoundFile.return_value = file_mock
+    # Mock the read_data method to return a fresh iterator each time called
+    def mock_read_data_generator():
+        """Generator function that yields audio data chunks."""
+        chunk_size = 1024 * 2 * 2  # 1024 frames * 2 bytes/sample * 2 channels
+        for _ in range(10):
+            yield b'\x00' * chunk_size
 
-    return sf_mock
+    # Make read_data() return a new generator each time it's called
+    file_mock.read_data = lambda: mock_read_data_generator()
+
+    return file_mock
 
 
 @pytest.mark.unit
 @pytest.mark.platform
 class TestAudioFileWrapper:
-    """Test AudioFileWrapper class that wraps soundfile.
+    """Test AudioFileWrapper class that wraps audioread.
 
     Note: Requires pyalsaaudio (Linux/Pi only). Skipped on macOS/Windows.
     """
@@ -110,24 +115,24 @@ class TestDecoderCompatibility:
 
 
 @pytest.mark.unit
-class TestSoundFileIntegration:
-    """Test integration with soundfile library."""
+class TestAudioReadIntegration:
+    """Test integration with audioread library."""
 
-    def test_soundfile_imported(self):
-        """Test that soundfile can be imported."""
+    def test_audioread_imported(self):
+        """Test that audioread can be imported."""
         try:
-            import soundfile as sf
-            assert sf is not None
+            import audioread
+            assert audioread is not None
         except ImportError:
-            pytest.skip("soundfile not installed")
+            pytest.skip("audioread not installed")
 
-    def test_soundfile_in_requirements(self):
-        """Test that soundfile is in requirements.txt."""
+    def test_audioread_in_requirements(self):
+        """Test that audioread is in requirements.txt."""
         requirements_path = Path(__file__).parent.parent / 'requirements.txt'
 
         if requirements_path.exists():
             content = requirements_path.read_text()
-            assert 'soundfile' in content.lower(), "soundfile should be in requirements.txt"
+            assert 'audioread' in content.lower(), "audioread should be in requirements.txt"
 
 
 @pytest.mark.integration
@@ -145,10 +150,10 @@ class TestRealAudioFile:
             pytest.skip("Requires Linux/ALSA (skipped on macOS/Windows)")
 
         try:
-            import soundfile as sf
+            import audioread
             import synchronized_lights
         except ImportError:
-            pytest.skip("soundfile or synchronized_lights not available")
+            pytest.skip("audioread or synchronized_lights not available")
 
         # Check if test audio file exists
         test_file = Path(__file__).parent / 'fixtures' / 'test_tone.wav'
@@ -191,17 +196,17 @@ class TestRealAudioFile:
 @pytest.mark.unit
 @pytest.mark.platform
 class TestWrapperMethods:
-    """Test AudioFileWrapper methods with mocked soundfile.
+    """Test AudioFileWrapper methods with mocked audioread.
 
     Note: Requires pyalsaaudio (Linux/Pi only). Skipped on macOS/Windows.
     """
 
-    def test_getframerate(self, mock_soundfile):
+    def test_getframerate(self, mock_audioread):
         """Test getframerate() method."""
         if not ALSA_AVAILABLE:
             pytest.skip("Requires Linux/ALSA (skipped on macOS/Windows)")
 
-        with patch('soundfile.SoundFile', mock_soundfile.SoundFile):
+        with patch('audioread.audio_open', return_value=mock_audioread):
             try:
                 import synchronized_lights
 
@@ -211,12 +216,12 @@ class TestWrapperMethods:
             except (ImportError, AttributeError):
                 pytest.skip("AudioFileWrapper not available")
 
-    def test_getnchannels(self, mock_soundfile):
+    def test_getnchannels(self, mock_audioread):
         """Test getnchannels() method."""
         if not ALSA_AVAILABLE:
             pytest.skip("Requires Linux/ALSA (skipped on macOS/Windows)")
 
-        with patch('soundfile.SoundFile', mock_soundfile.SoundFile):
+        with patch('audioread.audio_open', return_value=mock_audioread):
             try:
                 import synchronized_lights
 
@@ -226,12 +231,12 @@ class TestWrapperMethods:
             except (ImportError, AttributeError):
                 pytest.skip("AudioFileWrapper not available")
 
-    def test_readframes(self, mock_soundfile):
+    def test_readframes(self, mock_audioread):
         """Test readframes() method."""
         if not ALSA_AVAILABLE:
             pytest.skip("Requires Linux/ALSA (skipped on macOS/Windows)")
 
-        with patch('soundfile.SoundFile', mock_soundfile.SoundFile):
+        with patch('audioread.audio_open', return_value=mock_audioread):
             try:
                 import synchronized_lights
 
@@ -259,8 +264,8 @@ class TestNoGitDependencies:
             # Our wrapper should have 'open' function
             assert hasattr(decoder, 'open')
 
-    def test_uses_soundfile_not_decoder(self):
-        """Test that soundfile is used instead of decoder."""
+    def test_uses_audioread_not_decoder(self):
+        """Test that audioread is used instead of decoder."""
         if not ALSA_AVAILABLE:
             pytest.skip("Requires Linux/ALSA (skipped on macOS/Windows)")
 
@@ -268,9 +273,9 @@ class TestNoGitDependencies:
             import synchronized_lights
             import inspect
 
-            # Check synchronized_lights source for soundfile import
+            # Check synchronized_lights source for audioread import
             source = inspect.getsource(synchronized_lights)
-            assert 'soundfile' in source or 'sf' in source
+            assert 'audioread' in source
         except (ImportError, OSError):
             pytest.skip("Cannot inspect synchronized_lights source")
 
@@ -287,15 +292,15 @@ class TestNoGitDependencies:
 
 @pytest.mark.unit
 class TestSupportedFormats:
-    """Test that common audio formats are supported via soundfile."""
+    """Test that common audio formats are supported via audioread."""
 
     @pytest.mark.parametrize("extension", ['.mp3', '.wav', '.flac', '.ogg', '.m4a'])
     def test_format_support(self, extension):
         """Test that wrapper can be created for common formats."""
-        # This is a basic check - actual support depends on soundfile and libsndfile
+        # This is a basic check - actual support depends on audioread and ffmpeg/GStreamer
         try:
-            import soundfile as sf
-            # soundfile supports these formats (with appropriate libsndfile build)
-            assert sf is not None
+            import audioread
+            # audioread supports these formats (with appropriate backend)
+            assert audioread is not None
         except ImportError:
-            pytest.skip("soundfile not available")
+            pytest.skip("audioread not available")
