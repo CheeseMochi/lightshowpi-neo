@@ -1,5 +1,44 @@
 # LightShowPi Neo - Release Notes
 
+## Version 0.9.1 - Beta 2 (September 2026)
+
+Second beta. It integrates the button manager with the API, adds live status and
+schedule suspend/resume, and fixes several bugs that stopped API features from working.
+See [CHANGELOG.md](CHANGELOG.md) for the full list.
+
+### ✨ Highlights
+
+- **Buttons through the API**: physical buttons (`py/buttonmanager.py`) and new virtual
+  buttons in the dashboard now drive the show through `/api/buttons/*`.
+- **Live status**: the dashboard shows the song title, elapsed/total time and the
+  next scheduled event.
+- **Pause vs Stop**: *Pause* stops until the next scheduled start. *Stop* suspends
+  the schedule until you press *Start* again.
+- **Ambient mode** and per-schedule modes (playlist, ambient, audio-in, stream-in).
+- **systemd units** for the API and button manager (`systemd/`, installed manually).
+- **Experimental sACN** server/client networking.
+- **audioread** decoder (more formats) and Raspberry Pi 5 install fixes.
+
+### 🐛 Notable Fixes
+
+- The button manager's API mode never connected (wrong port and route prefix).
+- Concurrent writes to `config/state.cfg` could drop each other's keys.
+- `/api/lightshow/status` returned `"0"`/`"1"` as the song name, and could fail
+  during start/stop.
+- `/api/health` always reported idle with zero uptime.
+
+### ⚠️ Upgrade Notes
+
+- **Button manager password**: the hardcoded `admin`/`admin123` login is gone. Set
+  `LIGHTSHOWPI_API_PASSWORD` (e.g. in `/etc/lightshowpi/buttons.env`) or
+  `[buttons] api_password` in `config/overrides.cfg`. Without one, `--mode auto`
+  runs in direct mode and `--mode api` exits. See [systemd/README.md](systemd/README.md).
+- **Virtual buttons** need `[buttons] enabled = True`.
+- **Button endpoints** moved from `/buttons/*` to `/api/buttons/*`.
+- The `schedule.mode` database column is added automatically on first start.
+
+---
+
 ## Version 0.9.0 - Beta 1 (December 2025)
 
 ### 🚧 Beta Release - Functional but Not Feature-Complete

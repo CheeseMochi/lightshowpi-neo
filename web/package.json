@@ -1,6 +1,6 @@
 {
   "name": "lightshowpi-neo-ui",
-  "version": "1.0.0",
+  "version": "0.9.1",
   "description": "React frontend for LightShowPi Neo",
   "private": true,
   "dependencies": {

@@ -258,7 +258,7 @@ GET /api/health
 
 # Response
 {
-  "api_version": "1.0.0",
+  "api_version": "0.9.1",
   "uptime": 3600.5,
   "lightshow_state": "idle",
   "database_ok": true,
