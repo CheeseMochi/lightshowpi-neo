@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **systemd units** for the API and button manager (`systemd/`), with setup docs in
   `systemd/README.md`. Units are not installed automatically by `install.sh`.
 - **`environment-dev.yml`**: conda environment for macOS/Linux development (no GPIO/ALSA).
+- **Live song status**: `/api/lightshow/status` reports the song title, elapsed and total
+  time, mode, and the next scheduled event; `synchronized_lights.py` publishes
+  `song_title`, `song_path`, `song_duration` and `song_started_at` to the state file.
+- **Schedule suspend/resume**: stopping with `mode=stop` suspends all scheduled
+  start/stop jobs (stored in the `settings` table) until the show is started again
+  with `resume_schedule=true`. The dashboard has separate Pause and Stop buttons and
+  shows the next event.
+- `/api/health` reports real uptime, lightshow state and online client count.
 - API and button service tests (`tests/test_button_endpoints.py`,
   `tests/test_button_manager_service.py`).
 
@@ -36,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Missing or unreadable playlist files now produce a clear error message.
 
 ### Fixed
+- **State file lost updates**: `Configuration.update_state` now re-reads `state.cfg`
+  under an exclusive lock before writing, so concurrent writers (show, button manager,
+  API) no longer overwrite each other's keys. New `update_states()` writes several keys
+  at once.
+- Lightshow status reported the `now_playing` flag ("0"/"1") as the song name.
+- `/api/lightshow/status` could fail with a 500 for the `starting`/`stopping` states
+  (duplicate `LightshowState` enums unified; client status enum renamed `ClientState`).
+- `restart` dropped the current mode (e.g. ambient).
 - Raspberry Pi 5 install issues (`install.sh`, `environment.yml`, `bin/link_lgpio.sh`).
 - Button manager bug fixes and test fixes on macOS.
 - `requests` is now installed as a dependency.

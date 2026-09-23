@@ -13,12 +13,17 @@ from enum import Enum
 
 # Enums for controlled values
 class LightshowState(str, Enum):
-    """Current state of the lightshow system."""
+    """Current state of the lightshow system.
+
+    Shared by the API responses and LightshowManager.
+    """
     IDLE = "idle"
+    STARTING = "starting"
+    PLAYING = "playing"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
     SCHEDULED = "scheduled"
     PAUSED = "paused"
-    STOPPED = "stopped"
-    PLAYING = "playing"
     TEST_MODE = "test_mode"
     ERROR = "error"
 
@@ -37,8 +42,8 @@ class LightshowMode(str, Enum):
     STREAM_IN = "stream-in"  # Stream input mode
 
 
-class ClientStatus(str, Enum):
-    """Status of a client Pi."""
+class ClientState(str, Enum):
+    """Connection state of a client Pi."""
     ONLINE = "online"
     OFFLINE = "offline"
     ERROR = "error"
@@ -97,7 +102,7 @@ class ClientResponse(BaseModel):
     auth_key: str  # Only returned on creation
     ip_address: Optional[str] = None
     last_seen: Optional[datetime] = None
-    status: ClientStatus
+    status: ClientState
     created_at: datetime
 
 
@@ -106,7 +111,7 @@ class ClientStatus(BaseModel):
     id: str
     name: str
     ip_address: Optional[str] = None
-    status: ClientStatus
+    status: ClientState
     last_seen: Optional[datetime] = None
 
 
@@ -217,13 +222,15 @@ class LightshowStop(BaseModel):
 class LightshowStatus(BaseModel):
     """Response model for lightshow status."""
     state: LightshowState
+    mode: Optional[str] = None
     current_song: Optional[str] = None
     current_song_id: Optional[int] = None
     playlist: Optional[str] = None
     elapsed_time: Optional[float] = None
     total_time: Optional[float] = None
     schedule_enabled: bool
-    next_scheduled_event: Optional[str] = None
+    next_scheduled_event: Optional[str] = None  # ISO 8601 datetime
+    next_scheduled_action: Optional[str] = None  # "start" or "stop"
     clients: List[ClientStatus] = []
 
 

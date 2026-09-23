@@ -149,6 +149,10 @@ class SchedulerService:
         Args:
             mode: Lightshow mode to start (playlist, ambient, audio-in, stream-in)
         """
+        if self.is_suspended():
+            log.info(f"Scheduled start skipped (mode: {mode}): schedule is suspended")
+            return
+
         log.info(f"Scheduled start triggered (mode: {mode})")
         try:
             success = self.lightshow.start(mode=mode)
@@ -161,6 +165,10 @@ class SchedulerService:
 
     def _stop_lightshow(self):
         """Stop the lightshow (called by scheduler)."""
+        if self.is_suspended():
+            log.info("Scheduled stop skipped: schedule is suspended")
+            return
+
         log.info("Scheduled stop triggered")
         try:
             success = self.lightshow.stop(graceful=True)
@@ -170,6 +178,50 @@ class SchedulerService:
                 log.warning("Failed to stop lightshow (may not be running)")
         except Exception as e:
             log.error(f"Error stopping lightshow from schedule: {e}")
+
+    # Global schedule suspend/resume ("stop" mode)
+
+    SUSPENDED_KEY = "schedule_suspended"
+
+    def _get_setting(self, key: str) -> Optional[str]:
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def _set_setting(self, key: str, value: str):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO settings (key, value, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (key, value))
+
+    def is_suspended(self) -> bool:
+        """
+        True when all schedules are suspended (lightshow stopped with mode=stop).
+
+        Per-schedule `enabled` flags are not affected by suspension.
+        """
+        try:
+            return self._get_setting(self.SUSPENDED_KEY) == "1"
+        except Exception as e:
+            log.error(f"Could not read schedule suspend flag: {e}")
+            return False
+
+    def suspend(self, by: Optional[str] = None):
+        """Suspend all scheduled start/stop jobs until resume() is called."""
+        self._set_setting(self.SUSPENDED_KEY, "1")
+        log.info(f"Schedule suspended by {by or 'unknown'}")
+
+    def resume(self, by: Optional[str] = None):
+        """Resume scheduled start/stop jobs."""
+        self._set_setting(self.SUSPENDED_KEY, "0")
+        log.info(f"Schedule resumed by {by or 'unknown'}")
 
     def _job_executed(self, event):
         """Event listener for job execution (logging)."""
@@ -412,3 +464,16 @@ class SchedulerService:
         # Sort by time and limit
         events.sort(key=lambda x: x['time'])
         return events[:limit]
+
+    def get_next_event(self) -> Optional[Dict]:
+        """
+        Get the next upcoming scheduled event.
+
+        Returns:
+            Event dict (schedule_id, action, time, job_id), or None if there are
+            no scheduled events or the schedule is suspended.
+        """
+        if self.is_suspended():
+            return None
+        events = self.get_next_scheduled_events(limit=1)
+        return events[0] if events else None

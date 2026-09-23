@@ -10,6 +10,7 @@ traditional CLI/cron/button control methods.
 
 import os
 import sys
+import time
 import logging
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,6 +61,7 @@ async def lifespan(app: FastAPI):
 
     # Startup
     log.info("Starting LightShowPi Neo API...")
+    app.state.start_time = time.time()
 
     # Load configuration
     api_config = get_api_config()
@@ -88,6 +90,7 @@ async def lifespan(app: FastAPI):
     # Initialize lightshow manager
     lightshow_manager = LightshowManager(api_config)
     lightshow.set_manager(lightshow_manager)
+    lightshow.set_database(db)
 
     # Initialize button manager
     button_config = {
@@ -206,6 +209,20 @@ async def login(
 # Health Check Endpoint
 # ============================================================================
 
+def count_clients_online(database) -> int:
+    """Number of registered clients whose status is 'online'."""
+    if database is None:
+        return 0
+    try:
+        with database.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM clients WHERE status = 'online'")
+            return cursor.fetchone()[0]
+    except Exception as e:
+        log.warning(f"Could not count online clients: {e}")
+        return 0
+
+
 @app.get("/api/health", response_model=SystemHealth, tags=["System"])
 async def health_check():
     """
@@ -214,15 +231,22 @@ async def health_check():
     This endpoint does not require authentication and can be used
     for monitoring and health checks.
     """
-    import time
-    start_time = getattr(app.state, 'start_time', time.time())
+    start_time = getattr(app.state, 'start_time', None) or time.time()
+
+    lightshow_state = LightshowState.IDLE
+    if lightshow_manager is not None:
+        try:
+            lightshow_state = LightshowState(lightshow_manager.get_status()["state"])
+        except Exception as e:
+            log.warning(f"Could not get lightshow state: {e}")
+            lightshow_state = LightshowState.ERROR
 
     return {
         "api_version": API_VERSION,
         "uptime": time.time() - start_time,
-        "lightshow_state": LightshowState.IDLE,  # TODO: Get actual state
+        "lightshow_state": lightshow_state,
         "database_ok": db is not None,
-        "clients_online": 0  # TODO: Get actual count
+        "clients_online": count_clients_online(db)
     }
 
 

@@ -12,25 +12,43 @@ import subprocess
 import logging
 import time
 from typing import Optional, Dict, Any
-from enum import Enum
 from threading import Thread, Lock
 
 # Add py directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..', 'py'))
 
 from api.core.config import APIConfig
+from api.models.schemas import LightshowState
 
 log = logging.getLogger(__name__)
 
 
-class LightshowState(str, Enum):
-    """Lightshow states."""
-    IDLE = "idle"
-    STARTING = "starting"
-    PLAYING = "playing"
-    STOPPING = "stopping"
-    STOPPED = "stopped"
-    ERROR = "error"
+def _parse_float(value) -> Optional[float]:
+    """Parse a state-file value as float; blank/invalid -> None."""
+    try:
+        if value is None or str(value).strip() == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def compute_elapsed(started_at: Optional[float], duration: Optional[float],
+                    now: Optional[float] = None) -> Optional[float]:
+    """
+    Seconds elapsed since the current song started.
+
+    Clamped to [0, duration] when a duration is known. Returns None when
+    no song is playing (started_at unknown).
+    """
+    if started_at is None:
+        return None
+    if now is None:
+        now = time.time()
+    elapsed = max(0.0, now - started_at)
+    if duration is not None and duration > 0:
+        elapsed = min(elapsed, duration)
+    return round(elapsed, 1)
 
 
 class LightshowManager:
@@ -53,6 +71,7 @@ class LightshowManager:
         self.state = LightshowState.IDLE
         self.current_song: Optional[str] = None
         self.current_playlist: Optional[str] = None
+        self.current_mode: Optional[str] = None
         self.lock = Lock()
         self.output_thread: Optional[Thread] = None
         self.error_message: Optional[str] = None
@@ -109,6 +128,9 @@ class LightshowManager:
             try:
                 self.state = LightshowState.STARTING
                 self.error_message = None
+                self.current_mode = mode
+                self.current_song = None
+                self.current_playlist = None
 
                 # Build command
                 cmd = [self.python_bin, self.synchronized_lights_script]
@@ -304,39 +326,56 @@ class LightshowManager:
         if not running and self.state == LightshowState.PLAYING:
             self.state = LightshowState.IDLE
 
-        # Check state file for current song
-        try:
-            self.config.reload_state()
-            now_playing = self.config.get_state('now_playing', '')
-            if now_playing and now_playing != '0':
-                self.current_song = now_playing
-        except Exception as e:
-            log.warning(f"Could not read state file: {e}")
+        song_title = None
+        song_path = None
+        elapsed_time = None
+        total_time = None
+
+        # Song metadata is written to the state file by synchronized_lights.py
+        # (song_title, song_path, song_duration, song_started_at).
+        # now_playing is only a "0"/"1" flag.
+        if running:
+            try:
+                self.config.reload_state()
+                song_title = self.config.get_state('song_title', '') or None
+                song_path = self.config.get_state('song_path', '') or None
+                total_time = _parse_float(self.config.get_state('song_duration', ''))
+                started_at = _parse_float(self.config.get_state('song_started_at', ''))
+                elapsed_time = compute_elapsed(started_at, total_time)
+            except Exception as e:
+                log.warning(f"Could not read state file: {e}")
+
+        current_song = song_title or (self.current_song if running else None)
 
         return {
             "state": self.state.value,
             "is_running": running,
-            "current_song": self.current_song,
+            "current_song": current_song,
+            "song_path": song_path,
             "current_playlist": self.current_playlist,
+            "mode": self.current_mode,
+            "elapsed_time": elapsed_time,
+            "total_time": total_time,
             "error_message": self.error_message,
             "pid": self.process.pid if self.process else None
         }
 
     def restart(self) -> bool:
         """
-        Restart the lightshow with current settings.
+        Restart the lightshow with current settings (playlist and mode).
 
         Returns:
             bool: True if restarted successfully
         """
         playlist = self.current_playlist
+        mode = self.current_mode
 
         if not self.stop():
             return False
 
         time.sleep(1)
 
-        return self.start(playlist=playlist)
+        return self.start(playlist=playlist, mode=mode)
 
     def cleanup(self):
         """Clean up resources."""

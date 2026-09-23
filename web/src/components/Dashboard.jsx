@@ -78,9 +78,9 @@ export default function Dashboard({ onLogout }) {
     }
   };
 
-  const handleStop = async () => {
+  const handleStop = async (mode = 'pause') => {
     try {
-      await lightshow.stop('pause');
+      await lightshow.stop(mode);
       await fetchStatus();
     } catch (err) {
       setError(err.message);
@@ -138,6 +138,9 @@ export default function Dashboard({ onLogout }) {
     );
   }
 
+  const isRunning = ['playing', 'starting'].includes(status?.state);
+  const hasElapsed = status?.elapsed_time !== null && status?.elapsed_time !== undefined;
+
   return (
     <div className="dashboard">
       <header className="dashboard-header">
@@ -173,11 +176,12 @@ export default function Dashboard({ onLogout }) {
               </div>
             )}
 
-            {status?.elapsed_time !== null && status?.total_time && (
+            {hasElapsed && (
               <div className="status-item">
-                <span className="label">Progress:</span>
+                <span className="label">{status.total_time ? 'Progress:' : 'Elapsed:'}</span>
                 <span className="value">
-                  {formatTime(status.elapsed_time)} / {formatTime(status.total_time)}
+                  {formatTime(status.elapsed_time)}
+                  {status.total_time ? ` / ${formatTime(status.total_time)}` : ''}
                 </span>
               </div>
             )}
@@ -185,9 +189,19 @@ export default function Dashboard({ onLogout }) {
             <div className="status-item">
               <span className="label">Schedule:</span>
               <span className="value">
-                {status?.schedule_enabled ? '✓ Enabled' : '✗ Disabled'}
+                {status?.schedule_enabled ? '✓ Enabled' : '✗ Suspended'}
               </span>
             </div>
+
+            {status?.next_scheduled_event && (
+              <div className="status-item">
+                <span className="label">Next Event:</span>
+                <span className="value">
+                  {(status.next_scheduled_action || 'event').toUpperCase()}{' '}
+                  {formatEventTime(status.next_scheduled_event)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -200,7 +214,7 @@ export default function Dashboard({ onLogout }) {
               id="mode-select"
               value={selectedMode}
               onChange={(e) => setSelectedMode(e.target.value)}
-              disabled={status?.state === 'playing'}
+              disabled={isRunning}
               className="mode-select"
             >
               <option value="playlist">Playlist</option>
@@ -213,15 +227,26 @@ export default function Dashboard({ onLogout }) {
             <button
               onClick={handleStart}
               className="btn btn-success btn-large"
-              disabled={status?.state === 'playing'}
+              disabled={isRunning}
+              title="Start the show and resume the schedule"
             >
               ▶ Start
             </button>
 
             <button
-              onClick={handleStop}
+              onClick={() => handleStop('pause')}
               className="btn btn-danger btn-large"
-              disabled={status?.state !== 'playing'}
+              disabled={!isRunning}
+              title="Stop until the next scheduled start"
+            >
+              ⏸ Pause
+            </button>
+
+            <button
+              onClick={() => handleStop('stop')}
+              className="btn btn-danger btn-large"
+              disabled={!isRunning && !status?.schedule_enabled}
+              title="Stop and suspend the schedule until started again"
             >
               ■ Stop
             </button>
@@ -295,6 +320,9 @@ export default function Dashboard({ onLogout }) {
         {/* Upcoming Events */}
         <div className="card events-card">
           <h2>Upcoming Events</h2>
+          {status && !status.schedule_enabled && (
+            <p className="no-events">Schedule suspended — press Start to resume</p>
+          )}
           {upcomingEvents.length === 0 ? (
             <p className="no-events">No scheduled events</p>
           ) : (

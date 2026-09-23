@@ -293,7 +293,11 @@ class Lightshow(object):
             curses.wrapper(self.launch_curses)
 
         # Reset the state to indicate whether we're playing
-        cm.update_state('now_playing', "0")
+        cm.update_states({'now_playing': "0",
+                          'song_title': '',
+                          'song_path': '',
+                          'song_duration': '',
+                          'song_started_at': ''})
 
     def exit_function(self):
         """atexit function"""
@@ -306,7 +310,11 @@ class Lightshow(object):
         hc.clean_up()
 
         # Reset the state to indicate whether we're playing
-        cm.update_state('now_playing', "0")
+        cm.update_states({'now_playing': "0",
+                          'song_title': '',
+                          'song_path': '',
+                          'song_duration': '',
+                          'song_started_at': ''})
 
         if cm.lightshow.mode == 'stream-in':
             try:
@@ -475,7 +483,11 @@ class Lightshow(object):
             self.network.set_playing()
 
         # Reset the state to indicate whether we're playing
-        cm.update_state('now_playing', "1")
+        cm.update_states({'now_playing': "1",
+                          'song_title': cm.lightshow.mode,
+                          'song_path': '',
+                          'song_duration': '',
+                          'song_started_at': time.time()})
 
         songcount = 0
 
@@ -495,6 +507,8 @@ class Lightshow(object):
                         streamout = streamout.replace(cm.lightshow.stream_song_delim,'')
                         streamout = streamout.replace('"','')
                         os.system("/bin/echo " + "Now Playing \"" + streamout + "\"" + " >" + cm.home_dir + "/logs/now_playing.txt")
+                        cm.update_states({'song_title': streamout,
+                                          'song_started_at': time.time()})
                         if cm.lightshow.songname_command:
                             os.system(cm.lightshow.songname_command + ' "Now Playing ' + streamout + '"')
 
@@ -889,18 +903,32 @@ class Lightshow(object):
 
         os.system("/bin/echo \"\" >" + cm.home_dir + "/logs/now_playing.txt")
         metadata = mutagen.File(self.song_filename, easy=True)
+        song_title = None
+        song_duration = ''
         if not metadata is None:
             if "title" in metadata and "artist" in metadata:
-                now_playing = "Now Playing " + metadata["title"][0] + " by " + metadata["artist"][0]
+                song_title = metadata["title"][0] + " by " + metadata["artist"][0]
+                now_playing = "Now Playing " + song_title
             elif "title" in metadata:
-                now_playing = "Now Playing " + metadata["title"][0]
+                song_title = metadata["title"][0]
+                now_playing = "Now Playing " + song_title
             else:
                 now_playing = "Now Playing Unknown"
             if cm.lightshow.songname_command:
                 os.system(cm.lightshow.songname_command + " \"" + now_playing + "\"")
+            try:
+                song_duration = round(float(metadata.info.length), 2)
+            except (AttributeError, TypeError, ValueError):
+                song_duration = ''
         else:
             now_playing = "Now Playing " + os.path.basename(self.song_filename)
         os.system("/bin/echo " + " \"" + now_playing + "\"" + " >" + cm.home_dir + "/logs/now_playing.txt")
+
+        # Publish song metadata for the API (song_started_at is set when playback begins)
+        cm.update_states({'song_title': song_title or os.path.basename(self.song_filename),
+                          'song_path': filename,
+                          'song_duration': song_duration,
+                          'song_started_at': ''})
 
     def play_song(self):
         """Play the next song from the play list (or --file argument)."""
@@ -984,7 +1012,7 @@ class Lightshow(object):
             print("\nsaving sync file")
 
         # Reset the state to indicate whether we're playing
-        cm.update_state('now_playing', "1")
+        cm.update_states({'now_playing': "1", 'song_started_at': time.time()})
 
         while data != b'' and not play_now:
             # output data to sound device
@@ -1039,7 +1067,7 @@ class Lightshow(object):
         self.network.unset_playing()
 
         # Reset the state to indicate whether we're playing
-        cm.update_state('now_playing', "0")
+        cm.update_states({'now_playing': "0", 'song_started_at': ''})
 
         if not play_now:
             PrePostShow('postshow', hc).execute()
@@ -1131,7 +1159,11 @@ class Lightshow(object):
         hc.set_array(brightness_array)
 
         # Update state
-        cm.update_state('now_playing', "1")
+        cm.update_states({'now_playing': "1",
+                          'song_title': 'Ambient',
+                          'song_path': '',
+                          'song_duration': '',
+                          'song_started_at': time.time()})
 
         print("Lights set - holding steady")
         print("Press CTRL+C to stop")
@@ -1151,7 +1183,7 @@ class Lightshow(object):
             print("\nStopping...")
         finally:
             # Clean up
-            cm.update_state('now_playing', "0")
+            cm.update_states({'now_playing': "0", 'song_started_at': ''})
             hc.clean_up()
             print("Ambient mode stopped")
 

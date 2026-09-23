@@ -159,18 +159,47 @@ class Configuration(object):
         :param value: value to update option name to
         :type value: str
         """
-        value = str(value)
-        logging.info('Updating application state {%s: %s}', name, value)
+        self.update_states({name: value})
 
-        if not self.state.has_section(self.state_section):
-            self.state.add_section(self.state_section)
+    def update_states(self, values):
+        """Update several application state values in a single locked write.
 
-        self.state.set(self.state_section, name, value)
+        The state file is shared by several processes (synchronized_lights,
+        the button manager and the API). To avoid lost updates the file is
+        locked exclusively, re-read from disk, updated, and rewritten while
+        the lock is held.
 
-        with open(self.state_file, 'wt') as state_fp:
+        :param values: mapping of option name -> value (values are stored as str)
+        :type values: dict
+        """
+        values = {name: str(value) for name, value in values.items()}
+        if not values:
+            return
+        logging.info('Updating application state %s', values)
+
+        # O_CREAT so a missing state file is recreated rather than raising
+        fd = os.open(self.state_file, os.O_RDWR | os.O_CREAT, 0o644)
+        with os.fdopen(fd, 'r+') as state_fp:
             fcntl.lockf(state_fp, fcntl.LOCK_EX)
-            self.state.write(state_fp)
-            fcntl.lockf(state_fp, fcntl.LOCK_UN)
+            try:
+                fresh = configparser.RawConfigParser()
+                state_fp.seek(0)
+                fresh.read_file(state_fp, self.state_file)
+
+                if not fresh.has_section(self.state_section):
+                    fresh.add_section(self.state_section)
+
+                for name, value in values.items():
+                    fresh.set(self.state_section, name, value)
+
+                state_fp.seek(0)
+                state_fp.truncate()
+                fresh.write(state_fp)
+                state_fp.flush()
+            finally:
+                fcntl.lockf(state_fp, fcntl.LOCK_UN)
+
+        self.state = fresh
 
     def set_configs(self):
 

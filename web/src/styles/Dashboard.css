@@ -124,9 +124,17 @@
   color: white;
 }
 
-.status-paused {
+.status-paused,
+.status-starting,
+.status-stopping,
+.status-test_mode {
   background-color: var(--warning-color);
   color: white;
+}
+
+.status-stopped {
+  background-color: var(--bg-dark);
+  color: var(--text-secondary);
 }
 
 .status-error {

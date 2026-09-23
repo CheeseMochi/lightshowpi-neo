@@ -41,6 +41,15 @@ def set_scheduler(scheduler):
     _scheduler_service = scheduler
 
 
+def get_optional_scheduler():
+    """Dependency returning the scheduler service, or None if not initialized.
+
+    Used by endpoints (e.g. lightshow status) that should keep working
+    without a scheduler.
+    """
+    return _scheduler_service
+
+
 @router.get("", response_model=List[ScheduleResponse])
 async def list_schedules(
     enabled_only: bool = False,

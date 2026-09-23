@@ -6,26 +6,31 @@ Provides REST API endpoints for controlling the lightshow.
 
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import Optional
+from typing import Optional, List, Dict
 
 from api.core.auth import require_admin
-from api.core.config import get_api_config, APIConfig
+from api.core.database import Database
 from api.services.lightshow_manager import (
     get_lightshow_manager,
     set_lightshow_manager,
     LightshowManager,
-    LightshowState
 )
+from api.services.scheduler import SchedulerService
+from api.routers.schedules import get_optional_scheduler
 from api.models.schemas import (
     LightshowStart,
     LightshowStop,
     LightshowStatus,
+    ClientState,
     StopMode
 )
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/lightshow", tags=["Lightshow Control"])
+
+# Database instance (set by main.py during startup)
+_database: Optional[Database] = None
 
 
 # Dependency for getting lightshow manager
@@ -40,10 +45,63 @@ def set_manager(manager: LightshowManager) -> None:
     set_lightshow_manager(manager)
 
 
+def set_database(database: Optional[Database]) -> None:
+    """Set the database instance used for status lookups (called during startup)."""
+    global _database
+    _database = database
+
+
+def get_optional_database() -> Optional[Database]:
+    """Dependency returning the database, or None if not initialized."""
+    return _database
+
+
+def lookup_song_id(database: Optional[Database], song_path: Optional[str]) -> Optional[int]:
+    """Find the songs.id for a file path (None until song upload populates the table)."""
+    if database is None or not song_path:
+        return None
+    try:
+        with database.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM songs WHERE file_path = ? LIMIT 1", (song_path,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+    except Exception as e:
+        log.warning(f"Could not look up song id: {e}")
+        return None
+
+
+def list_clients(database: Optional[Database]) -> List[Dict]:
+    """Return registered clients as ClientStatus dicts."""
+    if database is None:
+        return []
+    try:
+        with database.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name, ip_address, status, last_seen
+                FROM clients
+                ORDER BY name
+            """)
+            clients = []
+            for row in cursor.fetchall():
+                client = dict(row)
+                try:
+                    client['status'] = ClientState(client.get('status') or 'offline')
+                except ValueError:
+                    client['status'] = ClientState.ERROR
+                clients.append(client)
+            return clients
+    except Exception as e:
+        log.warning(f"Could not list clients: {e}")
+        return []
+
+
 @router.post("/start", status_code=status.HTTP_200_OK)
 async def start_lightshow(
     request: LightshowStart,
     manager: LightshowManager = Depends(get_manager),
+    scheduler: Optional[SchedulerService] = Depends(get_optional_scheduler),
     current_user: dict = Depends(require_admin)
 ):
     """
@@ -52,7 +110,9 @@ async def start_lightshow(
     **Requires:** Admin authentication
 
     **Parameters:**
-    - `resume_schedule`: If true, re-enables schedule after manual start
+    - `mode`: Optional lightshow mode (playlist, ambient, audio-in, stream-in)
+    - `playlist`: Optional playlist path
+    - `resume_schedule`: If true, resumes the schedule if it was suspended by a "stop"
 
     **Returns:**
     - Success message and current status
@@ -64,8 +124,6 @@ async def start_lightshow(
     }
     ```
     """
-    config = get_api_config()
-
     # Start the lightshow with optional mode and playlist
     success = manager.start(
         mode=request.mode.value if request.mode else None,
@@ -78,10 +136,9 @@ async def start_lightshow(
             detail=f"Failed to start lightshow: {manager.error_message}"
         )
 
-    # If resume_schedule, re-enable the schedule
-    if request.resume_schedule:
-        # TODO: Re-enable schedule in scheduler service
-        log.info("Schedule resumed")
+    # If resume_schedule, clear the global suspend flag
+    if request.resume_schedule and scheduler is not None:
+        scheduler.resume(by=current_user.get('username'))
 
     # Log the action
     log.info(f"Lightshow started by user: {current_user['username']}")
@@ -96,6 +153,7 @@ async def start_lightshow(
 async def stop_lightshow(
     request: LightshowStop,
     manager: LightshowManager = Depends(get_manager),
+    scheduler: Optional[SchedulerService] = Depends(get_optional_scheduler),
     current_user: dict = Depends(require_admin)
 ):
     """
@@ -104,11 +162,12 @@ async def stop_lightshow(
     **Requires:** Admin authentication
 
     **Parameters:**
-    - `mode`: "pause" (stop until next schedule) or "stop" (disable schedule)
+    - `mode`: "pause" (stop until next schedule) or "stop" (suspend schedule)
 
     **Modes:**
     - **pause**: Stops playback but will resume at next scheduled event
-    - **stop**: Stops playback and disables schedule until manually started
+    - **stop**: Stops playback and suspends all schedules until the show is
+      started again with `resume_schedule=true`
 
     **Example:**
     ```json
@@ -129,9 +188,10 @@ async def stop_lightshow(
 
     # Handle schedule based on mode
     if request.mode == StopMode.STOP:
-        # Disable schedule completely
-        # TODO: Disable schedule in scheduler service
-        log.info("Schedule disabled (stop mode)")
+        if scheduler is not None:
+            scheduler.suspend(by=current_user.get('username'))
+        else:
+            log.warning("Stop mode requested but scheduler is not available")
     else:
         # Pause mode - schedule stays enabled
         log.info("Lightshow paused (will resume at next schedule)")
@@ -188,7 +248,9 @@ async def skip_song(
 
 @router.get("/status", response_model=LightshowStatus)
 async def get_status(
-    manager: LightshowManager = Depends(get_manager)
+    manager: LightshowManager = Depends(get_manager),
+    scheduler: Optional[SchedulerService] = Depends(get_optional_scheduler),
+    database: Optional[Database] = Depends(get_optional_database)
 ):
     """
     Get current lightshow status.
@@ -196,53 +258,51 @@ async def get_status(
     **Does not require authentication** - allows public status checks
 
     **Returns:**
-    - Current state (idle, playing, etc.)
-    - Current song (if playing)
+    - Current state (idle, starting, playing, ...) and mode
+    - Current song title, elapsed and total time (seconds)
     - Current playlist
-    - Schedule status
-    - Connected clients
+    - Schedule status (`schedule_enabled` is false while suspended) and the next event
+    - Registered clients
 
     **Example Response:**
     ```json
     {
         "state": "playing",
-        "current_song": "Jingle Bells.mp3",
-        "playlist": "Christmas 2024",
+        "mode": "playlist",
+        "current_song": "Jingle Bells by Various",
+        "playlist": "/home/pi/lightshowpi/music/.playlist",
         "elapsed_time": 45.2,
         "total_time": 180.0,
         "schedule_enabled": true,
-        "next_scheduled_event": "22:15",
-        "clients": [
-            {
-                "id": "neighbor-1",
-                "name": "Neighbor's House",
-                "status": "online"
-            }
-        ]
+        "next_scheduled_event": "2025-12-20T22:15:00-06:00",
+        "next_scheduled_action": "stop",
+        "clients": []
     }
     ```
     """
-    config = get_api_config()
-
     status_info = manager.get_status()
 
-    # TODO: Get schedule info from scheduler service
-    schedule_enabled = True
+    schedule_enabled = False
     next_event = None
-
-    # TODO: Get connected clients info
-    clients = []
+    if scheduler is not None:
+        try:
+            schedule_enabled = not scheduler.is_suspended()
+            next_event = scheduler.get_next_event()
+        except Exception as e:
+            log.warning(f"Could not read schedule status: {e}")
 
     return {
         "state": status_info["state"],
+        "mode": status_info.get("mode"),
         "current_song": status_info.get("current_song"),
-        "current_song_id": None,  # TODO: Look up song ID from database
+        "current_song_id": lookup_song_id(database, status_info.get("song_path")),
         "playlist": status_info.get("current_playlist"),
-        "elapsed_time": None,  # TODO: Track elapsed time
-        "total_time": None,  # TODO: Get song duration
+        "elapsed_time": status_info.get("elapsed_time"),
+        "total_time": status_info.get("total_time"),
         "schedule_enabled": schedule_enabled,
-        "next_scheduled_event": next_event,
-        "clients": clients
+        "next_scheduled_event": next_event["time"] if next_event else None,
+        "next_scheduled_action": next_event["action"] if next_event else None,
+        "clients": list_clients(database)
     }
 
 
