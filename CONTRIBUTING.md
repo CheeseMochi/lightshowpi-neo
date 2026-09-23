@@ -117,12 +117,14 @@ git remote add upstream https://github.com/CheeseMochi/lightshowpi-neo.git
 export SYNCHRONIZED_LIGHTS_HOME=$(pwd)
 echo "export SYNCHRONIZED_LIGHTS_HOME=$(pwd)" >> ~/.bashrc
 
-# Create virtual environment (recommended)
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Create conda environment (recommended, conda-forge)
+conda env create -f environment-dev.yml
+conda activate lightshowpi-neo-dev
 
-# Install dependencies
-pip install -r requirements-dev.txt
+# Alternative: venv + pip
+# python3 -m venv venv
+# source venv/bin/activate  # On Windows: venv\Scripts\activate
+# pip install -r requirements-dev.txt
 ```
 
 ### Verify Setup

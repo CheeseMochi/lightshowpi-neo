@@ -24,12 +24,14 @@ Tests are organized by the component they test:
 
 Install dependencies (on development machine):
 ```bash
-pip install -r requirements-dev.txt
+conda env create -f environment-dev.yml
+conda activate lightshowpi-neo-dev
 ```
 
 Install dependencies (on Raspberry Pi):
 ```bash
-pip install -r requirements.txt
+conda env create -f environment.yml
+conda activate lightshowpi-neo
 ```
 
 ### Run All Tests
@@ -191,10 +193,10 @@ If tests fail due to missing dependencies:
 
 ```bash
 # On Raspberry Pi
-pip install -r requirements.txt
+conda env update -f environment.yml --prune
 
 # On development machine (macOS/Windows)
-pip install -r requirements-dev.txt
+conda env update -f environment-dev.yml --prune
 ```
 
 ## Test Philosophy

@@ -1,15 +1,24 @@
 # ============================================================================
 # LightShowPi Development Requirements (Cross-platform testing)
 # For macOS/Windows development - excludes Linux/Pi-specific packages
+# pip equivalent of environment-dev.yml (keep the two in sync)
 # ============================================================================
 
 # ----------------------------------------------------------------------------
 # Core Audio & Signal Processing (cross-platform)
 # ----------------------------------------------------------------------------
-numpy>=1.24.0,<2.0.0
-soundfile>=0.12.1
+numpy>=2.0.0
+audioread>=3.0.0  # Uses Core Audio on macOS; install ffmpeg for more formats
+standard-aifc; python_version >= "3.13"  # aifc removed from stdlib in 3.13 (needed by audioread)
+standard-sunau; python_version >= "3.13"  # sunau removed from stdlib in 3.13 (needed by audioread)
 mutagen>=1.47.0
-pyserial>=3.5  # Serial communication (cross-platform)
+soundfile>=0.12.1  # Used by tools/sync_file_generator.py and tests/fixtures/generate_test_audio.py
+
+# ----------------------------------------------------------------------------
+# Cross-platform hardware libraries
+# ----------------------------------------------------------------------------
+pyserial>=3.5
+gpiozero>=1.6.0  # Pure Python; use GPIOZERO_PIN_FACTORY=mock off-Pi
 
 # ----------------------------------------------------------------------------
 # LED Control (cross-platform parts)
@@ -25,8 +34,18 @@ uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6
 jinja2>=3.1.2
 websockets>=12.0
-bcrypt
-jwt
+requests>=2.31.0
+
+# Authentication & Security
+bcrypt>=4.1.0
+PyJWT>=2.8.0  # NOTE: not the unrelated "jwt" package - both install as `import jwt`
+python-jose[cryptography]>=3.3.0
+
+# Scheduling & Background Tasks
+APScheduler>=3.10.0,<4  # Code uses the 3.x BackgroundScheduler API
+
+# Data Validation
+pydantic>=2.5.0
 
 # ----------------------------------------------------------------------------
 # Configuration & Utilities (cross-platform)
@@ -42,7 +61,7 @@ pytest-asyncio>=0.21.0
 black>=23.10.0
 flake8>=6.1.0
 mypy>=1.6.0
-httpx
+httpx  # Required by FastAPI TestClient
 
 # ----------------------------------------------------------------------------
 # Excluded from dev requirements (Linux/Raspberry Pi only):
@@ -50,6 +69,5 @@ httpx
 # pyalsaaudio - ALSA audio (Linux only)
 # lgpio - GPIO library (Raspberry Pi only)
 # spidev - SPI communication (Linux only)
-# pyserial - Serial communication (hardware dependent)
 # adafruit-circuitpython-mcp230xx - I2C expanders (hardware dependent)
 # adafruit-blinka - CircuitPython compatibility (hardware dependent)

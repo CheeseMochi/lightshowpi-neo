@@ -112,14 +112,9 @@ dependencies:
 # Platform Notes
 # ----------------------------------------------------------------------------
 #
-# This environment.yml works on:
-#   - Linux ARM64 (Raspberry Pi with Miniconda)
-#   - Linux x86_64
-#   - macOS (Intel and Apple Silicon)
-#   - Windows (most packages)
-#
-# Hardware-specific packages (gpiozero, spidev, etc.) will install but may
-# not function on non-Raspberry Pi systems. Tests will skip automatically.
+# This environment.yml targets the Raspberry Pi (Linux ARM64). It also works
+# on Linux x86_64. It does NOT build on macOS/Windows (alsa-lib, pyalsaaudio
+# and spidev are Linux-only) - use environment-dev.yml for development there.
 #
 # IMPORTANT - Raspberry Pi lgpio Setup:
 #   PRIMARY METHOD: Install via apt and symlink (recommended)

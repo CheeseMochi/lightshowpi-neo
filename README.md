@@ -652,8 +652,10 @@ For detailed guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 # Clone your fork
 git clone https://github.com/CheeseMochi/lightshowpi.git
 
-# Install development dependencies
-pip install -r requirements-dev.txt
+# Create the development environment (macOS/Linux x86_64/Windows)
+conda env create -f environment-dev.yml
+conda activate lightshowpi-neo-dev
+# (On the Raspberry Pi itself, use environment.yml instead)
 
 # Run tests before making changes
 pytest -v

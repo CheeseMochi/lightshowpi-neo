@@ -1,13 +1,17 @@
 # ============================================================================
 # LightShowPi Requirements
 # Modern Python 3 dependencies (all from PyPI)
+# Raspberry Pi / Linux. pip equivalent of environment.yml.
+# For macOS/Windows development use requirements-dev.txt or environment-dev.yml.
 # ============================================================================
 
 # ----------------------------------------------------------------------------
 # Core Audio & Signal Processing
 # ----------------------------------------------------------------------------
-numpy>=1.24.0,<2.0.0  # FFT calculations, array operations, audio processing
+numpy>=2.0.0  # FFT calculations, array operations, audio processing
 audioread>=3.0.0  # Cross-library audio decoding (MP3, WAV, FLAC, OGG, M4A/AAC via ffmpeg)
+standard-aifc; python_version >= "3.13"  # aifc removed from stdlib in 3.13 (needed by audioread)
+standard-sunau; python_version >= "3.13"  # sunau removed from stdlib in 3.13 (needed by audioread)
 pyalsaaudio>=0.10.0  # ALSA audio input/output (requires libasound2-dev or alsa-lib)
 mutagen>=1.47.0  # Audio file metadata reading (ID3, etc.)
 
@@ -51,6 +55,7 @@ uvicorn[standard]>=0.24.0  # ASGI server for FastAPI
 python-multipart>=0.0.6  # File upload support
 jinja2>=3.1.2  # Template engine
 websockets>=12.0  # WebSocket support for real-time updates
+requests>=2.31.0  # HTTP client (button manager -> API)
 
 # Authentication & Security
 bcrypt>=4.1.0  # Password hashing
@@ -58,7 +63,7 @@ PyJWT>=2.8.0  # JWT token generation and validation
 python-jose[cryptography]>=3.3.0  # JWT utilities
 
 # Scheduling & Background Tasks
-APScheduler>=3.10.0  # Advanced Python scheduler for cron-like tasks
+APScheduler>=3.10.0,<4  # Cron-like scheduling (code uses the 3.x BackgroundScheduler API)
 
 # Data Validation
 pydantic>=2.5.0  # Data validation and settings management
@@ -74,6 +79,7 @@ python-dotenv>=1.0.0  # Environment variable management
 pytest>=7.4.0  # Testing framework
 pytest-cov>=4.1.0  # Test coverage reporting
 pytest-asyncio>=0.21.0  # Async test support
+httpx  # Required by FastAPI TestClient (API endpoint tests)
 black>=23.10.0  # Code formatter
 flake8>=6.1.0  # Linter
 mypy>=1.6.0  # Type checker

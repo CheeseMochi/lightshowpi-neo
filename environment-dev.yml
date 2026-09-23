@@ -1,0 +1,92 @@
+name: lightshowpi-neo-dev
+channels:
+  - conda-forge
+
+# ============================================================================
+# LightShowPi Neo - Development Environment (macOS / Linux x86_64 / Windows)
+#
+# Mirrors environment.yml (Raspberry Pi) minus Linux/Pi-only hardware packages.
+# Use environment.yml on the Pi itself.
+# ============================================================================
+
+dependencies:
+  # Keep in sync with environment.yml
+  - python>=3.9,<3.14
+
+  # ----------------------------------------------------------------------------
+  # Core Audio & Signal Processing
+  # ----------------------------------------------------------------------------
+  - numpy>=2.0.0
+  - pillow>=10.0.0
+  - audioread>=3.0.0      # Uses Core Audio on macOS; install ffmpeg for more formats
+  - standard-aifc         # aifc/sunau were removed from stdlib in 3.13 (audioread needs them)
+  - standard-sunau
+  - mutagen>=1.47.0
+  - pysoundfile>=0.12.1   # Used by tools/sync_file_generator.py and test fixture generator
+
+  # ----------------------------------------------------------------------------
+  # Web Framework & API Backend
+  # ----------------------------------------------------------------------------
+  - fastapi>=0.104.0
+  - uvicorn>=0.24.0
+  - jinja2>=3.1.2
+  - websockets>=12.0
+  - python-multipart>=0.0.6
+  - requests
+
+  # ----------------------------------------------------------------------------
+  # Authentication & Security
+  # ----------------------------------------------------------------------------
+  - bcrypt>=4.1.0
+  - pyjwt>=2.8.0
+  - pydantic>=2.5.0
+
+  # ----------------------------------------------------------------------------
+  # Scheduling & Background Tasks
+  # ----------------------------------------------------------------------------
+  - apscheduler>=3.10.0,<4   # Code uses the 3.x BackgroundScheduler API
+
+  # ----------------------------------------------------------------------------
+  # Configuration & Utilities
+  # ----------------------------------------------------------------------------
+  - python-dotenv>=1.0.0
+  - python-jose>=3.3
+
+  # ----------------------------------------------------------------------------
+  # Cross-platform hardware libraries
+  # ----------------------------------------------------------------------------
+  - pyserial>=3.5
+  - gpiozero>=1.6.0       # Pure Python; use GPIOZERO_PIN_FACTORY=mock off-Pi
+
+  # ----------------------------------------------------------------------------
+  # Development & Testing
+  # ----------------------------------------------------------------------------
+  - pytest>=7.4.0
+  - pytest-cov>=4.1.0
+  - pytest-asyncio>=0.21.0
+  - httpx
+  - black>=23.10.0
+  - flake8>=6.1.0
+  - mypy>=1.6.0
+
+# ----------------------------------------------------------------------------
+# Excluded (Linux / Raspberry Pi only - see environment.yml)
+# ----------------------------------------------------------------------------
+#   alsa-lib, pyalsaaudio  - ALSA audio (Linux only)
+#   spidev                 - SPI (Linux kernel headers)
+#   lgpio                  - Pi GPIO (apt + symlink on the Pi)
+#   adafruit-blinka,
+#   adafruit-circuitpython-mcp230xx - I2C expanders (hardware dependent)
+#
+# Tests that need these skip automatically (see tests/PLATFORM_TESTS.md).
+#
+# ----------------------------------------------------------------------------
+# Usage
+# ----------------------------------------------------------------------------
+#   conda env create -f environment-dev.yml
+#   conda activate lightshowpi-neo-dev
+#   pytest -q
+#
+#   Update: conda env update -f environment-dev.yml --prune
+#   Remove: conda env remove -n lightshowpi-neo-dev
+# ----------------------------------------------------------------------------
