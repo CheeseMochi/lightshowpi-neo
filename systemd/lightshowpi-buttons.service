@@ -1,6 +1,6 @@
 [Unit]
 Description=LightShowPi Neo Button Manager
-Documentation=https://github.com/yourusername/lightshowpi
+Documentation=https://github.com/CheeseMochi/lightshowpi-neo/blob/main/systemd/README.md
 After=network-online.target lightshowpi-api.service
 Wants=network-online.target
 # Start after API if it's enabled, but don't require it (can run in direct mode)
@@ -14,6 +14,13 @@ Group=gpio
 # Environment
 Environment="SYNCHRONIZED_LIGHTS_HOME=/home/pi/lightshowpi"
 Environment="PATH=/home/pi/miniconda3/envs/lightshowpi-neo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# API credentials (optional file, keep it chmod 600):
+#   LIGHTSHOWPI_API_PASSWORD=...
+#   LIGHTSHOWPI_API_USERNAME=admin               (optional)
+#   LIGHTSHOWPI_API_URL=http://localhost:8000/api (optional)
+# Without a password, --mode auto uses direct (state file) mode.
+EnvironmentFile=-/etc/lightshowpi/buttons.env
 
 # Working directory
 WorkingDirectory=/home/pi/lightshowpi

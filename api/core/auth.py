@@ -8,6 +8,7 @@ IP-based access control.
 import os
 import secrets
 import logging
+import sqlite3
 from datetime import datetime, timedelta
 from typing import Optional, List
 import json

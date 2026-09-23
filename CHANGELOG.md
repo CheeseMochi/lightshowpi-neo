@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `resume_schedule=true`. The dashboard has separate Pause and Stop buttons and
   shows the next event.
 - `/api/health` reports real uptime, lightshow state and online client count.
+- **Configurable button API credentials**: `[buttons] api_url`, `api_username`,
+  `api_password`, overridable by `LIGHTSHOWPI_API_URL`, `LIGHTSHOWPI_API_USERNAME`,
+  `LIGHTSHOWPI_API_PASSWORD`. The systemd unit reads `/etc/lightshowpi/buttons.env`.
+  The button manager logs in again automatically after a 401 (expired token or API restart).
 - API and button service tests (`tests/test_button_endpoints.py`,
   `tests/test_button_manager_service.py`).
 
@@ -42,6 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration loading uses fallbacks for `[lightshow]` keys, so older override files
   no longer crash on missing options.
 - Missing or unreadable playlist files now produce a clear error message.
+- **Breaking**: the button manager no longer falls back to the hardcoded
+  `admin`/`admin123` login. Configure a password or it runs in direct mode.
+- The API's button service now reads `[buttons] enabled`, `audio_auto_shutoff` and
+  `button_cooldown` instead of hardcoded values. Virtual buttons in the web UI require
+  `[buttons] enabled = True`.
+- Button endpoints moved from `/buttons/*` to `/api/buttons/*`.
 
 ### Fixed
 - **State file lost updates**: `Configuration.update_state` now re-reads `state.cfg`
@@ -52,6 +62,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/api/lightshow/status` could fail with a 500 for the `starting`/`stopping` states
   (duplicate `LightshowState` enums unified; client status enum renamed `ClientState`).
 - `restart` dropped the current mode (e.g. ambient).
+- Button manager API mode never connected: it used port 5000 (API listens on 8000), and
+  both it and the web UI called `/api/buttons/*` while the router was mounted at `/buttons`.
+- `api/core/auth.py` used `sqlite3` without importing it (duplicate username crashed).
 - Raspberry Pi 5 install issues (`install.sh`, `environment.yml`, `bin/link_lgpio.sh`).
 - Button manager bug fixes and test fixes on macOS.
 - `requests` is now installed as a dependency.

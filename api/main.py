@@ -92,17 +92,18 @@ async def lifespan(app: FastAPI):
     lightshow.set_manager(lightshow_manager)
     lightshow.set_database(db)
 
-    # Initialize button manager
+    # Initialize button manager from the [buttons] config section
     button_config = {
         'button_manager': {
-            'enabled': True,  # Can be overridden by config
-            'audio_timeout': 300,
-            'cooldown': 5
+            'enabled': api_config._get_bool('buttons', 'enabled', False),
+            'audio_timeout': api_config._get_int('buttons', 'audio_auto_shutoff', 300),
+            'cooldown': api_config._get_int('buttons', 'button_cooldown', 5)
         }
     }
     button_manager = ButtonManagerService(button_config, lightshow_manager)
     buttons.set_button_manager(button_manager)
-    log.info("Button manager service initialized")
+    log.info("Button manager service initialized "
+             f"(enabled={button_config['button_manager']['enabled']})")
 
     # Initialize and start scheduler
     scheduler_service = SchedulerService(db, lightshow_manager)

@@ -120,7 +120,7 @@ sudo systemctl disable lightshowpi-buttons.service
 ### API Server
 
 - **User:** `pi` (or configured user)
-- **Port:** 5000 (configured in api/main.py)
+- **Port:** 8000 (`[api] port` in `config/overrides.cfg`)
 - **Logs:** `journalctl -u lightshowpi-api.service`
 - **Auto-restart:** Yes (on failure, 10s delay)
 
@@ -132,6 +132,46 @@ sudo systemctl disable lightshowpi-buttons.service
 - **Logs:** `journalctl -u lightshowpi-buttons.service`
 - **Auto-restart:** Yes (on failure, 10s delay)
 - **GPIO Cleanup:** Automatic on stop
+- **Credentials:** `/etc/lightshowpi/buttons.env` (optional, see below)
+
+### Button Manager API Credentials
+
+In `api` and `auto` mode the button manager logs in to the API. There is no
+built-in default password: if none is configured, `auto` mode falls back to
+direct (state file) mode and `api` mode exits with an error.
+
+Settings are resolved in this order (first match wins):
+
+| Setting  | Environment variable        | Config (`[buttons]`) | Default |
+|----------|-----------------------------|----------------------|---------|
+| URL      | `LIGHTSHOWPI_API_URL`       | `api_url`            | `http://localhost:<[api] port>/api` |
+| Username | `LIGHTSHOWPI_API_USERNAME`  | `api_username`       | `admin` |
+| Password | `LIGHTSHOWPI_API_PASSWORD`  | `api_password`       | none    |
+
+The recommended place for the password is an environment file read by the
+service unit (`EnvironmentFile=-/etc/lightshowpi/buttons.env`):
+
+```bash
+sudo mkdir -p /etc/lightshowpi
+sudo tee /etc/lightshowpi/buttons.env > /dev/null <<'EOF'
+LIGHTSHOWPI_API_PASSWORD=your_admin_password
+EOF
+sudo chmod 600 /etc/lightshowpi/buttons.env
+sudo systemctl restart lightshowpi-buttons.service
+```
+
+Alternatively set `api_password` in `config/overrides.cfg`. Never commit the
+password to git.
+
+On success the log shows `Button manager mode: API`:
+
+```bash
+sudo journalctl -u lightshowpi-buttons.service -n 20 | grep "mode:"
+```
+
+If the API restarts (tokens are invalidated unless `JWT_SECRET_KEY` is set for
+the API) or the 24h token expires, the button manager logs in again
+automatically on the next button press.
 
 ## Customization
 
@@ -216,16 +256,16 @@ OnFailure=status-email@%n.service
    ls -l /dev/gpiochip*
    ```
 
-### API service fails to bind to port 5000
+### API service fails to bind to port 8000
 
 1. **Check if port is already in use:**
    ```bash
-   sudo netstat -tulpn | grep :5000
+   sudo netstat -tulpn | grep :8000
    ```
 
 2. **Kill existing process:**
    ```bash
-   sudo kill -9 $(lsof -t -i:5000)
+   sudo kill -9 $(lsof -t -i:8000)
    ```
 
 ### Services start but don't work correctly
@@ -269,7 +309,7 @@ OnFailure=status-email@%n.service
        server_name lightshow.local;
 
        location /api/ {
-           proxy_pass http://localhost:5000/api/;
+           proxy_pass http://localhost:8000/api/;
            proxy_set_header Host $host;
            proxy_set_header X-Real-IP $remote_addr;
        }
@@ -285,7 +325,7 @@ OnFailure=status-email@%n.service
 
 4. **Configure firewall:**
    ```bash
-   sudo ufw allow 5000/tcp  # API
+   sudo ufw allow 8000/tcp  # API
    sudo ufw enable
    ```
 

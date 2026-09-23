@@ -429,6 +429,22 @@ button_cooldown = 5
 audio_auto_shutoff = 300
 ```
 
+`enabled = True` also enables the virtual buttons in the web UI.
+
+### API Credentials
+
+In `--mode api` or `--mode auto` (default) the button manager sends presses to the
+API. It needs the API admin password; there is no built-in default:
+
+```bash
+export LIGHTSHOWPI_API_PASSWORD='your_admin_password'   # or [buttons] api_password
+```
+
+Optional: `LIGHTSHOWPI_API_USERNAME` / `[buttons] api_username` (default `admin`) and
+`LIGHTSHOWPI_API_URL` / `[buttons] api_url` (default `http://localhost:<[api] port>/api`).
+Environment variables take precedence over the config. Without a password, `auto`
+falls back to direct (state file) mode and `api` exits with an error.
+
 ### Running Button Manager
 
 ```bash
@@ -442,7 +458,8 @@ python py/buttonmanager.py --log-level DEBUG
 python py/buttonmanager.py --cleanup
 ```
 
-**Note:** Button manager runs as a separate process. For systemd auto-start, see [Button Manager Documentation](BUTTONMANAGER_API.md).
+**Note:** Button manager runs as a separate process. For systemd auto-start and
+storing the password in `/etc/lightshowpi/buttons.env`, see [systemd/README.md](systemd/README.md).
 
 ---
 

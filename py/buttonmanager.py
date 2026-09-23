@@ -48,12 +48,97 @@ repeat_mode = False
 
 # API integration
 API_ENABLED = False
-API_BASE_URL = "http://localhost:5000/api"
+DEFAULT_API_PORT = 8000
+API_BASE_URL = f"http://localhost:{DEFAULT_API_PORT}/api"
+API_USERNAME = "admin"
+API_PASSWORD: Optional[str] = None
 API_TOKEN: Optional[str] = None
 BUTTON_MODE = "auto"  # Can be: "api", "direct", or "auto"
 
+# Environment variables that override [buttons] api_* settings
+ENV_API_URL = "LIGHTSHOWPI_API_URL"
+ENV_API_USERNAME = "LIGHTSHOWPI_API_USERNAME"
+ENV_API_PASSWORD = "LIGHTSHOWPI_API_PASSWORD"
+
 # Shell environment - will be set up in main()
 shellenv = dict()
+
+
+def _config_value(config, section: str, key: str) -> str:
+    """Read a config value, returning '' when missing."""
+    if config is None:
+        return ""
+    try:
+        value = config.get(section, key, fallback="")
+    except Exception:
+        return ""
+    return (value or "").strip()
+
+
+def resolve_api_settings(config=None, environ=None):
+    """Resolve API URL, username and password.
+
+    Precedence for each value: environment variable -> [buttons] config -> default.
+    The default URL is http://localhost:<[api] port>/api. There is no default password.
+
+    Args:
+        config: ConfigParser with [buttons] and [api] sections (optional)
+        environ: Mapping to read environment variables from (defaults to os.environ)
+
+    Returns:
+        Tuple of (url, username, password); password is None if not configured.
+    """
+    if environ is None:
+        environ = os.environ
+
+    port = DEFAULT_API_PORT
+    port_str = _config_value(config, 'api', 'port')
+    if port_str:
+        try:
+            port = int(port_str)
+        except ValueError:
+            log.warning(f"Invalid [api] port '{port_str}', using {DEFAULT_API_PORT}")
+
+    url = (environ.get(ENV_API_URL) or _config_value(config, 'buttons', 'api_url')
+           or f"http://localhost:{port}/api")
+    username = (environ.get(ENV_API_USERNAME) or _config_value(config, 'buttons', 'api_username')
+                or "admin")
+    password = environ.get(ENV_API_PASSWORD) or _config_value(config, 'buttons', 'api_password') or None
+
+    return url.rstrip('/'), username, password
+
+
+def configure_api(config=None, environ=None):
+    """Load API connection settings into module globals."""
+    global API_BASE_URL, API_USERNAME, API_PASSWORD
+    API_BASE_URL, API_USERNAME, API_PASSWORD = resolve_api_settings(config, environ)
+    log.info(f"API URL: {API_BASE_URL} (user: {API_USERNAME}, "
+             f"password {'set' if API_PASSWORD else 'NOT set'})")
+
+
+def login() -> Optional[int]:
+    """Authenticate with the API and store the token.
+
+    Returns:
+        HTTP status code of the login request (200 on success), or None if
+        no password is configured. Raises requests exceptions on connection errors.
+    """
+    global API_TOKEN
+
+    if not API_PASSWORD:
+        return None
+
+    log.debug(f"Authenticating with API as {API_USERNAME}...")
+    response = requests.post(
+        f"{API_BASE_URL}/auth/login",
+        json={"username": API_USERNAME, "password": API_PASSWORD},
+        timeout=2
+    )
+    if response.status_code == 200:
+        API_TOKEN = response.json()["access_token"]
+    else:
+        API_TOKEN = None
+    return response.status_code
 
 
 def init_api(mode: str) -> bool:
@@ -68,14 +153,26 @@ def init_api(mode: str) -> bool:
     Raises:
         SystemExit: If mode is "api" and API is unavailable
     """
-    global API_ENABLED, API_TOKEN, BUTTON_MODE
+    global API_ENABLED, BUTTON_MODE
 
     BUTTON_MODE = mode
+    API_ENABLED = False
 
     # If direct mode requested, skip API initialization
     if mode == "direct":
         log.info("Button manager mode: DIRECT (state file only)")
         log.info("API integration disabled by user - using state file for button actions")
+        return False
+
+    if not API_PASSWORD:
+        if mode == "api":
+            log.error("Button manager mode is set to 'api' but no API password is configured")
+            log.error(f"Set {ENV_API_PASSWORD} (e.g. in /etc/lightshowpi/buttons.env) "
+                      "or [buttons] api_password in config/overrides.cfg")
+            sys.exit(1)
+        log.warning("No API password configured "
+                    f"({ENV_API_PASSWORD} or [buttons] api_password) - falling back to direct mode")
+        log.info("⚠ Button manager mode: DIRECT (no API credentials, using state file)")
         return False
 
     # Try to connect to API
@@ -93,30 +190,22 @@ def init_api(mode: str) -> bool:
                 log.warning("API health check failed - falling back to direct mode")
                 return False
 
-        # Try to authenticate (use default credentials for now)
-        # TODO: Make credentials configurable
-        log.debug("Authenticating with API...")
-        auth_response = requests.post(
-            f"{API_BASE_URL}/auth/login",
-            json={"username": "admin", "password": "admin123"},
-            timeout=2
-        )
+        auth_status = login()
 
-        if auth_response.status_code == 200:
-            API_TOKEN = auth_response.json()["access_token"]
+        if auth_status == 200:
             API_ENABLED = True
             log.info("✓ Button manager mode: API")
             log.info("✓ API integration enabled - using REST API for button actions")
             return True
         else:
             if mode == "api":
-                log.error(f"API authentication failed with status {auth_response.status_code}")
+                log.error(f"API authentication failed with status {auth_status}")
                 log.error("Button manager mode is set to 'api' but authentication failed")
                 log.error("Check API credentials or use --mode direct/auto")
                 sys.exit(1)
             else:
                 log.warning("API authentication failed - falling back to direct mode")
-                log.warning(f"Auth failed with status {auth_response.status_code}")
+                log.warning(f"Auth failed with status {auth_status}")
                 return False
 
     except requests.exceptions.RequestException as e:
@@ -132,8 +221,18 @@ def init_api(mode: str) -> bool:
             return False
 
 
+def _send(method: str, url: str):
+    headers = {"Authorization": f"Bearer {API_TOKEN}"}
+    if method == "POST":
+        return requests.post(url, headers=headers, timeout=2)
+    return requests.get(url, headers=headers, timeout=2)
+
+
 def call_api(endpoint: str, method: str = "POST") -> bool:
     """Call an API endpoint with authentication.
+
+    On a 401 (expired token, or API restarted with a new JWT secret) this
+    logs in again once and retries the request.
 
     Args:
         endpoint: API endpoint path (e.g., "/buttons/skip")
@@ -146,13 +245,16 @@ def call_api(endpoint: str, method: str = "POST") -> bool:
         return False
 
     try:
-        headers = {"Authorization": f"Bearer {API_TOKEN}"}
         url = f"{API_BASE_URL}{endpoint}"
+        response = _send(method, url)
 
-        if method == "POST":
-            response = requests.post(url, headers=headers, timeout=2)
-        else:
-            response = requests.get(url, headers=headers, timeout=2)
+        if response.status_code == 401:
+            log.info("API token rejected (401) - logging in again")
+            if login() == 200:
+                response = _send(method, url)
+            else:
+                log.error("API re-login failed")
+                return False
 
         if response.status_code in [200, 201]:
             log.debug(f"API call successful: {method} {endpoint}")
@@ -420,6 +522,7 @@ def main():
 
     # Initialize API integration based on mode
     log.info(f"Requested mode: {args.mode.upper()}")
+    configure_api(cm.config)
     init_api(args.mode)
 
     # Initialize GPIO hardware (buttons and output)

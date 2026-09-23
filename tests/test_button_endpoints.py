@@ -93,7 +93,7 @@ class TestButtonEndpointsAuth:
         """Test status endpoint requires authentication."""
         # Create client without auth override
         client = TestClient(test_app)
-        response = client.get("/buttons/status")
+        response = client.get("/api/buttons/status")
         # FastAPI returns 403 when dependency fails, or 401 if we implement it
         # For now, just test that it's not 200 (successful)
         assert response.status_code in [401, 403, 422]
@@ -101,34 +101,34 @@ class TestButtonEndpointsAuth:
     def test_health_requires_auth(self, test_app):
         """Test health endpoint requires authentication."""
         client = TestClient(test_app)
-        response = client.get("/buttons/health")
+        response = client.get("/api/buttons/health")
         assert response.status_code in [401, 403, 422]
 
     def test_skip_requires_auth(self, test_app):
         """Test skip endpoint requires authentication."""
         client = TestClient(test_app)
-        response = client.post("/buttons/skip")
+        response = client.post("/api/buttons/skip")
         assert response.status_code in [401, 403, 422]
 
     def test_repeat_toggle_requires_auth(self, test_app):
         """Test repeat toggle requires authentication."""
         client = TestClient(test_app)
-        response = client.post("/buttons/repeat/toggle")
+        response = client.post("/api/buttons/repeat/toggle")
         assert response.status_code in [401, 403, 422]
 
     def test_audio_toggle_requires_auth(self, test_app):
         """Test audio toggle requires authentication."""
         client = TestClient(test_app)
-        response = client.post("/buttons/audio/toggle")
+        response = client.post("/api/buttons/audio/toggle")
         assert response.status_code in [401, 403, 422]
 
 
 class TestStatusEndpoint:
-    """Test GET /buttons/status endpoint."""
+    """Test GET /api/buttons/status endpoint."""
 
     def test_get_status(self, client, auth_headers, mock_button_manager):
         """Test getting button manager status."""
-        response = client.get("/buttons/status", headers=auth_headers)
+        response = client.get("/api/buttons/status", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -152,7 +152,7 @@ class TestStatusEndpoint:
             'last_action_time': '2025-12-18T12:00:00'
         }
 
-        response = client.get("/buttons/status", headers=auth_headers)
+        response = client.get("/api/buttons/status", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -162,11 +162,11 @@ class TestStatusEndpoint:
 
 
 class TestHealthEndpoint:
-    """Test GET /buttons/health endpoint."""
+    """Test GET /api/buttons/health endpoint."""
 
     def test_health_check_healthy(self, client, auth_headers, mock_button_manager):
         """Test health check when system is healthy."""
-        response = client.get("/buttons/health", headers=auth_headers)
+        response = client.get("/api/buttons/health", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -187,7 +187,7 @@ class TestHealthEndpoint:
             'warning': "Button 'skip' may be stuck (35.5s)"
         }
 
-        response = client.get("/buttons/health", headers=auth_headers)
+        response = client.get("/api/buttons/health", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -199,11 +199,11 @@ class TestHealthEndpoint:
 
 
 class TestSkipEndpoint:
-    """Test POST /buttons/skip endpoint."""
+    """Test POST /api/buttons/skip endpoint."""
 
     def test_skip_button(self, client, auth_headers, mock_button_manager):
         """Test skip button action."""
-        response = client.post("/buttons/skip", headers=auth_headers)
+        response = client.post("/api/buttons/skip", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -219,7 +219,7 @@ class TestSkipEndpoint:
         """Test skip button when action fails."""
         mock_button_manager.handle_button_action.side_effect = Exception("Lightshow not available")
 
-        response = client.post("/buttons/skip", headers=auth_headers)
+        response = client.post("/api/buttons/skip", headers=auth_headers)
 
         assert response.status_code == 500
         assert 'detail' in response.json()
@@ -227,13 +227,13 @@ class TestSkipEndpoint:
 
 
 class TestRepeatToggleEndpoint:
-    """Test POST /buttons/repeat/toggle endpoint."""
+    """Test POST /api/buttons/repeat/toggle endpoint."""
 
     def test_repeat_toggle_enable(self, client, auth_headers, mock_button_manager):
         """Test enabling repeat mode."""
         mock_button_manager.handle_button_action.return_value = True
 
-        response = client.post("/buttons/repeat/toggle", headers=auth_headers)
+        response = client.post("/api/buttons/repeat/toggle", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -248,7 +248,7 @@ class TestRepeatToggleEndpoint:
         """Test disabling repeat mode."""
         mock_button_manager.handle_button_action.return_value = False
 
-        response = client.post("/buttons/repeat/toggle", headers=auth_headers)
+        response = client.post("/api/buttons/repeat/toggle", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -260,20 +260,20 @@ class TestRepeatToggleEndpoint:
         """Test repeat toggle when action fails."""
         mock_button_manager.handle_button_action.side_effect = Exception("Button manager disabled")
 
-        response = client.post("/buttons/repeat/toggle", headers=auth_headers)
+        response = client.post("/api/buttons/repeat/toggle", headers=auth_headers)
 
         assert response.status_code == 500
         assert 'detail' in response.json()
 
 
 class TestAudioToggleEndpoint:
-    """Test POST /buttons/audio/toggle endpoint."""
+    """Test POST /api/buttons/audio/toggle endpoint."""
 
     def test_audio_toggle_on(self, client, auth_headers, mock_button_manager):
         """Test turning audio on."""
         mock_button_manager.handle_button_action.return_value = True
 
-        response = client.post("/buttons/audio/toggle", headers=auth_headers)
+        response = client.post("/api/buttons/audio/toggle", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -288,7 +288,7 @@ class TestAudioToggleEndpoint:
         """Test turning audio off."""
         mock_button_manager.handle_button_action.return_value = False
 
-        response = client.post("/buttons/audio/toggle", headers=auth_headers)
+        response = client.post("/api/buttons/audio/toggle", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -300,7 +300,7 @@ class TestAudioToggleEndpoint:
         """Test audio toggle respects cooldown."""
         mock_button_manager.handle_button_action.side_effect = Exception("Audio toggle on cooldown (3.5s remaining)")
 
-        response = client.post("/buttons/audio/toggle", headers=auth_headers)
+        response = client.post("/api/buttons/audio/toggle", headers=auth_headers)
 
         assert response.status_code == 500
         assert 'cooldown' in response.json()['detail'].lower()
@@ -324,14 +324,14 @@ class TestButtonManagerNotInitialized:
         client = TestClient(app)
 
         # Try each endpoint
-        response = client.get("/buttons/status")
+        response = client.get("/api/buttons/status")
         assert response.status_code == 503
         assert 'not initialized' in response.json()['detail'].lower()
 
-        response = client.post("/buttons/skip")
+        response = client.post("/api/buttons/skip")
         assert response.status_code == 503
 
-        response = client.post("/buttons/repeat/toggle")
+        response = client.post("/api/buttons/repeat/toggle")
         assert response.status_code == 503
 
 
@@ -341,14 +341,14 @@ class TestButtonEndpointIntegration:
     def test_skip_updates_status(self, client, auth_headers, mock_button_manager):
         """Test skip action updates last_action in status."""
         # Perform skip
-        response = client.post("/buttons/skip", headers=auth_headers)
+        response = client.post("/api/buttons/skip", headers=auth_headers)
         assert response.status_code == 200
 
         # Update mock to reflect state change
         mock_button_manager.get_status.return_value['last_action'] = 'skip'
 
         # Check status
-        response = client.get("/buttons/status", headers=auth_headers)
+        response = client.get("/api/buttons/status", headers=auth_headers)
         assert response.status_code == 200
         assert response.json()['last_action'] == 'skip'
 
@@ -356,12 +356,12 @@ class TestButtonEndpointIntegration:
         """Test repeat toggle updates status."""
         # Enable repeat
         mock_button_manager.handle_button_action.return_value = True
-        response = client.post("/buttons/repeat/toggle", headers=auth_headers)
+        response = client.post("/api/buttons/repeat/toggle", headers=auth_headers)
         assert response.status_code == 200
 
         # Update mock
         mock_button_manager.get_status.return_value['repeat_mode'] = True
 
         # Check status
-        response = client.get("/buttons/status", headers=auth_headers)
+        response = client.get("/api/buttons/status", headers=auth_headers)
         assert response.json()['repeat_mode'] == True

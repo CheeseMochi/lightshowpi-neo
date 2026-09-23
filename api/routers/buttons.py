@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from api.core.auth import get_current_user
 from api.services.button_manager import ButtonManagerService, ButtonAction
 
-router = APIRouter(prefix="/buttons", tags=["buttons"])
+router = APIRouter(prefix="/api/buttons", tags=["buttons"])
 
 # Global button manager service instance (set by main.py)
 _button_manager: Optional[ButtonManagerService] = None
