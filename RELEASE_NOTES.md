@@ -104,7 +104,7 @@ This is the first **beta release** of **LightShowPi Neo**, a modernization of th
 
 ```bash
 # Clone repository
-git clone https://github.com/YOUR_USERNAME/lightshowpi-neo.git
+git clone https://github.com/CheeseMochi/lightshowpi-neo.git
 cd lightshowpi-neo
 
 # Install dependencies
@@ -156,14 +156,17 @@ BSD License (same as original LightShowPi)
 
 ## ⚠️ What's Missing (Planned for 1.0)
 
+### Done since 0.9.0
+- [x] **Button manager API integration** - Physical and virtual buttons control the show through the API
+- [x] **Systemd units** - Provided in `systemd/` (manual install; `install.sh` does not set up auto-start yet)
+
 ### High Priority
-- [ ] **Button manager API integration** - Physical buttons don't control API yet
 - [ ] **Public web hosting** - Website currently only runs locally
 - [ ] **Control plane architecture** - Remote control infrastructure
 - [ ] **Test mode** - Individual channel control for testing
 - [ ] **Song upload** - Upload music files via web UI
 - [ ] **User management** - Multiple users, permissions
-- [ ] **Systemd service** - Auto-start on boot
+- [ ] **Auto-start on boot** - `install.sh` should install and enable the systemd units
 
 ### Medium Priority
 - [ ] **Analytics dashboard** - View usage stats, play history
@@ -182,7 +185,7 @@ BSD License (same as original LightShowPi)
 
 ## Known Issues
 
-- Button manager runs independently, not integrated with API
+- systemd units must be installed manually (see `systemd/README.md`)
 - Web UI must be accessed via local network (no public hosting yet)
 - Error messages could be more user-friendly
 - No progress indicator for long-running operations
@@ -191,6 +194,9 @@ BSD License (same as original LightShowPi)
 
 ## Roadmap to 1.0
 
-- **v0.9.1**: Bug fixes, button manager integration
-- **v0.9.5**: Public hosting, control plane, test mode
+- **v0.9.1**: Button manager API integration and virtual buttons, ambient mode and
+  per-schedule modes, experimental sACN networking, audioread decoder, systemd units,
+  Pi 5 install fixes, live song title/elapsed time in status, schedule suspend/resume
+  ("stop" disables the schedule until the next start), configurable button API credentials
+- **v0.9.5**: Test mode, multi-client support, public hosting, control plane
 - **v1.0.0**: Feature-complete, production-ready

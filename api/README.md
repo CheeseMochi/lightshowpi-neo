@@ -45,7 +45,7 @@ The FastAPI backend is **completely optional**. LightShowPi Neo works perfectly 
 - Login endpoint
 - Auto-generated API docs
 
-### 🚧 Phase 2: Core Functionality (IN PROGRESS)
+### ✅ Phase 2: Core Functionality (COMPLETED)
 
 **Subprocess Manager:**
 - Manage synchronized_lights.py as subprocess
@@ -58,14 +58,16 @@ The FastAPI backend is **completely optional**. LightShowPi Neo works perfectly 
 - `POST /api/lightshow/stop` - Stop with pause/stop modes
 - `POST /api/lightshow/skip` - Skip to next song
 - `GET /api/lightshow/status` - Get current status
-- `WS /api/lightshow/websocket` - Real-time updates
+- `/api/buttons/*` - Button controls (skip, audio, repeat, outlet)
+- `WS /api/lightshow/websocket` - Real-time updates (planned)
 
 **Scheduling System:**
 - APScheduler integration
 - Configurable start/stop times
 - Days of week support
-- Auto-start on reboot logic
+- Per-schedule mode (playlist, ambient, audio-in, stream-in)
 - Schedule override modes (pause vs stop)
+- Auto-start on reboot logic (planned)
 
 ### 📅 Phase 3: Multi-Client Support (PLANNED)
 
@@ -124,19 +126,15 @@ The FastAPI backend is **completely optional**. LightShowPi Neo works perfectly 
 - `GET /api/analytics/skips` - Skip statistics
 - `GET /api/analytics/popular` - Popular songs
 
-### 📅 Phase 6: Web UI (PLANNED)
+### 🚧 Phase 6: Web UI (IN PROGRESS)
 
-**Frontend:**
-- React-based web UI
-- Real-time status updates via WebSocket
-- Admin authentication
-- Lightshow controls
-- Schedule management
-- Playlist editor
-- Song upload interface
-- Test mode controls
-- Analytics dashboard
-- System logs viewer
+**Frontend** (see [web/README.md](../web/README.md)):
+- ✅ React-based web UI
+- ✅ Admin authentication
+- ✅ Lightshow controls and virtual buttons
+- ✅ Schedule management
+- Planned: real-time updates via WebSocket, playlist editor, song upload,
+  test mode controls, analytics dashboard, system logs viewer
 
 ### 📅 Phase 7: Cloud Mode (PLANNED)
 
@@ -164,18 +162,19 @@ api/
 │   └── schemas.py            # Request/response models
 ├── routers/                  # API route handlers
 │   ├── __init__.py
-│   ├── lightshow.py          # (TODO) Lightshow control
-│   ├── schedule.py           # (TODO) Schedule management
-│   ├── clients.py            # (TODO) Client management
-│   ├── playlists.py          # (TODO) Playlist CRUD
-│   ├── songs.py              # (TODO) Song upload/management
-│   └── analytics.py          # (TODO) Analytics endpoints
+│   ├── lightshow.py          # Lightshow control (start/stop/skip/status)
+│   ├── schedules.py          # Schedule management
+│   └── buttons.py            # Physical/virtual button controls
 └── services/                 # Business logic
     ├── __init__.py
-    ├── subprocess_manager.py # (TODO) Process management
-    ├── scheduler.py          # (TODO) APScheduler wrapper
-    └── analytics_tracker.py  # (TODO) Analytics collection
+    ├── lightshow_manager.py  # synchronized_lights.py subprocess management
+    ├── scheduler.py          # APScheduler wrapper
+    └── button_manager.py     # Button state (skip, audio, repeat, outlet)
 ```
+
+Planned (not yet implemented): `routers/clients.py` (client management),
+`routers/playlists.py` (playlist CRUD), `routers/songs.py` (song upload),
+`routers/analytics.py` and `services/analytics_tracker.py` (analytics).
 
 ## 🚀 Getting Started
 
@@ -217,7 +216,7 @@ python -m api.core.database
 python -m api.main
 ```
 
-**Production mode** (with systemd - coming soon):
+**Production mode** (with systemd, see [systemd/README.md](../systemd/README.md)):
 
 ```bash
 sudo systemctl start lightshowpi-api
@@ -392,9 +391,8 @@ python -m api.core.database
 ### Authentication fails
 
 **Reset admin password:**
-```bash
-# TODO: Create password reset script
-```
+A password reset script is planned. Until then, set `ADMIN_PASSWORD` and reset
+the database (see above) to recreate the default admin user.
 
 ## 📚 Resources
 
@@ -413,4 +411,4 @@ BSD 2-Clause License - see [LICENSE](../LICENSE)
 
 ---
 
-**Questions?** Open a [discussion](https://github.com/[yourusername]/lightshowpi-neo/discussions) or contact us at [youremail@example.com](mailto:youremail@example.com).
+**Questions?** Open an [issue](https://github.com/CheeseMochi/lightshowpi-neo/issues) on GitHub.
