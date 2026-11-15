@@ -68,7 +68,7 @@ This iterative process ensured that AI assistance enhanced productivity while ma
 We believe in transparency about AI use in open source:
 
 - ✅ AI assistance is clearly documented in this file
-- ✅ Commit messages include `Co-Authored-By: Claude Sonnet 4.5` where applicable
+- ✅ AI-assisted commit messages name the agent used (e.g. `🤖 Generated with Claude Code`), not a specific model
 - ✅ Human developers retain full responsibility for code quality and decisions
 - ✅ All code is subject to the same BSD license regardless of origin
 
