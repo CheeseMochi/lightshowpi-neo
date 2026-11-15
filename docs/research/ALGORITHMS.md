@@ -2,7 +2,7 @@
 
 > **Status:** first draft, research only. Nothing here changes runtime code.
 > **Scope:** the ROADMAP "Light Algorithm Research" initiative: show generation that reacts to more than frequency spikes.
-> **Conventions:** **[UNVERIFIED]** marks a claim not confirmed against a primary source in this pass. **[ESTIMATE]** marks the author's engineering judgment. Library facts were checked on 2026-11-15 unless marked.
+> **Conventions:** **[UNVERIFIED]** marks a claim not confirmed against a primary source in this pass. **[ESTIMATE]** marks the author's engineering judgment. Code facts in §1 were read from this tree. Licenses, versions and repo status in §8 were fetched on 2026-11-15. librosa API names and doc links, and classic paper citations, come from memory and are marked **[UNVERIFIED]** where they matter.
 
 ---
 
@@ -25,7 +25,7 @@
 | Decode | `synchronized_lights.py` `AudioFileWrapper` | audioread → int16 interleaved bytes |
 | Chunk | `[audio_processing] chunk_size = 4096` frames | ≈ 92.9 ms at 44.1 kHz ≈ **10.8 updates/s**, non-overlapping |
 | Window + FFT | `fft.py` `FFT.calculate_levels` | **Left channel only**: `data_stereo[::2]` with `input_channels=2` hard-coded in `setup_audio`. Hann window, `rfft`, power = \|X\|² |
-| Bands | `FFT.calculate_channel_frequency` | One log-spaced band per channel between `min_frequency=20` and `max_frequency=15000`. With 8 channels that is ≈1.2 octaves each, and the lowest band (20–~46 Hz) spans only about 2 FFT bins |
+| Bands | `FFT.calculate_channel_frequency` | One log-spaced band per channel between `min_frequency=20` and `max_frequency=15000`. With 8 channels that is ≈1.2 octaves each, and the lowest band (20–~46 Hz) slices only 3 FFT bins (indices 1–3) |
 | Level | `calculate_levels` | `log10(sum(power in band))` |
 | Cache | `.song.mp3.sync` / `.cfg` | Rows of per-band levels, with row 0 = std and row 1 = mean of the **non-zero** values per band. Before a cache exists, mean=12.0 and std=1.5 |
 | Normalize | `Lightshow.update_lights` | `b = (x − mean + SD_low·std) / (std·(SD_low+SD_high)) · (1 − attenuate_pct/100)`, then clipped to 0..1. Defaults: `SD_low=0.5`, `SD_high=0.75`, `attenuate_pct=0` |
@@ -43,17 +43,17 @@ Every rule below comes from `get_song()`, `setup_audio()`, `play_song()` and `up
 |---|---|
 | **Location** | Same directory and basename as the audio, with the extension replaced: `music/foo.mp3` → `music/foo.csv` (`filename.rsplit('.',1)[0] + '.csv'`). If the file exists, the song plays from the CSV and the FFT/cache is skipped. |
 | **Header** | **None.** The first line is read once to count columns, then the file is reopened and the first line is played as row 0. |
-| **Columns** | Must equal `hardware.gpio_len`, or the process prints an error and calls `exit()`. **MIRROR**: `len(gpio_pins)`. **LEDONLY**: `led_channel_count`. **EXTEND**: `len(gpio_pins) + led_channel_count`, with GPIO channels first and LED channels after. |
+| **Columns** | Must equal `hardware.gpio_len`, or the process prints an error and calls `exit()`. **MIRROR**: `len(gpio_pins)`. **LEDONLY**: `led_channel_count`. **EXTEND**: `len(gpio_pins) + led_channel_count`, with GPIO channels first and LED channels after. `configuration_manager.py` re-reads `led_channel_count` after parsing `custom_per_channel`, so the length of `custom_per_channel` does *not* change the column count. Behavior with several LED configs was not checked. |
 | **Row parsing** | `list(map(float, line.strip().split(',')))`. Any float works. A **blank line or a comment line mid-file raises `ValueError`**. A trailing newline at EOF is fine. |
-| **Row period** | One row per audio chunk of `N = int(sample_rate · timing / 1000)` frames, with `timing` from `[custom_sequences] timing` (an **integer** in ms, default 25). At 44.1 kHz, N = 1102 frames = **24.989 ms**, not 25 ms. Over a 3-minute song that is ≈80 ms of drift if a composer assumes exactly 25 ms. **Compute row `i`'s time as `i·N/sr`.** At 48 kHz, N = 1200 exactly. |
+| **Row period** | One row per audio chunk of `N = int(sample_rate · timing / 1000)` frames. `sample_rate` is the file's **native** rate as audioread reports it; a composer that analyses at a resampled rate (librosa defaults to 22050 Hz) must still compute N from the native rate. `timing` comes from `[custom_sequences] timing` (an **integer** in ms, default 25). At 44.1 kHz, N = 1102 frames = **24.989 ms**, not 25 ms. Over a 3-minute song that is ≈80 ms of drift if a composer assumes exactly 25 ms. **Compute row `i`'s time as `i·N/sr`.** At 48 kHz, N = 1200 exactly. |
 | **Value scale** | `b = clip(v / brightness_range, 0, 1)`, with `[custom_sequences] brightness_range` an integer, default 255. |
 | **Relays** | A non-PWM channel is ON iff `b > 0.5`, i.e. `v > 127.5` at the default range. A PWM channel gets `int(b·pwm_max)`. |
 | **Bypassed** | SD_low/SD_high, attenuate_pct and decay_factor do not apply to CSV values. |
-| **Still applied** | `light_delay`, and the always_on / always_off / inverted overrides through `hc.set_array(..., True)`. LEDs still go through the color map and pattern. |
+| **Still applied** | `light_delay`. On physical GPIO channels, active-low inversion and the always_on / always_off / inverted overrides (`set_array(..., True)` → `Channel.set_action`, verified). LED channels receive the raw clipped value and still go through the color map and pattern. |
 | **Length** | Rows past EOF play as all zeros. Extra rows after the audio ends are ignored. |
 | **Scope** | `[custom_sequences]` is **global**. Per-song `.cfg` overrides only read `custom_lightshow` and `custom_audio_processing`. Each `synchronized_lights.py` process plays one song, so a playlist can mix CSV and FFT songs. |
 
-**What the CSV *cannot* express:** it carries one brightness value per channel, so **no per-LED color**. Color comes from the configured `pattern_color_map`. A hack within zero runtime changes: with `MAP1`/`MAP2` the brightness value indexes a color map, so a composer could choose a value to choose a color, at the cost of brightness control **[ESTIMATE: workable for LED-only layouts]**. Real chroma/mood→color needs a runtime change (see §6c).
+**What the CSV *cannot* express:** it carries one brightness value per channel, so **no per-LED color**. Color comes from the configured `pattern_color_map`. A hack within zero runtime changes: with `MAP1`/`MAP2` the brightness value indexes a color map, so a composer could choose a value to choose a color, at the cost of brightness control **[ESTIMATE: workable for LED-only layouts]**. Real chroma/mood→color needs a runtime change (see §7c).
 
 **Observation, not fixed here:** `chunks_per_sec = ((16·nch·sr)/8)/chunk_size` divides **bytes**/s by a **frame** count, which makes `light_delay` 4× too long for 16-bit stereo. The default `light_delay = 0` hides this.
 
@@ -80,11 +80,11 @@ Relays and LEDs need different treatment. Relays are a **1-bit, slow, wear-limit
 
 | Feature | What it gives lights | Tools (offline / live) | Notes |
 |---|---|---|---|
-| **Onset strength / spectral flux** | "Something just hit" curve; per-band flux gives per-channel triggers | librosa `onset_strength(_multi)` ([docs](https://librosa.org/doc/latest/generated/librosa.onset.onset_strength.html)); numpy flux (live); aubio `onset` (live) | Positive half-wave-rectified log-spectral difference. Cheap in numpy. |
-| **Beat tracking** | Grid to quantize events to | librosa `beat_track` (DP, Ellis 2007); **beat_this** ([repo](https://github.com/CPJKU/beat_this), Foscarin et al. ISMIR 2024, [arXiv:2407.21658](https://arxiv.org/abs/2407.21658)); madmom DBN ([repo](https://github.com/CPJKU/madmom)); BeatNet online ([repo](https://github.com/mjhydri/BeatNet), [arXiv:2108.03576](https://arxiv.org/abs/2108.03576)) | beat_this reports state-of-the-art accuracy without DBN post-processing; "small" weights are ≈8 MB |
-| **Downbeats / meter** | Bar-level accents (big flash on beat 1), phrase counting | beat_this, madmom, BeatNet, all-in-one | librosa has no downbeat tracker |
+| **Onset strength / spectral flux** | "Something just hit" curve; per-band flux gives per-channel triggers | librosa `onset_strength(_multi)` ([docs](https://librosa.org/doc/latest/generated/librosa.onset.onset_strength.html) **[UNVERIFIED: link and names not re-checked for librosa 1.0]**); numpy flux (live); aubio `onset` (live) | Positive half-wave-rectified log-spectral difference. Cheap in numpy. |
+| **Beat tracking** | Grid to quantize events to | librosa `beat_track` (dynamic programming, Ellis 2007 **[UNVERIFIED citation]**); **beat_this** ([repo](https://github.com/CPJKU/beat_this), Foscarin et al. ISMIR 2024, [arXiv:2407.21658](https://arxiv.org/abs/2407.21658)); madmom DBN ([repo](https://github.com/CPJKU/madmom)); BeatNet online ([repo](https://github.com/mjhydri/BeatNet), [arXiv:2108.03576](https://arxiv.org/abs/2108.03576)) | beat_this reports state-of-the-art accuracy without DBN post-processing; "small" weights are ≈8 MB |
+| **Downbeats / meter** | Bar-level accents (big flash on beat 1), phrase counting | beat_this, madmom, BeatNet, all-in-one | librosa has no downbeat tracker **[UNVERIFIED for 1.0]** |
 | **Tempo** | Pattern speed (chase step = beat or half-beat), slow-song detection | from the beat grid; librosa `tempo` | Pick half or double time for relay-friendly rates |
-| **Structure segmentation** | Section boundaries + labels (verse/chorus/…) → density and style changes, repeat-consistent looks | librosa Laplacian segmentation ([example](https://librosa.org/doc/latest/auto_examples/plot_segmentation.html), McFee & Ellis 2014); **MSAF** ([repo](https://github.com/urinieto/msaf), MIT); **all-in-one** ([repo](https://github.com/mir-aidj/all-in-one), Kim & Nam WASPAA 2023, [arXiv:2307.16425](https://arxiv.org/abs/2307.16425)) gives beats, downbeats, and *functional* labels (intro/verse/chorus/…) in one model | all-in-one is MIT but pulls in madmom (git), NATTEN and Demucs, so it is fragile to install |
+| **Structure segmentation** | Section boundaries + labels (verse/chorus/…) → density and style changes, repeat-consistent looks | librosa Laplacian segmentation ([example](https://librosa.org/doc/latest/auto_examples/plot_segmentation.html), McFee & Ellis 2014 **[UNVERIFIED link/citation]**); **MSAF** ([repo](https://github.com/urinieto/msaf), MIT); **all-in-one** ([repo](https://github.com/mir-aidj/all-in-one), Kim & Nam WASPAA 2023, [arXiv:2307.16425](https://arxiv.org/abs/2307.16425)) gives beats, downbeats, and *functional* labels (intro/verse/chorus/…) in one model | all-in-one is MIT but pulls in madmom (git), NATTEN and Demucs, so it is fragile to install |
 | **Chroma / key** | Palette from key/mode, hue shift on chord change | librosa `chroma_cqt`/`chroma_stft` + Krumhansl key profile | Needs runtime color support for LEDs (§1.2) |
 | **Loudness / energy** | Intensity envelope, section energy ranking, "quiet = dark" | librosa `rms`; **pyloudnorm** (MIT, EBU R128 / BS.1770) | Use a *global* song-level scale, not per-band z-scores |
 | **Source separation** | Drums / bass / vocals / other stems → channel groups | **Demucs** htdemucs ([repo](https://github.com/facebookresearch/demucs), MIT, **archived Jan 2025**, maintained fork [adefossez/demucs](https://github.com/adefossez/demucs)); Spleeter (MIT, TensorFlow, **Python < 3.12**) | Demucs CPU time is about 1.5× track length on a desktop CPU (per its README) |
@@ -121,7 +121,7 @@ These building blocks can be mixed per section.
 | **LedFx** | Real-time audio-reactive effect engine over the network; depends on an aubio fork ([repo](https://github.com/LedFx/LedFx), [pyproject](https://raw.githubusercontent.com/LedFx/LedFx/main/pyproject.toml)) | GPL-3.0 |
 | **WLED audio-reactive** | 16-channel GEQ from an FFT, AGC (Off/Normal/Vivid/Lazy), squelch noise floor ([docs](https://kno.wled.ge/advanced/audio-reactive/)) | EUPL-1.2 (WLED-MM) |
 | **Philips Hue Sync** | Proprietary music sync; the Entertainment API docs need a login | **[UNVERIFIED]** |
-| **Nanoleaf** | Open API "extControl" v2 UDP streaming on port 60222, per third-party clients ([picoleaf](https://github.com/tessro/picoleaf/blob/main/client.go)). Official docs moved to [nanoleaf.atlassian.net](https://nanoleaf.atlassian.net/wiki/spaces/nlapid/overview). Frame-rate limits and Permanent Outdoor Lights support **[UNVERIFIED]**. | — |
+| **Nanoleaf** | Open API "extControl" v2 UDP streaming on port 60222, per third-party clients ([picoleaf](https://github.com/tessro/picoleaf/blob/main/client.go)). The old docs URL redirects; current docs appear to be at [nanoleaf.atlassian.net](https://nanoleaf.atlassian.net/wiki/spaces/nlapid/overview) **[UNVERIFIED: not opened]**. Frame-rate limits and Permanent Outdoor Lights support **[UNVERIFIED]**. | — |
 | **LLM attempts** | On xlightsseq.com, users report mixed results asking chat LLMs to edit `.xsq` files directly: unchanged or broken files, one success on timing tracks ([thread](https://xlightsseq.com/threads/ai-created-sequences.5680/post-7393)) | — |
 
 The takeaway is that the community automates **timing marks** and leaves placing effects to humans. LightShowPi already has a fully automatic (FFT) mode, so the opportunity is to make the automatic mode *musical*, not to build a sequencer UI.
@@ -172,6 +172,22 @@ The takeaway is that the community automates **timing marks** and leaves placing
 
 ### (a) Phase 1: offline composer → existing `song.csv` (zero runtime changes)
 
+**Step 0: prove the CSV path on the Pi first.** No test in `tests/` covers `sequence_type == 'csv'` (grep for `csv` and `sequence_type` finds nothing), so this legacy path is unproven in Neo, and phase 1 rests entirely on it. A 25 ms row rate also makes the playback loop, including `cm.load_state()` on every row, run about 4× as often as in FFT mode. That needs Pi validation and bears on open question 7. Smoke test with a hand-made alternating CSV, setting the column count to your `gpio_len`:
+
+```bash
+# Make a 60 s, 8-column test sequence that alternates odd/even channels every 0.5 s
+python3 -c "
+sr=44100; N=int(sr*25/1000); rows=int(60*sr/N)
+for i in range(rows):
+    odd=int(i*N/sr*2)%2
+    print(','.join('255' if c%2==odd else '0' for c in range(8)))
+" > music/test_song.csv     # test_song.mp3 (44.1 kHz) must sit beside it
+# On the Pi
+sudo $(which python) py/synchronized_lights.py --file music/test_song.mp3
+```
+
+Pass: a steady 0.5 s alternation that stays locked to the audio until the end, with no audio underruns.
+
 Proposed CLI (not built yet):
 
 ```
@@ -190,7 +206,7 @@ python research/compose.py music/song.mp3 --strategy beat_chase \
 
 | Metric (objective proxy) | Definition | Good direction |
 |---|---|---|
-| **Beat alignment** | Fraction of relay ON-transitions within ±50 ms of a beat (or F-measure with `mir_eval.beat`) | ↑ |
+| **Beat alignment** | Fraction of relay ON-transitions within ±50 ms of a beat (or an F-measure, e.g. via `mir_eval.beat` **[UNVERIFIED: not researched; a short numpy version is enough]**) | ↑ |
 | **Toggle rate** | Transitions per channel per minute; max and median | ↓ (relays), within a target band |
 | **Min dwell violations** | Count of ON/OFF segments shorter than `min_on`/`min_off` | = 0 |
 | **Duty cycle spread** | Per-channel ON fraction; the variance across channels | Not all ≈ the same (avoid "everything equally busy") |
@@ -200,7 +216,7 @@ python research/compose.py music/song.mp3 --strategy beat_chase \
 
 **Subjective:** blind A/B sessions on the real display or on the MP4 preview. Use 6–10 songs across genres (fast pop, ballad, classical, rock). Rate "in sync", "not random", "variety", "would watch again" on a 1–5 scale. The FFT baseline is always one arm. Compute the proxies for the FFT baseline too, by thresholding its brightness at 0.5, so numbers are comparable.
 
-### (c) Phase 3: runtime integration (later, needs Steve's design decision)
+### (c) Phase 2: runtime integration (later, needs Steve's design decision)
 
 A pluggable pipeline inside `py/`, still free of any `api/` dependency:
 
@@ -243,6 +259,7 @@ for each beat b_i (time t_i):
     k = n_active(level(t_i))         # 1..G channels lit, more when louder
     head = i % G                     # chase position (bounce on downbeat)
     light channels [head .. head+k) mod G from t_i until t_{i+1}
+    leave an off-gap of max(min_off, 0.25*beat) before t_{i+1}, so held channels still pulse when k == G
     if b_i is downbeat and level > 0.8: all channels on for 1 beat (accent)
     if level < 0.1: all off (quiet = dark)
 PWM channels: pulse = exp(-(t - t_i)/tau) * level
