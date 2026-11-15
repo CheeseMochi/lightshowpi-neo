@@ -259,3 +259,22 @@ class TestDefaultsConfig:
 
             chunk_size = parser.getint('audio_processing', 'chunk_size')
             assert chunk_size == 4096, "chunk_size should be 4096 for Pi 3+"
+
+
+@pytest.mark.unit
+class TestPlaylistErrorPaths:
+    """Regression: these paths used an undefined `log` and raised NameError."""
+
+    def _cm(self):
+        import configuration_manager
+        return configuration_manager.Configuration.__new__(configuration_manager.Configuration)
+
+    def test_missing_playlist_exits_cleanly(self, tmp_path):
+        with pytest.raises(SystemExit):
+            self._cm().get_playlist(str(tmp_path / "missing.playlist"))
+
+    def test_invalid_entries_are_skipped(self, tmp_path):
+        playlist = tmp_path / ".playlist"
+        playlist.write_text("Good Song\t/music/good.mp3\nbad line without a tab\n")
+        songs = self._cm().get_playlist(str(playlist))
+        assert [s[0] for s in songs] == ["Good Song"]
