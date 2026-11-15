@@ -49,3 +49,17 @@
       ansible.builtin.import_role:
         name: gh_runner
       tags: [gh_runner]
+
+    # Bench jobs run pytest on the Pi, so the runner user needs its own conda
+    # env (lgpio linked) and a checkout to build it from. lsp_user is the
+    # runner user on bench hosts (group_vars/bench).
+    - name: Check out the LightShowPi repository for the runner
+      ansible.builtin.import_role:
+        name: lightshowpi
+        tasks_from: checkout
+      tags: [gh_runner, conda_env]
+
+    - name: Apply conda_env role for the runner
+      ansible.builtin.import_role:
+        name: conda_env
+      tags: [gh_runner, conda_env]
