@@ -100,6 +100,6 @@
 # crontab/synchronized_lights are installed by hand, so comment them out by pattern.
 - name: Disable lightshow crontab entries
   ansible.builtin.include_tasks: disable_crontab.yml
-  loop: "{{ ['root', lsp_user] | unique }}"
+  loop: "{{ (gh_runner_cron_users + [lsp_user]) | unique }}"
   loop_control:
     loop_var: cron_user
