@@ -15,6 +15,26 @@ os.environ['SYNCHRONIZED_LIGHTS_HOME'] = str(REPO_ROOT)
 PY_DIR = REPO_ROOT / "py"
 sys.path.insert(0, str(PY_DIR))
 
+# Tests with these markers need real Pi hardware (GPIO loopback wiring, ALSA
+# audio, Pi platform). They only run on the test bench, when LSP_BENCH=1.
+HARDWARE_MARKERS = ("gpio", "audio", "platform")
+
+
+def bench_enabled():
+    """True when running on the hardware test bench (LSP_BENCH=1)."""
+    return os.environ.get("LSP_BENCH", "").strip().lower() in ("1", "true", "yes")
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip hardware-marked tests unless LSP_BENCH=1."""
+    if bench_enabled():
+        return
+    skip_hw = pytest.mark.skip(
+        reason="hardware test: set LSP_BENCH=1 to run on the Pi test bench")
+    for item in items:
+        if any(item.get_closest_marker(m) for m in HARDWARE_MARKERS):
+            item.add_marker(skip_hw)
+
 
 @pytest.fixture
 def temp_config_file():

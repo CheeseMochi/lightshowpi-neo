@@ -553,8 +553,8 @@ sudo usermod -a -G gpio $USER
 
 **Testing GPIO with sudo:**
 ```bash
-# Test GPIO hardware
-sudo $(which python) tests/test_gpio_hardware.py
+# Test GPIO hardware (loopback jumpers per tests/bench.yaml, see tests/README.md)
+sudo LSP_BENCH=1 $(which python) -m pytest -m gpio tests/test_gpio_hardware.py
 
 # Test hardware controller
 sudo $(which python) py/hardware_controller.py --test
