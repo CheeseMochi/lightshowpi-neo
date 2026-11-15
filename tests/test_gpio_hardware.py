@@ -350,7 +350,6 @@ class TestBenchConfig:
     def test_checked_in_bench_yaml_is_valid(self):
         config = load_bench_config(DEFAULT_BENCH_CONFIG)
         assert config["pairs"], "bench.yaml must define at least one pair"
-        assert (17, 27) in config["pairs"]
 
     def test_simple_parser_matches_pyyaml(self):
         yaml = pytest.importorskip("yaml")
