@@ -84,7 +84,6 @@ class TestButtonConfiguration:
 
 
 @pytest.mark.unit
-@pytest.mark.gpio
 @pytest.mark.skipif(not BUTTONMANAGER_AVAILABLE, reason="buttonmanager not available (requires gpiozero)")
 class TestButtonFunctions:
     """Test button manager functions with mocked GPIO."""
@@ -354,7 +353,6 @@ class TestButtonIntegration:
 
 
 @pytest.mark.integration
-@pytest.mark.gpio
 @pytest.mark.skipif(not BUTTONMANAGER_AVAILABLE, reason="buttonmanager not available (requires gpiozero)")
 class TestButtonManagerMain:
     """Test main() function behavior (requires manual testing on Pi)."""
