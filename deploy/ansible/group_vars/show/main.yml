@@ -1,0 +1,6 @@
+---
+# cloudflared connector for the Cloudflare Tunnel created by deploy/terraform/cloudflare.
+# `make tunnel-token` writes the token to group_vars/show/tunnel.yml (git-ignored).
+cloudflared_tunnel_token: "{{ vault_cloudflared_tunnel_token | default('') }}"
+cloudflared_keyring_url: https://pkg.cloudflare.com/cloudflare-main.gpg
+cloudflared_repo_uri: https://pkg.cloudflare.com/cloudflared

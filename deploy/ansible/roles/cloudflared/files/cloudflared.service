@@ -1,0 +1,18 @@
+# Managed by Ansible (deploy/ansible/roles/cloudflared)
+[Unit]
+Description=Cloudflare Tunnel connector (LightShowPi)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+DynamicUser=yes
+EnvironmentFile=/etc/cloudflared/tunnel.env
+# Remotely-managed tunnel: ingress rules come from Terraform/Cloudflare, token from TUNNEL_TOKEN.
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars (git-ignored) and fill in.
+# The API token is NOT set here: export CLOUDFLARE_API_TOKEN=... in your shell.
+
+account_id       = "0123456789abcdef0123456789abcdef"
+zone             = "example.com"
+admin_subdomain  = "lights"
+public_subdomain = "show"
+admin_emails     = ["you@example.com"]
+
+# Set false if your Zero Trust account already has a One-time PIN login method.
+# create_otp_idp = true

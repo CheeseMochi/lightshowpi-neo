@@ -1,0 +1,36 @@
+# {{ ansible_managed }}
+# Derived from systemd/lightshowpi-api.service
+[Unit]
+Description=LightShowPi Neo API Server
+Documentation=https://github.com/CheeseMochi/lightshowpi-neo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ lsp_user }}
+Group={{ lsp_user }}
+SupplementaryGroups=gpio audio
+
+Environment="SYNCHRONIZED_LIGHTS_HOME={{ lsp_repo_dir }}"
+Environment="PATH={{ conda_env_prefix }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+EnvironmentFile=/etc/lightshowpi/api.env
+
+WorkingDirectory={{ lsp_repo_dir }}
+
+# Run uvicorn directly: `python -m api.main` enables reload=True (dev only).
+ExecStart={{ conda_env_prefix }}/bin/python -m uvicorn api.main:app --host {{ lsp_api_bind }} --port {{ lsp_api_port }}
+
+Restart=on-failure
+RestartSec=10s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lightshowpi-api
+
+NoNewPrivileges=true
+PrivateTmp=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

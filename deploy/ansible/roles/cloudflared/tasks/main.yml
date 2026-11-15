@@ -1,0 +1,69 @@
+---
+- name: Require the tunnel token
+  ansible.builtin.assert:
+    that: cloudflared_tunnel_token | length > 0
+    fail_msg: >-
+      cloudflared_tunnel_token is empty. Run `make tunnel` then `make tunnel-token`
+      (writes deploy/ansible/group_vars/show/tunnel.yml), or skip with --skip-tags cloudflared.
+    quiet: true
+
+- name: Install python3-debian (needed by deb822_repository)
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+
+- name: Add cloudflared apt repository (with signing key)
+  ansible.builtin.deb822_repository:
+    name: cloudflared
+    types: [deb]
+    uris: "{{ cloudflared_repo_uri }}"
+    suites: [any]
+    components: [main]
+    signed_by: "{{ cloudflared_keyring_url }}"
+    state: present
+
+- name: Install cloudflared
+  ansible.builtin.apt:
+    name: cloudflared
+    state: present
+    update_cache: true
+
+- name: Create /etc/cloudflared
+  ansible.builtin.file:
+    path: /etc/cloudflared
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+# Token goes in an env file, not on the command line (`cloudflared service install
+# <token>` would expose it in the unit and in `ps`).
+- name: Write tunnel token env file (0600)
+  ansible.builtin.copy:
+    dest: /etc/cloudflared/tunnel.env
+    content: "TUNNEL_TOKEN={{ cloudflared_tunnel_token }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart cloudflared
+
+- name: Install cloudflared systemd unit
+  ansible.builtin.copy:
+    src: cloudflared.service
+    dest: /etc/systemd/system/cloudflared.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd for cloudflared
+    - Restart cloudflared
+
+- name: Flush cloudflared handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start cloudflared
+  ansible.builtin.systemd_service:
+    name: cloudflared.service
+    enabled: true
+    state: started

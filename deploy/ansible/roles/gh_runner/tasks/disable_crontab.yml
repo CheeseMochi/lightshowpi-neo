@@ -1,0 +1,22 @@
+---
+- name: Read crontab for {{ cron_user }}
+  ansible.builtin.command:
+    cmd: "crontab -l -u {{ cron_user }}"
+  register: gh_runner_crontab
+  changed_when: false
+  failed_when: false
+
+- name: Comment out lightshow entries for {{ cron_user }}
+  when:
+    - gh_runner_crontab.rc == 0
+    - gh_runner_crontab.stdout_lines | select('match', gh_runner_cron_active_re) | list | length > 0
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail &&
+      crontab -l -u {{ cron_user }}
+      | sed -E 's/^([^#].*(start_music_and_lights|stop_music_and_lights|start_playlist).*)$/# disabled on bench by ansible: \1/'
+      | crontab -u {{ cron_user }} -
+    executable: /bin/bash
+  changed_when: true
+  vars:
+    gh_runner_cron_active_re: '^[^#].*(start_music_and_lights|stop_music_and_lights|start_playlist)'

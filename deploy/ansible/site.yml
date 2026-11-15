@@ -1,0 +1,65 @@
+---
+# LightShowPi Neo - full provisioning.
+#   ansible-playbook site.yml --limit <host|group>
+# Tags: base, conda_env, lightshowpi, gh_runner, cloudflared
+
+- name: Base system packages and groups
+  hosts: show:server:client:bench
+  become: true
+  tasks:
+    - name: Apply base role
+      ansible.builtin.import_role:
+        name: base
+      tags: [base]
+
+- name: LightShowPi application hosts
+  hosts: show:server:client
+  become: true
+  tasks:
+    - name: Check out the LightShowPi repository
+      ansible.builtin.import_role:
+        name: lightshowpi
+        tasks_from: checkout
+      tags: [conda_env, lightshowpi]
+
+    - name: Apply conda_env role
+      ansible.builtin.import_role:
+        name: conda_env
+      tags: [conda_env]
+
+    - name: Apply lightshowpi role
+      ansible.builtin.import_role:
+        name: lightshowpi
+      tags: [lightshowpi]
+
+- name: Cloudflare Tunnel connector
+  hosts: show
+  become: true
+  tasks:
+    - name: Apply cloudflared role
+      ansible.builtin.import_role:
+        name: cloudflared
+      tags: [cloudflared]
+
+- name: GitHub Actions runner on the test bench
+  hosts: bench
+  become: true
+  tasks:
+    - name: Apply gh_runner role
+      ansible.builtin.import_role:
+        name: gh_runner
+      tags: [gh_runner]
+
+    # Bench jobs run pytest on the Pi, so the runner user needs its own conda
+    # env (lgpio linked) and a checkout to build it from. lsp_user is the
+    # runner user on bench hosts (group_vars/bench).
+    - name: Check out the LightShowPi repository for the runner
+      ansible.builtin.import_role:
+        name: lightshowpi
+        tasks_from: checkout
+      tags: [gh_runner, conda_env]
+
+    - name: Apply conda_env role for the runner
+      ansible.builtin.import_role:
+        name: conda_env
+      tags: [gh_runner, conda_env]
