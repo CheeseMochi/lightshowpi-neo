@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **GPIO chip selection**: `py/gpio_adapter.py` now picks the gpiochip that drives the
+  40-pin header instead of always opening `gpiochip0`. Set `LSP_GPIOCHIP` (e.g. `4`,
+  `gpiochip4` or `/dev/gpiochip4`) to force one; otherwise it auto-detects by label
+  (`pinctrl-rp1` on Pi 5, `pinctrl-bcm2711` on Pi 4, `pinctrl-bcm2835` on Pi 3) and
+  falls back to `gpiochip0`. Fixes Pi 5 on older kernels where the header is `gpiochip4`.
+
+### Changed
+- `py/gpio_adapter.py` no longer fails at import time when `lgpio` is missing; it
+  raises a clear `RuntimeError` when GPIO is initialised instead.
+
 ## [0.9.1] - 2026-09-23
 
 ### Added
