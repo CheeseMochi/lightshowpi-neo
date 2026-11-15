@@ -1,0 +1,143 @@
+---
+- name: Check out repository
+  ansible.builtin.import_tasks: checkout.yml
+
+# --- Configuration ----------------------------------------------------------
+
+- name: Create config/overrides.cfg (only if absent; never overwrites local edits)
+  ansible.builtin.template:
+    src: overrides.cfg.j2
+    dest: "{{ lsp_repo_dir }}/config/overrides.cfg"
+    owner: "{{ lsp_user }}"
+    group: "{{ lsp_user }}"
+    mode: "0644"
+    force: false
+
+# --- Secrets: /etc/lightshowpi/api.env --------------------------------------
+
+- name: Require a real admin password
+  ansible.builtin.assert:
+    that:
+      - lsp_admin_password | length >= 8
+      - lsp_admin_password != 'admin123'
+      - lsp_admin_password is not search('["\n]')
+      - "'\\\\' not in lsp_admin_password"
+    fail_msg: >-
+      Set vault_lsp_admin_password (>= 8 chars, not admin123, no double quote,
+      backslash or newline) in
+      deploy/ansible/group_vars/all/secrets.yml (see secrets.example.yml).
+    quiet: true
+  no_log: true
+
+- name: Create /etc/lightshowpi
+  ansible.builtin.file:
+    path: /etc/lightshowpi
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Check for existing api.env
+  ansible.builtin.stat:
+    path: /etc/lightshowpi/api.env
+  register: lightshowpi_api_env_stat
+
+- name: Read existing api.env
+  ansible.builtin.slurp:
+    src: /etc/lightshowpi/api.env
+  register: lightshowpi_api_env_existing
+  when: lightshowpi_api_env_stat.stat.exists
+  no_log: true
+
+# Reuse the persisted JWT secret so reruns don't log everyone out.
+- name: Determine JWT secret (reuse existing, else generate once)
+  ansible.builtin.set_fact:
+    lightshowpi_jwt_secret: >-
+      {{ (lightshowpi_api_env_existing.content | b64decode | regex_search('(?m)^JWT_SECRET_KEY=(\S+)$', '\1') | first)
+         if (lightshowpi_api_env_stat.stat.exists
+             and (lightshowpi_api_env_existing.content | b64decode | regex_search('(?m)^JWT_SECRET_KEY=\S+$')))
+         else lookup('ansible.builtin.password', '/dev/null', length=64, chars=['ascii_letters', 'digits']) }}
+  no_log: true
+
+- name: Write api.env (0600)
+  ansible.builtin.template:
+    src: api.env.j2
+    dest: /etc/lightshowpi/api.env
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart lightshowpi-api
+
+# --- Web UI build artifact (optional) ---------------------------------------
+
+- name: Check for a local web build
+  delegate_to: localhost
+  become: false
+  run_once: true
+  ansible.builtin.stat:
+    path: "{{ lsp_web_dist_src }}/index.html"
+  register: lightshowpi_web_dist_local
+
+- name: Sync web build to the Pi
+  when: lightshowpi_web_dist_local.stat.exists
+  block:
+    - name: Create web/dist directory
+      ansible.builtin.file:
+        path: "{{ lsp_repo_dir }}/web/dist"
+        state: directory
+        owner: "{{ lsp_user }}"
+        group: "{{ lsp_user }}"
+        mode: "0755"
+
+    # Plain options only: macOS ships an old rsync without --chown/--mkpath.
+    - name: Sync web/dist
+      ansible.posix.synchronize:
+        src: "{{ lsp_web_dist_src }}/"
+        dest: "{{ lsp_repo_dir }}/web/dist/"
+        delete: true
+        recursive: true
+        checksum: true
+        times: false
+        owner: false
+        group: false
+      notify: Restart lightshowpi-api
+
+    - name: Fix web/dist ownership
+      ansible.builtin.file:
+        path: "{{ lsp_repo_dir }}/web/dist"
+        state: directory
+        recurse: true
+        owner: "{{ lsp_user }}"
+        group: "{{ lsp_user }}"
+
+# --- systemd ----------------------------------------------------------------
+
+- name: Install systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - lightshowpi-api.service
+    - lightshowpi-buttons.service
+  notify:
+    - Reload systemd
+    - Restart lightshowpi-api
+
+- name: Flush handlers so units are loaded before enabling
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start API service
+  ansible.builtin.systemd_service:
+    name: lightshowpi-api.service
+    enabled: true
+    state: started
+
+- name: Button manager service
+  ansible.builtin.systemd_service:
+    name: lightshowpi-buttons.service
+    enabled: "{{ lsp_enable_buttons | bool }}"
+    state: "{{ 'started' if lsp_enable_buttons | bool else 'stopped' }}"

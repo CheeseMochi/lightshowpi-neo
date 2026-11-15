@@ -1,0 +1,106 @@
+---
+- name: Look up existing groups
+  ansible.builtin.getent:
+    database: group
+
+- name: Create runner user (gpio/audio, no sudo)
+  ansible.builtin.user:
+    name: "{{ gh_runner_user }}"
+    home: "{{ gh_runner_home }}"
+    shell: /bin/bash
+    create_home: true
+    groups: "{{ ['gpio', 'audio'] | select('in', ansible_facts.getent_group) | list }}"
+    append: true
+
+- name: Ensure runner user has no sudoers drop-in
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ gh_runner_user }}"
+    state: absent
+
+- name: Create runner directory
+  ansible.builtin.file:
+    path: "{{ gh_runner_dir }}"
+    state: directory
+    owner: "{{ gh_runner_user }}"
+    group: "{{ gh_runner_user }}"
+    mode: "0755"
+
+- name: Download runner tarball
+  ansible.builtin.get_url:
+    url: "https://github.com/actions/runner/releases/download/v{{ gh_runner_version }}/actions-runner-linux-arm64-{{ gh_runner_version }}.tar.gz"
+    dest: "{{ gh_runner_home }}/actions-runner-linux-arm64-{{ gh_runner_version }}.tar.gz"
+    checksum: "{{ gh_runner_checksum | default(omit, true) }}"
+    owner: "{{ gh_runner_user }}"
+    mode: "0644"
+
+- name: Unpack runner
+  become: true
+  become_user: "{{ gh_runner_user }}"
+  ansible.builtin.unarchive:
+    src: "{{ gh_runner_home }}/actions-runner-linux-arm64-{{ gh_runner_version }}.tar.gz"
+    dest: "{{ gh_runner_dir }}"
+    remote_src: true
+    creates: "{{ gh_runner_dir }}/config.sh"
+
+- name: Install runner OS dependencies
+  ansible.builtin.shell:
+    cmd: ./bin/installdependencies.sh && touch .deps_installed
+    chdir: "{{ gh_runner_dir }}"
+    creates: "{{ gh_runner_dir }}/.deps_installed"
+
+- name: Check runner registration
+  ansible.builtin.stat:
+    path: "{{ gh_runner_dir }}/.runner"
+  register: gh_runner_registered
+
+- name: Register runner
+  when: not gh_runner_registered.stat.exists
+  block:
+    - name: Require registration token
+      ansible.builtin.assert:
+        that: gh_runner_token | length > 0
+        fail_msg: >-
+          Runner not registered yet and gh_runner_token is empty. Get a token (valid ~1h) from
+          GitHub > repo Settings > Actions > Runners > New self-hosted runner, then:
+          make runner HOST={{ inventory_hostname }} TOKEN=<token>
+        quiet: true
+      no_log: true
+
+    - name: Configure runner (labels self-hosted,Linux,ARM64 + extras)
+      become: true
+      become_user: "{{ gh_runner_user }}"
+      ansible.builtin.command:
+        cmd: >-
+          ./config.sh --unattended --replace
+          --url {{ gh_runner_repo_url }}
+          --token {{ gh_runner_token }}
+          --name {{ gh_runner_name }}
+          --labels {{ gh_runner_extra_labels | join(',') }}
+        chdir: "{{ gh_runner_dir }}"
+        creates: "{{ gh_runner_dir }}/.runner"
+      no_log: true
+
+- name: Install runner as a systemd service
+  ansible.builtin.command:
+    cmd: "./svc.sh install {{ gh_runner_user }}"
+    chdir: "{{ gh_runner_dir }}"
+    creates: "{{ gh_runner_dir }}/.service"
+
+- name: Read runner service name
+  ansible.builtin.slurp:
+    src: "{{ gh_runner_dir }}/.service"
+  register: gh_runner_service_file
+
+- name: Enable and start runner service
+  ansible.builtin.systemd_service:
+    name: "{{ gh_runner_service_file.content | b64decode | trim }}"
+    enabled: true
+    state: started
+
+# The bench Pi must not start the show on a timer. Crontab entries from
+# crontab/synchronized_lights are installed by hand, so comment them out by pattern.
+- name: Disable lightshow crontab entries
+  ansible.builtin.include_tasks: disable_crontab.yml
+  loop: "{{ ['root', lsp_user] | unique }}"
+  loop_control:
+    loop_var: cron_user

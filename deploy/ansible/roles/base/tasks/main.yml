@@ -1,0 +1,27 @@
+---
+- name: Install system packages
+  ansible.builtin.apt:
+    name:
+      - python3-lgpio
+      - liblgpio-dev
+      - libasound2-dev
+      - alsa-utils
+      - ffmpeg
+      - git
+      - i2c-tools
+      - rsync        # for synchronize (web/dist)
+      - acl          # for become_user to unprivileged accounts
+      - curl
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Look up existing groups
+  ansible.builtin.getent:
+    database: group
+
+- name: Add service user to hardware groups
+  ansible.builtin.user:
+    name: "{{ lsp_user }}"
+    groups: "{{ lsp_hw_groups | select('in', ansible_facts.getent_group) | list }}"
+    append: true

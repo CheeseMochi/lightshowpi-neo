@@ -1,0 +1,36 @@
+# {{ ansible_managed }}
+# Derived from systemd/lightshowpi-buttons.service (runs as {{ lsp_user }} via gpio group instead of root)
+[Unit]
+Description=LightShowPi Neo Button Manager
+Documentation=https://github.com/CheeseMochi/lightshowpi-neo
+After=network-online.target lightshowpi-api.service
+Wants=network-online.target
+PartOf=lightshowpi-api.service
+
+[Service]
+Type=simple
+User={{ lsp_user }}
+Group={{ lsp_user }}
+SupplementaryGroups=gpio audio
+
+Environment="SYNCHRONIZED_LIGHTS_HOME={{ lsp_repo_dir }}"
+Environment="PATH={{ conda_env_prefix }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+WorkingDirectory={{ lsp_repo_dir }}
+
+ExecStart={{ conda_env_prefix }}/bin/python py/buttonmanager.py --mode auto --log-level INFO
+ExecStop={{ conda_env_prefix }}/bin/python py/buttonmanager.py --cleanup
+
+Restart=on-failure
+RestartSec=10s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lightshowpi-buttons
+
+NoNewPrivileges=true
+PrivateTmp=true
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target

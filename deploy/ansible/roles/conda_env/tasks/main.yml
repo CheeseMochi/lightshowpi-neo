@@ -1,0 +1,121 @@
+---
+- name: Require 64-bit ARM (aarch64)
+  ansible.builtin.assert:
+    that: ansible_facts.architecture == 'aarch64'
+    fail_msg: >-
+      {{ inventory_hostname }} is {{ ansible_facts.architecture }}. Miniforge/conda-forge needs
+      64-bit Raspberry Pi OS (aarch64). Reflash with the 64-bit image.
+    quiet: true
+
+- name: Check for an existing conda install
+  ansible.builtin.stat:
+    path: "{{ conda_prefix }}/bin/conda"
+  register: conda_env_conda_bin
+
+- name: Install Miniforge
+  when: not conda_env_conda_bin.stat.exists
+  block:
+    - name: Download Miniforge installer
+      ansible.builtin.get_url:
+        url: "{{ miniforge_installer_url }}"
+        dest: "{{ lsp_home }}/Miniforge3-Linux-aarch64.sh"
+        mode: "0755"
+        owner: "{{ lsp_user }}"
+
+    - name: Run Miniforge installer (batch mode)
+      become: true
+      become_user: "{{ lsp_user }}"
+      ansible.builtin.command:
+        cmd: "bash {{ lsp_home }}/Miniforge3-Linux-aarch64.sh -b -p {{ conda_prefix }}"
+        creates: "{{ conda_prefix }}/bin/conda"
+
+    - name: Remove Miniforge installer
+      ansible.builtin.file:
+        path: "{{ lsp_home }}/Miniforge3-Linux-aarch64.sh"
+        state: absent
+
+- name: Detect system python3 version
+  ansible.builtin.command:
+    cmd: python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])'
+  register: conda_env_system_python
+  changed_when: false
+
+- name: Choose conda env python version
+  ansible.builtin.set_fact:
+    conda_env_system_python_ver: "{{ conda_env_system_python.stdout | trim }}"
+    conda_env_python: >-
+      {{ (python_version | string) if (python_version | string | length > 0)
+         else (conda_env_system_python.stdout | trim) }}
+
+- name: Read environment.yml from the checkout
+  ansible.builtin.slurp:
+    src: "{{ lsp_repo_dir }}/environment.yml"
+  register: conda_env_yml_raw
+
+# environment.yml allows a python range; pin it to the chosen major.minor so the
+# apt-installed lgpio C extension (built for system python) can be symlinked.
+- name: Write pinned environment file
+  ansible.builtin.copy:
+    dest: "{{ lsp_home }}/.lightshowpi-environment.pinned.yml"
+    owner: "{{ lsp_user }}"
+    mode: "0644"
+    content: >-
+      {{ env_spec | combine({'name': conda_env, 'channels': conda_channels, 'dependencies': pinned_deps}) | to_nice_yaml(indent=2) }}
+  vars:
+    env_spec: "{{ conda_env_yml_raw.content | b64decode | from_yaml }}"
+    pinned_deps: >-
+      {{ ['python=' ~ conda_env_python ~ '.*'] +
+         (env_spec.dependencies | reject('mapping') | reject('match', '^python([<>=!~ ]|$)') | list) +
+         (env_spec.dependencies | select('mapping') | list) }}
+  register: conda_env_pinned
+
+- name: Check for existing conda env
+  ansible.builtin.stat:
+    path: "{{ conda_env_prefix }}/bin/python"
+  register: conda_env_python_bin
+
+- name: Create conda env
+  become: true
+  become_user: "{{ lsp_user }}"
+  ansible.builtin.command:
+    cmd: "{{ conda_prefix }}/bin/conda env create -n {{ conda_env }} -f {{ lsp_home }}/.lightshowpi-environment.pinned.yml"
+    creates: "{{ conda_env_prefix }}/bin/python"
+
+- name: Update conda env when environment.yml changed
+  become: true
+  become_user: "{{ lsp_user }}"
+  ansible.builtin.command:
+    cmd: "{{ conda_prefix }}/bin/conda env update -n {{ conda_env }} -f {{ lsp_home }}/.lightshowpi-environment.pinned.yml --prune"
+  when: conda_env_python_bin.stat.exists and conda_env_pinned.changed
+  changed_when: true
+  notify: Restart lightshowpi-api
+
+- name: Detect conda env python version
+  ansible.builtin.command:
+    cmd: "{{ conda_env_prefix }}/bin/python -c 'import sys; print(\"%d.%d\" % sys.version_info[:2])'"
+  register: conda_env_python_actual
+  changed_when: false
+
+- name: Conda env python must match system python3 (needed for lgpio symlink)
+  ansible.builtin.assert:
+    that: conda_env_python_actual.stdout | trim == conda_env_system_python_ver
+    fail_msg: >-
+      Conda env python is {{ conda_env_python_actual.stdout | trim }} but system python3 is
+      {{ conda_env_system_python_ver }}. The apt python3-lgpio C extension only works with the
+      same major.minor. Fix: leave python_version empty (auto) or set
+      python_version: "{{ conda_env_system_python_ver }}", then remove the env and rerun:
+      {{ conda_prefix }}/bin/conda env remove -n {{ conda_env }}
+    quiet: true
+
+# link_lgpio.sh needs CONDA_PREFIX and the env's python first on PATH.
+- name: Symlink system lgpio into the conda env
+  become: true
+  become_user: "{{ lsp_user }}"
+  ansible.builtin.command:
+    cmd: "{{ lsp_repo_dir }}/bin/link_lgpio.sh"
+    chdir: "{{ lsp_repo_dir }}"
+    creates: "{{ conda_env_prefix }}/lib/python{{ conda_env_system_python_ver }}/site-packages/lgpio.py"
+  environment:
+    CONDA_PREFIX: "{{ conda_env_prefix }}"
+    CONDA_DEFAULT_ENV: "{{ conda_env }}"
+    PATH: "{{ conda_env_prefix }}/bin:/usr/local/bin:/usr/bin:/bin"
