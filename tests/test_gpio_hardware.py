@@ -1,334 +1,417 @@
 #!/usr/bin/env python
 """
-Hardware GPIO Test Script for LightShowPi Neo
+GPIO loopback tests for the LightShowPi Neo hardware test bench.
 
-This script tests GPIO functionality using gpio_adapter.
-Can run in two modes:
-1. Basic mode: Tests GPIO output only (visual verification)
-2. Loopback mode: Tests GPIO output + input (automated verification)
+These tests drive real GPIO pins and read them back through jumper wires, so
+they only run on a Raspberry Pi wired as described in tests/bench.yaml, and
+only when LSP_BENCH=1 (tests marked ``gpio`` are skipped otherwise, see
+tests/conftest.py).
 
-PIN NUMBERING: This test uses BCM GPIO numbering for clarity.
-  - BCM GPIO numbers match the Broadcom chip specification
-  - Example: BCM GPIO 17 = Physical pin 11 = WiringPi pin 0
+    # On the bench Pi, from the repo root (user must be in the gpio group,
+    # or run pytest with sudo)
+    LSP_BENCH=1 pytest -m gpio
 
-For loopback mode, connect GPIO pins in pairs:
-  - Connect BCM GPIO 17 to BCM GPIO 27 (physical pins 11→13)
-  - Connect BCM GPIO 22 to BCM GPIO 23 (physical pins 15→16)
+    # Same thing, convenience wrapper
+    python tests/test_gpio_hardware.py
 
-Usage:
-  # Basic mode (visual verification)
-  sudo python tests/test_gpio_hardware.py
+What is covered, for every [output, input] pair in bench.yaml:
+  - digital HIGH/LOW loopback through gpio_adapter
+  - hardware_controller.Channel on/off, active_low and inverted overrides
+  - soft PWM duty cycle (gpio_adapter and Channel), measured by sampling the
+    input pin and comparing the fraction of HIGH samples (tolerance-based)
 
-  # Loopback mode (automated testing)
-  sudo python tests/test_gpio_hardware.py --loopback
+The input side is claimed and read directly through lgpio so that failures
+raise instead of being logged and swallowed by the adapter.
 
-  # Test specific BCM GPIO pin
-  sudo python tests/test_gpio_hardware.py --pin 17
-
-  # Cleanup GPIO
-  sudo python tests/test_gpio_hardware.py --cleanup
-
-Note: Requires sudo for GPIO access on Raspberry Pi
+The bench.yaml loader and validator also have plain unit tests here, which
+run everywhere.
 """
-
-import argparse
-import sys
+import glob
+import importlib.util
 import os
+import re
+import signal
+import sys
 import time
-import logging
+from pathlib import Path
 
-# Add py directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'py'))
+import pytest
 
-import Platform
+BENCH_CONFIG_ENV = "LSP_BENCH_CONFIG"
+DEFAULT_BENCH_CONFIG = Path(__file__).with_name("bench.yaml")
 
-# Conditionally import gpio_adapter (only available on Raspberry Pi)
-try:
-    import gpio_adapter as wiringpi
-except (ImportError, RuntimeError):
-    wiringpi = None
+BENCH_DEFAULTS = {
+    "settle_seconds": 0.005,
+    "pwm_sample_seconds": 0.1,
+    "pwm_tolerance": 0.10,
+    "pwm_min_samples": 200,
+}
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-log = logging.getLogger(__name__)
+# BCM GPIOs available on the 40-pin header
+HEADER_GPIO_RANGE = range(0, 28)
 
 
-class GPIOTester:
-    """Test GPIO functionality using gpio_adapter (lgpio)."""
+# ============================================================================
+# bench.yaml loading
+# ============================================================================
 
-    def __init__(self, loopback=False):
-        self.loopback = loopback
-        self.tests_passed = 0
-        self.tests_failed = 0
-
-    def setup(self):
-        """Initialize GPIO in BCM mode."""
-        log.info("Initializing GPIO in BCM mode...")
-        try:
-            # Use BCM numbering for clarity in tests (pin numbers = BCM GPIO numbers)
-            wiringpi.wiringPiSetupGpio()
-            log.info("✓ GPIO initialized successfully (BCM mode)")
-            return True
-        except Exception as e:
-            log.error(f"✗ GPIO initialization failed: {e}")
-            return False
-
-    def cleanup(self):
-        """Cleanup GPIO resources."""
-        log.info("Cleaning up GPIO...")
-        try:
-            wiringpi.cleanup()
-            log.info("✓ GPIO cleanup complete")
-        except Exception as e:
-            log.warning(f"GPIO cleanup error (may be normal): {e}")
-
-    def test_digital_write(self, pin=17):
-        """Test basic digital write (on/off).
-
-        Args:
-            pin: BCM GPIO pin number to test (default: 17 = physical pin 11)
-        """
-        log.info(f"\n{'='*60}")
-        log.info(f"TEST: Digital Write on BCM GPIO {pin}")
-        log.info(f"{'='*60}")
-
-        try:
-            # Set pin as output
-            wiringpi.pinModePY(pin, wiringpi.OUTPUT)
-            log.info(f"✓ Pin {pin} configured as OUTPUT")
-
-            # Test HIGH
-            log.info(f"Setting GPIO {pin} HIGH...")
-            wiringpi.digitalWritePY(pin, wiringpi.HIGH)
-            time.sleep(0.5)
-            log.info(f"✓ GPIO {pin} set to HIGH")
-
-            # Test LOW
-            log.info(f"Setting GPIO {pin} LOW...")
-            wiringpi.digitalWritePY(pin, wiringpi.LOW)
-            time.sleep(0.5)
-            log.info(f"✓ GPIO {pin} set to LOW")
-
-            # Blink test
-            log.info(f"Blinking GPIO {pin} 5 times...")
-            for i in range(5):
-                wiringpi.digitalWritePY(pin, wiringpi.HIGH)
-                time.sleep(0.2)
-                wiringpi.digitalWritePY(pin, wiringpi.LOW)
-                time.sleep(0.2)
-                print(".", end="", flush=True)
-            print()
-
-            log.info(f"✓ Digital write test PASSED on GPIO {pin}")
-            self.tests_passed += 1
-            return True
-
-        except Exception as e:
-            log.error(f"✗ Digital write test FAILED on GPIO {pin}: {e}")
-            self.tests_failed += 1
-            return False
-
-    def test_pwm(self, pin=18):
-        """Test software PWM.
-
-        Args:
-            pin: BCM GPIO pin number to test (default: 18 = physical pin 12)
-        """
-        log.info(f"\n{'='*60}")
-        log.info(f"TEST: Software PWM on BCM GPIO {pin}")
-        log.info(f"{'='*60}")
-
-        try:
-            # Create PWM on pin
-            wiringpi.softPwmCreatePY(pin, 0, 100)
-            log.info(f"✓ PWM created on GPIO {pin} (range: 0-100)")
-
-            # Fade up
-            log.info(f"Fading up GPIO {pin}...")
-            for value in range(0, 101, 10):
-                wiringpi.softPwmWritePY(pin, value)
-                time.sleep(0.1)
-                print(".", end="", flush=True)
-            print()
-            log.info(f"✓ PWM fade up complete")
-
-            # Fade down
-            log.info(f"Fading down GPIO {pin}...")
-            for value in range(100, -1, -10):
-                wiringpi.softPwmWritePY(pin, value)
-                time.sleep(0.1)
-                print(".", end="", flush=True)
-            print()
-            log.info(f"✓ PWM fade down complete")
-
-            # Stop PWM
-            wiringpi.softPwmStopPY(pin)
-            log.info(f"✓ PWM stopped on GPIO {pin}")
-
-            log.info(f"✓ PWM test PASSED on GPIO {pin}")
-            self.tests_passed += 1
-            return True
-
-        except Exception as e:
-            log.error(f"✗ PWM test FAILED on GPIO {pin}: {e}")
-            self.tests_failed += 1
-            return False
-
-    def test_loopback_digital(self, output_pin=17, input_pin=27):
-        """Test digital loopback (output pin connected to input pin).
-
-        Args:
-            output_pin: BCM GPIO pin for output (default: 17 = physical pin 11)
-            input_pin: BCM GPIO pin for input (default: 27 = physical pin 13)
-        """
-        log.info(f"\n{'='*60}")
-        log.info(f"TEST: Digital Loopback (BCM GPIO {output_pin} → BCM GPIO {input_pin})")
-        log.info(f"{'='*60}")
-        log.info(f"REQUIRED: Connect BCM GPIO {output_pin} (pin 11) to BCM GPIO {input_pin} (pin 13) with jumper wire")
-
-        try:
-            # Configure pins
-            wiringpi.pinModePY(output_pin, wiringpi.OUTPUT)
-            wiringpi.pinModePY(input_pin, wiringpi.INPUT)
-            log.info(f"✓ GPIO {output_pin} configured as OUTPUT")
-            log.info(f"✓ GPIO {input_pin} configured as INPUT")
-
-            # Test HIGH
-            log.info(f"Testing HIGH signal...")
-            wiringpi.digitalWritePY(output_pin, wiringpi.HIGH)
-            time.sleep(0.1)  # Allow signal to settle
-            value = wiringpi.digitalReadPY(input_pin)
-
-            if value == wiringpi.HIGH:
-                log.info(f"✓ HIGH signal verified (output={wiringpi.HIGH}, input={value})")
-            else:
-                log.error(f"✗ HIGH signal FAILED (output={wiringpi.HIGH}, input={value})")
-                log.error(f"  Check connection between GPIO {output_pin} and GPIO {input_pin}")
-                self.tests_failed += 1
-                return False
-
-            # Test LOW
-            log.info(f"Testing LOW signal...")
-            wiringpi.digitalWritePY(output_pin, wiringpi.LOW)
-            time.sleep(0.1)
-            value = wiringpi.digitalReadPY(input_pin)
-
-            if value == wiringpi.LOW:
-                log.info(f"✓ LOW signal verified (output={wiringpi.LOW}, input={value})")
-            else:
-                log.error(f"✗ LOW signal FAILED (output={wiringpi.LOW}, input={value})")
-                log.error(f"  Check connection between GPIO {output_pin} and GPIO {input_pin}")
-                self.tests_failed += 1
-                return False
-
-            log.info(f"✓ Digital loopback test PASSED")
-            self.tests_passed += 1
-            return True
-
-        except Exception as e:
-            log.error(f"✗ Digital loopback test FAILED: {e}")
-            self.tests_failed += 1
-            return False
-
-    def run_all_tests(self):
-        """Run all GPIO tests."""
-        log.info("\n" + "="*60)
-        log.info("LightShowPi Neo - GPIO Hardware Test")
-        log.info("="*60)
-
-        # Get Pi info
-        pi_info = Platform.get_hardware_info()
-        log.info(f"Hardware: {pi_info['model']}")
-        log.info(f"Version: Pi {pi_info['version']}")
-        log.info(f"Supported: {pi_info['supported']}")
-
-        if not self.setup():
-            log.error("GPIO initialization failed. Aborting tests.")
-            return False
-
-        try:
-            # Basic tests (work on any setup)
-            log.info("\n" + "="*60)
-            log.info("BASIC GPIO TESTS")
-            log.info("="*60)
-
-            self.test_digital_write(pin=17)
-            self.test_digital_write(pin=22)
-            self.test_pwm(pin=18)
-
-            # Loopback tests (require physical connections)
-            if self.loopback:
-                log.info("\n" + "="*60)
-                log.info("LOOPBACK TESTS (requires jumper wires)")
-                log.info("="*60)
-
-                input("Connect GPIO 17 to GPIO 27, then press Enter...")
-                self.test_loopback_digital(output_pin=17, input_pin=27)
-
-            # Summary
-            log.info("\n" + "="*60)
-            log.info("TEST SUMMARY")
-            log.info("="*60)
-            log.info(f"Tests Passed: {self.tests_passed}")
-            log.info(f"Tests Failed: {self.tests_failed}")
-
-            if self.tests_failed == 0:
-                log.info("✓ ALL TESTS PASSED!")
-                return True
-            else:
-                log.error(f"✗ {self.tests_failed} TEST(S) FAILED")
-                return False
-
-        finally:
-            self.cleanup()
+_PAIR_RE = re.compile(r"^\s*-\s*\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\]\s*$")
+_KEY_RE = re.compile(r"^([A-Za-z_]\w*)\s*:\s*(.*?)\s*$")
 
 
-def main():
-    # Check if running on Raspberry Pi
-    if Platform.platform_detect() != Platform.RASPBERRY_PI:
-        print("ERROR: This test must be run on a Raspberry Pi")
-        print(f"Detected platform: {Platform.platform_detect()}")
-        return 1
+def parse_simple_yaml(text):
+    """Parse the small YAML subset bench.yaml uses, without PyYAML.
 
-    if wiringpi is None:
-        print("ERROR: gpio_adapter not available")
-        return 1
+    Supports top-level ``key: number`` lines, a top-level ``key:`` followed by
+    ``- [a, b]`` items, and ``#`` comments. Anything else raises ValueError.
+    """
+    data = {}
+    current_list = None
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        match = _PAIR_RE.match(line)
+        if match:
+            if current_list is None:
+                raise ValueError(f"bench config: list item outside a list: {raw!r}")
+            current_list.append([int(match.group(1)), int(match.group(2))])
+            continue
+        match = _KEY_RE.match(line)
+        if not match:
+            raise ValueError(f"bench config: unsupported line: {raw!r}")
+        key, value = match.groups()
+        if value == "":
+            current_list = data[key] = []
+        else:
+            current_list = None
+            try:
+                data[key] = int(value)
+            except ValueError:
+                data[key] = float(value)
+    # Match PyYAML, which loads an empty "key:" as None
+    return {k: (v if v != [] else None) for k, v in data.items()}
 
-    parser = argparse.ArgumentParser(description='GPIO Hardware Test for LightShowPi Neo')
-    parser.add_argument('--loopback', action='store_true',
-                        help='Run loopback tests (requires jumper wires)')
-    parser.add_argument('--pin', type=int,
-                        help='Test specific BCM GPIO pin number (e.g., 17 for physical pin 11)')
-    parser.add_argument('--cleanup', action='store_true',
-                        help='Cleanup GPIO and exit')
 
-    args = parser.parse_args()
+def validate_bench_config(data):
+    """Validate parsed bench config and merge defaults.
 
-    if args.cleanup:
-        log.info("Cleaning up GPIO...")
-        wiringpi.cleanup()
-        log.info("Done.")
-        return 0
+    Returns a dict with ``pairs`` as a list of (output, input) tuples plus the
+    numeric settings. Raises ValueError with a readable message on bad input.
+    """
+    data = dict(data or {})
+    pairs = data.pop("pairs", None)
 
-    tester = GPIOTester(loopback=args.loopback)
+    unknown = set(data) - set(BENCH_DEFAULTS)
+    if unknown:
+        raise ValueError(f"bench config: unknown keys {sorted(unknown)}")
 
-    if args.pin:
-        # Test specific pin
-        if not tester.setup():
-            return 1
-        try:
-            log.info(f"\nTesting GPIO {args.pin}...")
-            tester.test_digital_write(pin=args.pin)
-        finally:
-            tester.cleanup()
+    if not pairs:
+        raise ValueError("bench config: 'pairs' must list at least one [output, input] pair")
+
+    normalized = []
+    for pair in pairs:
+        if (not isinstance(pair, (list, tuple)) or len(pair) != 2
+                or not all(isinstance(p, int) and not isinstance(p, bool) for p in pair)):
+            raise ValueError(f"bench config: pair {pair!r} must be [output BCM, input BCM]")
+        if not all(p in HEADER_GPIO_RANGE for p in pair):
+            raise ValueError(f"bench config: pair {pair!r} uses a pin outside BCM 0-27")
+        normalized.append((pair[0], pair[1]))
+
+    pins = [p for pair in normalized for p in pair]
+    duplicates = sorted({p for p in pins if pins.count(p) > 1})
+    if duplicates:
+        raise ValueError(f"bench config: BCM pins used more than once: {duplicates}")
+
+    config = dict(BENCH_DEFAULTS)
+    config.update(data)
+    for key, value in config.items():
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
+            raise ValueError(f"bench config: {key} must be a positive number, got {value!r}")
+    config["pairs"] = normalized
+    return config
+
+
+def load_bench_config(path=None):
+    """Load and validate bench.yaml (PyYAML if installed, else the simple parser)."""
+    path = Path(path or os.environ.get(BENCH_CONFIG_ENV) or DEFAULT_BENCH_CONFIG)
+    text = path.read_text()
+    try:
+        import yaml
+    except ImportError:
+        data = parse_simple_yaml(text)
     else:
-        # Run all tests
-        success = tester.run_all_tests()
-        return 0 if success else 1
+        data = yaml.safe_load(text)
+    return validate_bench_config(data)
 
 
-if __name__ == '__main__':
-    sys.exit(main())
+BENCH = load_bench_config()
+PAIRS = BENCH["pairs"]
+PAIR_IDS = [f"bcm{o}-bcm{i}" for o, i in PAIRS]
+
+
+# ============================================================================
+# Hardware fixtures and helpers
+# ============================================================================
+
+def hardware_skip_reason():
+    """Return why GPIO hardware tests can't run here, or None if they can."""
+    if not sys.platform.startswith("linux"):
+        return f"GPIO bench tests need a Raspberry Pi (running on {sys.platform})"
+    try:
+        model = Path("/proc/device-tree/model").read_text(errors="ignore").strip("\x00\n ")
+    except OSError:
+        model = ""
+    if "Raspberry Pi" not in model:
+        return f"GPIO bench tests need a Raspberry Pi (model: {model or 'unknown'})"
+    if importlib.util.find_spec("lgpio") is None:
+        return "lgpio is not installed in this environment (see bin/link_lgpio.sh)"
+    if not glob.glob("/dev/gpiochip*"):
+        return "no /dev/gpiochip* devices found"
+    return None
+
+
+@pytest.fixture
+def gpio():
+    """gpio_adapter initialised in BCM mode; all pins released afterwards."""
+    reason = hardware_skip_reason()
+    if reason:
+        pytest.skip(reason)
+
+    import gpio_adapter
+    gpio_adapter.wiringPiSetupGpio()
+    try:
+        yield gpio_adapter
+    finally:
+        gpio_adapter.cleanup()  # stops PWM and closes the chip, releasing claims
+
+
+@pytest.fixture
+def channel_cls(gpio, monkeypatch):
+    """hardware_controller.Channel, wired to the initialised gpio_adapter."""
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    import hardware_controller
+    # hardware_controller ignores SIGINT at import; keep the runner cancellable
+    signal.signal(signal.SIGINT, previous_sigint)
+    # It falls back to the no-op wiring_pi stub if platform detection misses
+    monkeypatch.setattr(hardware_controller, "wiringpi", gpio)
+    return hardware_controller.Channel
+
+
+class LoopbackInput:
+    """The input side of a loopback pair, claimed and read directly via lgpio."""
+
+    def __init__(self, gpio_adapter, pin):
+        self.lgpio = gpio_adapter.lgpio
+        self.handle = gpio_adapter._chip_handle
+        self.pin = pin
+        try:
+            # Pull-down so a missing jumper reads LOW and fails the HIGH check
+            self.lgpio.gpio_claim_input(self.handle, pin, self.lgpio.SET_PULL_DOWN)
+        except self.lgpio.error:
+            self.lgpio.gpio_claim_input(self.handle, pin)
+
+    def read(self):
+        return self.lgpio.gpio_read(self.handle, self.pin)
+
+    def duty(self, seconds):
+        """Sample the pin for ``seconds``; return (fraction HIGH, sample count)."""
+        highs = samples = 0
+        read, handle, pin = self.lgpio.gpio_read, self.handle, self.pin
+        end = time.perf_counter() + seconds
+        while time.perf_counter() < end:
+            highs += read(handle, pin)
+            samples += 1
+        return highs / max(samples, 1), samples
+
+
+def settle():
+    time.sleep(BENCH["settle_seconds"])
+
+
+def assert_level(lb, expected, out_pin, what):
+    actual = lb.read()
+    assert actual == expected, (
+        f"{what}: expected BCM {lb.pin} to read {expected}, got {actual}. "
+        f"Check the jumper BCM {out_pin} -> BCM {lb.pin}.")
+
+
+def assert_duty(lb, expected, out_pin, what):
+    # Let soft PWM run a couple of periods (100 Hz) before sampling
+    time.sleep(max(BENCH["settle_seconds"], 0.03))
+    measured, samples = lb.duty(BENCH["pwm_sample_seconds"])
+    assert samples >= BENCH["pwm_min_samples"], (
+        f"{what}: only {samples} samples in {BENCH['pwm_sample_seconds']}s; "
+        "raise pwm_sample_seconds or lower pwm_min_samples in bench.yaml")
+    tolerance = BENCH["pwm_tolerance"]
+    assert abs(measured - expected) <= tolerance, (
+        f"{what}: duty on BCM {lb.pin} measured {measured:.3f}, expected "
+        f"{expected:.3f} +/- {tolerance} ({samples} samples, output BCM {out_pin})")
+
+
+# ============================================================================
+# Hardware tests (gpio marker: skipped unless LSP_BENCH=1)
+# ============================================================================
+
+@pytest.mark.gpio
+@pytest.mark.parametrize("out_pin, in_pin", PAIRS, ids=PAIR_IDS)
+class TestDigitalLoopback:
+    """Digital writes through gpio_adapter, read back on the paired input."""
+
+    def test_high_low(self, gpio, out_pin, in_pin):
+        lb = LoopbackInput(gpio, in_pin)
+        gpio.pinModePY(out_pin, gpio.OUTPUT)
+        for _ in range(3):
+            for level in (gpio.HIGH, gpio.LOW):
+                gpio.digitalWritePY(out_pin, level)
+                settle()
+                assert_level(lb, level, out_pin, f"digitalWrite {level}")
+
+
+@pytest.mark.gpio
+@pytest.mark.parametrize("out_pin, in_pin", PAIRS, ids=PAIR_IDS)
+class TestChannelLoopback:
+    """hardware_controller.Channel (on/off mode) driving a real pin."""
+
+    def test_on_off(self, channel_cls, gpio, out_pin, in_pin):
+        lb = LoopbackInput(gpio, in_pin)
+        channel = channel_cls(out_pin, False, False, 100)
+        channel.set_as_output()
+        channel.set_action(brightness=1.0)
+        settle()
+        assert_level(lb, 1, out_pin, "channel on")
+        channel.set_action(brightness=0.0)
+        settle()
+        assert_level(lb, 0, out_pin, "channel off")
+
+    def test_active_low(self, channel_cls, gpio, out_pin, in_pin):
+        lb = LoopbackInput(gpio, in_pin)
+        channel = channel_cls(out_pin, False, True, 100)
+        channel.set_as_output()
+        channel.set_action(brightness=1.0)
+        settle()
+        assert_level(lb, 0, out_pin, "active_low channel on")
+        channel.set_action(brightness=0.0)
+        settle()
+        assert_level(lb, 1, out_pin, "active_low channel off")
+
+    def test_inverted_override(self, channel_cls, gpio, out_pin, in_pin):
+        lb = LoopbackInput(gpio, in_pin)
+        channel = channel_cls(out_pin, False, False, 100)
+        channel.set_as_output()
+        channel.set_inverted(True)
+
+        channel.set_action(use_overrides=True, brightness=1.0)
+        settle()
+        assert_level(lb, 0, out_pin, "inverted channel on (overrides)")
+        channel.set_action(use_overrides=True, brightness=0.0)
+        settle()
+        assert_level(lb, 1, out_pin, "inverted channel off (overrides)")
+
+        # Inversion only applies when overrides are in use
+        channel.set_action(use_overrides=False, brightness=1.0)
+        settle()
+        assert_level(lb, 1, out_pin, "inverted channel on (no overrides)")
+
+
+@pytest.mark.gpio
+@pytest.mark.parametrize("out_pin, in_pin", PAIRS, ids=PAIR_IDS)
+class TestSoftPwmLoopback:
+    """Soft PWM duty cycle, approximated by sampling the paired input."""
+
+    @pytest.mark.parametrize("duty", [0, 25, 50, 75, 100])
+    def test_adapter_duty(self, gpio, out_pin, in_pin, duty):
+        lb = LoopbackInput(gpio, in_pin)
+        assert gpio.softPwmCreatePY(out_pin, 0, 100) == 0, "softPwmCreatePY failed"
+        gpio.softPwmWritePY(out_pin, duty)
+        assert_duty(lb, duty / 100.0, out_pin, f"softPwmWrite {duty}/100")
+
+    @pytest.mark.parametrize("active_low", [False, True], ids=["active_high", "active_low"])
+    @pytest.mark.parametrize("brightness", [0.25, 0.75])
+    def test_channel_duty(self, channel_cls, gpio, out_pin, in_pin, active_low, brightness):
+        lb = LoopbackInput(gpio, in_pin)
+        channel = channel_cls(out_pin, True, active_low, 100)
+        channel.set_as_output()
+        assert out_pin in gpio._pwm_pins, "Channel.set_as_output did not create soft PWM"
+        channel.set_action(brightness=brightness)
+        expected = 1.0 - brightness if active_low else brightness
+        assert_duty(lb, expected, out_pin,
+                    f"PWM channel brightness {brightness} (active_low={active_low})")
+
+
+# ============================================================================
+# bench.yaml unit tests (run everywhere)
+# ============================================================================
+
+@pytest.mark.unit
+class TestBenchConfig:
+    """The bench config loader and the checked-in bench.yaml."""
+
+    def test_checked_in_bench_yaml_is_valid(self):
+        config = load_bench_config(DEFAULT_BENCH_CONFIG)
+        assert config["pairs"], "bench.yaml must define at least one pair"
+        assert (17, 27) in config["pairs"]
+
+    def test_simple_parser_matches_pyyaml(self):
+        yaml = pytest.importorskip("yaml")
+        text = DEFAULT_BENCH_CONFIG.read_text()
+        assert parse_simple_yaml(text) == yaml.safe_load(text)
+
+    def test_simple_parser_reads_pairs_and_settings(self):
+        text = (
+            "# comment\n"
+            "pairs:\n"
+            "  - [17, 27]  # pin 11 -> 13\n"
+            "#  - [5, 6]\n"
+            "  - [22, 23]\n"
+            "pwm_tolerance: 0.2\n"
+            "pwm_min_samples: 50\n"
+        )
+        assert parse_simple_yaml(text) == {
+            "pairs": [[17, 27], [22, 23]],
+            "pwm_tolerance": 0.2,
+            "pwm_min_samples": 50,
+        }
+
+    @pytest.mark.parametrize("text", [
+        "  - [1, 2]\n",                 # list item with no list
+        "pairs:\n  - 17\n",             # not a pair
+        "pwm:\n  tolerance: 0.1\n",     # nesting is not supported
+        "pwm_tolerance: high\n",        # not a number
+    ])
+    def test_simple_parser_rejects_unsupported(self, text):
+        with pytest.raises(ValueError):
+            parse_simple_yaml(text)
+
+    def test_defaults_are_applied(self):
+        config = validate_bench_config({"pairs": [[17, 27]]})
+        assert config["pairs"] == [(17, 27)]
+        for key, value in BENCH_DEFAULTS.items():
+            assert config[key] == value
+
+    @pytest.mark.parametrize("data, message", [
+        ({}, "at least one"),
+        ({"pairs": None}, "at least one"),
+        ({"pairs": [[17]]}, "must be"),
+        ({"pairs": [[17, "27"]]}, "must be"),
+        ({"pairs": [[17, 40]]}, "outside"),
+        ({"pairs": [[17, 27], [27, 22]]}, "more than once"),
+        ({"pairs": [[17, 17]]}, "more than once"),
+        ({"pairs": [[17, 27]], "pwm_tolerance": 0}, "positive"),
+        ({"pairs": [[17, 27]], "typo_key": 1}, "unknown keys"),
+    ])
+    def test_validation_errors(self, data, message):
+        with pytest.raises(ValueError, match=message):
+            validate_bench_config(data)
+
+    def test_env_var_overrides_path(self, tmp_path, monkeypatch):
+        custom = tmp_path / "bench.yaml"
+        custom.write_text("pairs:\n  - [5, 6]\n")
+        monkeypatch.setenv(BENCH_CONFIG_ENV, str(custom))
+        assert load_bench_config()["pairs"] == [(5, 6)]
+
+
+if __name__ == "__main__":
+    # Convenience: run the bench tests in this file on the Pi
+    os.environ.setdefault("LSP_BENCH", "1")
+    sys.exit(pytest.main([__file__, "-m", "gpio", "-v", *sys.argv[1:]]))

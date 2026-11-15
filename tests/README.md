@@ -11,6 +11,7 @@ Tests are organized by the component they test:
 - **test_configuration.py** - Configuration file loading and validation
 - **test_fft.py** - CPU-based FFT audio processing (no GPU dependency)
 - **test_decoder.py** - soundfile-based audio decoding (replaces git-based decoder)
+- **test_gpio_hardware.py** - GPIO loopback tests for the Pi test bench (`LSP_BENCH=1`, wiring in `bench.yaml`)
 
 ### Test Fixtures
 
@@ -71,7 +72,8 @@ pytest -m unit
 # Run only integration tests
 pytest -m integration
 
-# Run tests that don't require Pi hardware
+# Run tests that don't require Pi hardware (hardware tests are also
+# skipped automatically unless LSP_BENCH=1, see below)
 pytest -m "not platform and not gpio and not audio"
 
 # Run only fast tests
@@ -82,10 +84,67 @@ pytest -m "not slow"
 
 - **unit** - Unit tests for individual components (no external dependencies)
 - **integration** - Integration tests across multiple components
-- **platform** - Tests requiring specific platform (Raspberry Pi 3+)
-- **gpio** - Tests requiring GPIO hardware
-- **audio** - Tests requiring audio hardware
+- **platform** - Tests requiring a Raspberry Pi (Pi 3+) *
+- **gpio** - Tests requiring real GPIO hardware wired per `bench.yaml` *
+- **audio** - Tests requiring real audio hardware (ALSA) *
 - **slow** - Tests that take significant time to run
+
+\* Hardware markers. `conftest.py` skips these unless `LSP_BENCH=1`, so a plain
+`pytest` on the Mac or in CI never touches hardware. Tests that only *mock*
+hardware (e.g. the button manager and `gpio_adapter` tests) use `unit` or
+`integration`, not these markers, so they always run.
+
+## Hardware Test Bench (LSP_BENCH)
+
+`test_gpio_hardware.py` holds loopback tests that drive real pins and read them
+back through jumper wires. They are meant to run unattended on a Raspberry Pi
+test bench (e.g. a self-hosted GitHub Actions runner).
+
+### Wiring
+
+Pin pairs live in `tests/bench.yaml` as `[output BCM, input BCM]`. The defaults:
+
+| Pair | Output | Input | Jumper (physical pins) |
+|------|--------|-------|------------------------|
+| 1 | BCM 17 | BCM 27 | pin 11 -> pin 13 |
+| 2 | BCM 22 | BCM 23 | pin 15 -> pin 16 |
+
+Six more pairs are listed (commented out) in `bench.yaml` for a fuller bench,
+up to 8 pairs / 16 pins. A 1k ohm series resistor per jumper is recommended.
+Point `LSP_BENCH_CONFIG` at another file to use a different wiring.
+
+### What runs (per pair)
+
+- Digital HIGH/LOW loopback through `gpio_adapter`
+- `hardware_controller.Channel` on/off, `active_low` and inverted overrides
+- Soft PWM duty cycle (adapter and PWM `Channel`): the input is sampled for
+  `pwm_sample_seconds` (default 0.1 s) and the fraction of HIGH samples must be
+  within `pwm_tolerance` (default 0.10) of the requested duty
+
+### Running
+
+```bash
+# On the bench Pi, from the repo root (user in the gpio group, or use sudo)
+export SYNCHRONIZED_LIGHTS_HOME=$(pwd)
+LSP_BENCH=1 pytest -m gpio
+
+# Convenience wrapper (sets LSP_BENCH=1 and runs -m gpio on that file)
+python tests/test_gpio_hardware.py
+
+# All hardware-marked tests (gpio, audio, platform)
+LSP_BENCH=1 pytest -m "gpio or audio or platform"
+```
+
+Off the Pi, `LSP_BENCH=1 pytest -m gpio` skips every GPIO test with a reason
+(not a Raspberry Pi, lgpio missing, no `/dev/gpiochip*`).
+
+### GPIO chip selection
+
+`gpio_adapter` picks the gpiochip that drives the 40-pin header by label
+(`pinctrl-rp1` on Pi 5, `pinctrl-bcm2711` on Pi 4, `pinctrl-bcm2835` on Pi 3),
+falling back to `gpiochip0`. On a Pi 5 with an older kernel the header is
+`gpiochip4`. Force a chip with `LSP_GPIOCHIP=4` (also accepts `gpiochip4` or
+`/dev/gpiochip4`).
 
 ## Test Coverage
 
@@ -160,7 +219,7 @@ These tests are designed to run in CI/CD pipelines (GitHub Actions):
 
 - All unit tests run on every push
 - Integration tests run on pull requests
-- Platform-specific tests run on self-hosted Pi runners (if available)
+- Hardware tests (`gpio`, `audio`, `platform`) run on a self-hosted Pi runner with `LSP_BENCH=1`
 
 ## Troubleshooting
 
@@ -184,7 +243,7 @@ Some tests require Raspberry Pi hardware. On development machines, these tests w
 
 To run platform-specific tests on a Raspberry Pi:
 ```bash
-pytest -m platform
+LSP_BENCH=1 pytest -m "gpio or audio or platform"
 ```
 
 ### Missing Dependencies
