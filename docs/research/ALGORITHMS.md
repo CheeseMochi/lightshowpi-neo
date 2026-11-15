@@ -33,7 +33,7 @@
 | Relay out | `hardware_controller.Channel` | Non-PWM: `digitalWrite(b > 0.5)`, a **hard threshold with no hysteresis**. PWM: `softPwmWrite(int(b·pwm_max))` |
 | LED out | `led_module.Led.write_full` | Per-channel scalar → `pattern_color_map` (MONO/FREQ1/MAP1/MAP2/…) × `pattern_type` (CBARS/FULL/LBARS, matrix types). `update_throttle=1` skips every other frame (≈5.4 fps under FFT, ≈20 fps under 25 ms CSV) |
 
-Brief vs. code: the "Patterns class" in the brief does not exist. `hardware_controller.py` has module-level test patterns (`flash`, `cylon`, `dance`, `random_pattern`, `step`, `fade`). There is no Nanoleaf code in this tree yet; the roadmap lists Nanoleaf as future work.
+Test patterns (`flash`, `fade`, `cylon`, `step`, `dance`, `random_pattern`) live on the `Patterns` class in `hardware_controller.py` (added on the `test-mode` branch, Nov 2026) and are driven by the CLI and the API's test mode. There is no Nanoleaf output code yet; `tools/nanoleaf_probe.py` (branch `nanoleaf-probe`) is the first step.
 
 ### 1.2 The CSV sequence path: the target format for offline composers
 
