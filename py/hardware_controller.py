@@ -401,7 +401,7 @@ class Hardware(object):
                         self.channels[channel].set_always_on(
                             channel + 1 in always_on)
                     if inverted:
-                        self.channels[channel].inverted(
+                        self.channels[channel].set_inverted(
                             channel + 1 in inverted)
 
     def receive_and_process(self):
