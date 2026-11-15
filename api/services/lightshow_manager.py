@@ -72,6 +72,7 @@ class LightshowManager:
         self.current_song: Optional[str] = None
         self.current_playlist: Optional[str] = None
         self.current_mode: Optional[str] = None
+        self.test_mode = None  # TestModeManager, set via set_test_mode_manager()
         self.lock = Lock()
         self.output_thread: Optional[Thread] = None
         self.error_message: Optional[str] = None
@@ -87,6 +88,13 @@ class LightshowManager:
         )
 
         log.info("LightshowManager initialized")
+
+    def set_test_mode_manager(self, test_mode) -> None:
+        """Set the TestModeManager used to keep the show and test mode exclusive."""
+        self.test_mode = test_mode
+
+    def is_test_mode_active(self) -> bool:
+        return self.test_mode is not None and self.test_mode.is_active()
 
     def _read_output(self):
         """Read subprocess output in background thread."""
@@ -123,6 +131,11 @@ class LightshowManager:
         with self.lock:
             if self.state in [LightshowState.PLAYING, LightshowState.STARTING]:
                 log.warning("Lightshow already running")
+                return False
+
+            if self.is_test_mode_active():
+                log.warning("Cannot start lightshow while test mode is active")
+                self.error_message = "Test mode is active - exit test mode first"
                 return False
 
             try:
@@ -347,8 +360,12 @@ class LightshowManager:
 
         current_song = song_title or (self.current_song if running else None)
 
+        state = self.state.value
+        if not running and self.is_test_mode_active():
+            state = LightshowState.TEST_MODE.value
+
         return {
-            "state": self.state.value,
+            "state": state,
             "is_running": running,
             "current_song": current_song,
             "song_path": song_path,
