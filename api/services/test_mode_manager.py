@@ -33,6 +33,8 @@ DEFAULT_PATTERN_TIMEOUT = 300.0
 class TestModeError(Exception):
     """Base error for test mode operations."""
 
+    __test__ = False  # not a pytest test class, despite the name
+
 
 class TestModeConflict(TestModeError):
     """Test mode cannot be entered (e.g. the lightshow is running)."""
@@ -78,7 +80,9 @@ class TestModeManager:
         """
         self.timeout_seconds = max(1.0, float(timeout_minutes) * 60.0)
         self.lightshow_manager = lightshow_manager
-        self.home = os.getenv("SYNCHRONIZED_LIGHTS_HOME", "")
+        # Fall back to the repo root so the command path is never relative
+        self.home = os.getenv("SYNCHRONIZED_LIGHTS_HOME") or os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", ".."))
         self.command = command or [
             sys.executable,
             os.path.join(self.home, "py", "hardware_controller.py"),

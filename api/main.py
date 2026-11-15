@@ -26,10 +26,11 @@ from api.core.auth import AuthManager
 from api.models.schemas import (
     UserLogin, Token, SystemHealth, LightshowState
 )
-from api.routers import lightshow, schedules, buttons
+from api.routers import lightshow, schedules, buttons, test_mode
 from api.services.lightshow_manager import LightshowManager
 from api.services.scheduler import SchedulerService
 from api.services.button_manager import ButtonManagerService
+from api.services.test_mode_manager import TestModeManager, set_test_mode_manager
 
 # Configure logging
 logging.basicConfig(
@@ -45,6 +46,7 @@ api_config = None
 lightshow_manager = None
 scheduler_service = None
 button_manager = None
+test_mode_manager = None
 
 # API version
 API_VERSION = "0.9.1"
@@ -58,6 +60,7 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown tasks.
     """
     global db, auth_manager, api_config, lightshow_manager, scheduler_service, button_manager
+    global test_mode_manager
 
     # Startup
     log.info("Starting LightShowPi Neo API...")
@@ -105,8 +108,19 @@ async def lifespan(app: FastAPI):
     log.info("Button manager service initialized "
              f"(enabled={button_config['button_manager']['enabled']})")
 
+    # Initialize test mode (exclusive with the lightshow)
+    test_mode_manager = TestModeManager(
+        timeout_minutes=api_config.test_mode_timeout_minutes,
+        lightshow_manager=lightshow_manager,
+    )
+    set_test_mode_manager(test_mode_manager)
+    lightshow_manager.set_test_mode_manager(test_mode_manager)
+    log.info("Test mode manager initialized "
+             f"(timeout={api_config.test_mode_timeout_minutes} min)")
+
     # Initialize and start scheduler
-    scheduler_service = SchedulerService(db, lightshow_manager)
+    scheduler_service = SchedulerService(db, lightshow_manager,
+                                         test_mode_manager=test_mode_manager)
     schedules.set_scheduler(scheduler_service)
     scheduler_service.start()
     log.info("Scheduler service started")
@@ -122,6 +136,11 @@ async def lifespan(app: FastAPI):
     if scheduler_service:
         scheduler_service.stop()
         log.info("Scheduler service stopped")
+
+    # Exit test mode (lights off, GPIO released) before stopping the show
+    if test_mode_manager:
+        test_mode_manager.shutdown()
+        set_test_mode_manager(None)
 
     # Stop lightshow if running
     if lightshow_manager:
@@ -149,6 +168,7 @@ app.add_middleware(
 app.include_router(lightshow.router)
 app.include_router(schedules.router)
 app.include_router(buttons.router)
+app.include_router(test_mode.router)
 
 
 # Dependency to get database
