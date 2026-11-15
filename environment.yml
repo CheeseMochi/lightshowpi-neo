@@ -1,6 +1,5 @@
 name: lightshowpi-neo
 channels:
-  - defaults
   - conda-forge
 
 dependencies:
@@ -36,7 +35,7 @@ dependencies:
   # ----------------------------------------------------------------------------
   # Scheduling & Background Tasks (conda)
   # ----------------------------------------------------------------------------
-  - apscheduler>=3.10.0
+  - apscheduler>=3.10.0,<4  # Code uses the 3.x BackgroundScheduler API
 
   # ----------------------------------------------------------------------------
   # Configuration & Utilities (conda)
@@ -54,6 +53,7 @@ dependencies:
   # ----------------------------------------------------------------------------
   - pytest>=7.4.0
   - pytest-cov>=4.1.0
+  - pytest-asyncio>=0.21.0
   - httpx
   - black>=23.10.0
   - flake8>=6.1.0
