@@ -74,6 +74,13 @@
     path: "{{ conda_env_prefix }}/bin/python"
   register: conda_env_python_bin
 
+# Marker written only after a create/update succeeds, so a half-built env
+# (e.g. pip step failed) gets updated again on the next run.
+- name: Check env success marker
+  ansible.builtin.stat:
+    path: "{{ conda_env_prefix }}/.lightshowpi-env-ok"
+  register: conda_env_ok
+
 - name: Create conda env
   become: true
   become_user: "{{ lsp_user }}"
@@ -81,14 +88,21 @@
     cmd: "{{ conda_prefix }}/bin/conda env create -n {{ conda_env }} -f {{ lsp_home }}/.lightshowpi-environment.pinned.yml"
     creates: "{{ conda_env_prefix }}/bin/python"
 
-- name: Update conda env when environment.yml changed
+- name: Update conda env (environment.yml changed or last build incomplete)
   become: true
   become_user: "{{ lsp_user }}"
   ansible.builtin.command:
     cmd: "{{ conda_prefix }}/bin/conda env update -n {{ conda_env }} -f {{ lsp_home }}/.lightshowpi-environment.pinned.yml --prune"
-  when: conda_env_python_bin.stat.exists and conda_env_pinned.changed
+  when: conda_env_python_bin.stat.exists and (conda_env_pinned.changed or not conda_env_ok.stat.exists)
   changed_when: true
   notify: Restart lightshowpi-api
+
+- name: Write env success marker
+  ansible.builtin.copy:
+    dest: "{{ conda_env_prefix }}/.lightshowpi-env-ok"
+    content: "{{ conda_env_pinned.checksum | default('') }}\n"
+    owner: "{{ lsp_user }}"
+    mode: "0644"
 
 - name: Detect conda env python version
   ansible.builtin.command:

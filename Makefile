@@ -51,7 +51,7 @@ tunnel-token: ## Save the tunnel token for Ansible (group_vars/show/tunnel.yml, 
 		> $(ANSIBLE_DIR)/group_vars/show/tunnel.yml
 	@echo "Wrote $(ANSIBLE_DIR)/group_vars/show/tunnel.yml (mode 600). Next: make provision HOST=show"
 
-test: ## Run the Python test suite locally (conda env $(CONDA_DEV_ENV))
+test: ## Run the Python test suite locally (conda env lightshowpi-neo-dev; override CONDA_DEV_ENV=...)
 	SYNCHRONIZED_LIGHTS_HOME=$(CURDIR) conda run -n $(CONDA_DEV_ENV) pytest -q
 
 lint-deploy: ## Lint Ansible (syntax-check, ansible-lint) and Terraform (fmt, validate)

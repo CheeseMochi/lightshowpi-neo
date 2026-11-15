@@ -33,7 +33,8 @@ cp deploy/ansible/secrets.example.yml   deploy/ansible/group_vars/all/secrets.ym
 # 2. Create the tunnel, DNS and Access login, then save the tunnel token for Ansible
 cp deploy/terraform/cloudflare/terraform.tfvars.example deploy/terraform/cloudflare/terraform.tfvars  # edit
 export CLOUDFLARE_API_TOKEN=...      # set in your shell only, never in a file
-make tunnel
+make lint-deploy                     # offline check first (terraform validate, ansible-lint)
+make tunnel                          # shows the plan; type "yes" to apply
 make tunnel-token
 
 # 3. Provision everything (packages, Miniforge + env, app, systemd, cloudflared)
@@ -81,10 +82,14 @@ What runs where:
   `python -m api.main` turns on `reload=True`, which is for development only. `config/overrides.cfg`
   is created only if it is missing and is never overwritten.
 - **Web UI:** if `web/dist/index.html` exists on your laptop (`cd web && npm ci && npm run build`),
-  `make deploy` copies it to the Pi.
+  `make deploy` copies it to `web/dist` on the Pi. The API does not serve `web/dist` yet; that
+  needs app changes before the UI is reachable through port 8000 or the tunnel.
 - **Public host:** `show.<domain>` passes only the anchored paths in `public_path_regexes`
   (`^/$`, `^/api/public/`, `^/assets/`, `^/public/?$`) and returns 404 for everything else.
+  cloudflared matches these as unanchored Go regexes, which is why each one starts with `^`.
   `lights.<domain>` passes everything, but only after a Cloudflare Access email one-time PIN.
+  Today `/` returns API info JSON and `/api/public/*` doesn't exist yet. Adjust
+  `public_path_regexes` once the public page is built.
 - **Existing One-time PIN login method:** if your Zero Trust account already has one, set
   `create_otp_idp = false` in `terraform.tfvars`.
 - **Validate locally:** `make lint-deploy`.

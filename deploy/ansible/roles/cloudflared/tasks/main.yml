@@ -6,7 +6,11 @@
       cloudflared_tunnel_token is empty. Run `make tunnel` then `make tunnel-token`
       (writes deploy/ansible/group_vars/show/tunnel.yml), or skip with --skip-tags cloudflared.
     quiet: true
-  no_log: true
+
+- name: Install python3-debian (needed by deb822_repository)
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
 
 - name: Add cloudflared apt repository (with signing key)
   ansible.builtin.deb822_repository:

@@ -64,7 +64,6 @@
           GitHub > repo Settings > Actions > Runners > New self-hosted runner, then:
           make runner HOST={{ inventory_hostname }} TOKEN=<token>
         quiet: true
-      no_log: true
 
     - name: Configure runner (labels self-hosted,Linux,ARM64 + extras)
       become: true

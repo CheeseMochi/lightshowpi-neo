@@ -27,7 +27,6 @@
       backslash or newline) in
       deploy/ansible/group_vars/all/secrets.yml (see secrets.example.yml).
     quiet: true
-  no_log: true
 
 - name: Create /etc/lightshowpi
   ansible.builtin.file:
