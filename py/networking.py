@@ -109,7 +109,7 @@ class Networking(object):
             data, address = self.network_stream.recvfrom(self.network_buffer)
             data = pickle.loads(data)
         except (IndexError, pickle.PickleError):
-            data = tuple(np.array([0 for _ in range(cm.hardware.gpio_len)]))
+            data = tuple(np.array([0 for _ in range(self.cm.hardware.gpio_len)]))
 
         return data
 
