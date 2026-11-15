@@ -11,7 +11,9 @@ Sources (implemented from the vendor spec, not copied from any GPL code):
   https://nanoleaf.atlassian.net/wiki/spaces/nlapid/pages/2296381472/
   - mDNS service ``_nanoleafapi._tcp``; pairing ``POST /api/v1/new`` within 30 s
     of tapping "Connect to API" in the app (doc says "204 No Content" but also
-    shows a ``{"auth_token": ...}`` body, so any 2xx is accepted here).
+    shows a ``{"auth_token": ...}`` body; LedFx expects 200. Pairing therefore
+    uses a raw-socket request so a body on a 204 is not discarded, and any 2xx
+    carrying ``auth_token`` is accepted).
   - ``GET /api/v1/<token>/length`` -> ``{"numLEDs": 300}``.
   - Stream control: ``PUT /api/v1/<token>/effects`` with
     ``{"write": {"command": "display", "animType": "extControl",
@@ -33,6 +35,8 @@ Sources (implemented from the vendor spec, not copied from any GPL code):
   OpenAPI (forum.nanoleaf.me/docs) and implemented by OpenRGB's
   NanoleafController.cpp: nPanels(1B) then per panel: panelId(1B) nFrames(1B,
   always 1) R G B W T (1B each, T in 100 ms units). Only ids 0..255 fit.
+  https://gitlab.com/CalcProgrammer1/OpenRGB/-/blob/master/Controllers/NanoleafController/NanoleafController.cpp
+  (OpenRGB sends T=0; so do we.) v1 is a negative control for the Essentials.
 """
 
 import json
@@ -83,7 +87,7 @@ def encode_frame_v2(pixels: Iterable[Pixel], transition: int = 0) -> bytes:
     return bytes(out)
 
 
-def encode_frame_v1(pixels: Iterable[Pixel], transition: int = 1) -> bytes:
+def encode_frame_v1(pixels: Iterable[Pixel], transition: int = 0) -> bytes:
     """Light Panels extControl v1 frame (all 1-byte fields).
 
     nPanels(B) + per panel: id(B) nFrames(B)=1 R G B W=0 T.
@@ -122,7 +126,7 @@ class Layout:
 LAYOUTS: Dict[str, Layout] = {
     "v2": Layout("v2", "v2", 2, 8, 0xFFFF, 0,
                  "Essentials spec / LedFx: >H count, >HBBBBH id,R,G,B,W,trans"),
-    "v1": Layout("v1", "v1", 1, 7, 0xFF, 1,
+    "v1": Layout("v1", "v1", 1, 7, 0xFF, 0,
                  "Light Panels v1: B count, id,nFrames=1,R,G,B,W,T (1 byte each)"),
 }
 
@@ -253,8 +257,13 @@ class NanoleafClient:
 
     # --- pairing / info -------------------------------------------------
     def pair(self) -> Response:
-        """POST /api/v1/new. Returns raw Response; token is body['auth_token'] on 2xx."""
-        return self.request("POST", f"{self.base}/new")
+        """POST /api/v1/new. Returns raw Response; token is body['auth_token'] on 2xx.
+
+        Uses a raw socket because the Essentials doc says the reply is
+        "204 No Content" *with* a JSON body, and http.client/urllib force the
+        body length of a 204 to zero, which would silently drop the token.
+        """
+        return raw_http_request(self.host, self.port, "POST", "/api/v1/new", self.timeout)
 
     def info(self) -> Response:
         return self.request("GET", self.url(""))
@@ -298,6 +307,60 @@ class NanoleafClient:
         return self.request("PUT", self.url("effects"), ext_control_body(version))
 
 
+def parse_raw_http_response(data: bytes) -> Response:
+    """Parse a raw HTTP/1.x response, keeping any body even on 204."""
+    head, _, body = data.partition(b"\r\n\r\n")
+    lines = head.split(b"\r\n")
+    try:
+        status = int(lines[0].split()[1])
+    except (IndexError, ValueError):
+        raise NanoleafError(f"bad HTTP response: {data[:80]!r}")
+    headers = {}
+    for ln in lines[1:]:
+        k, _, v = ln.partition(b":")
+        headers[k.strip().lower()] = v.strip()
+    if headers.get(b"transfer-encoding", b"").lower() == b"chunked":
+        out, rest = b"", body
+        while rest:
+            size_line, _, rest = rest.partition(b"\r\n")
+            size = int(size_line.split(b";")[0] or b"0", 16)
+            if size == 0:
+                break
+            out, rest = out + rest[:size], rest[size + 2:]
+        body = out
+    elif b"content-length" in headers:
+        body = body[:int(headers[b"content-length"])]
+    text = body.decode("utf-8", "replace").strip()
+    parsed: object = None
+    if text:
+        try:
+            parsed = json.loads(text)
+        except ValueError:
+            parsed = text
+    return Response(status, parsed, body)
+
+
+def raw_http_request(host: str, port: int, method: str, path: str,
+                     timeout: float = 3.0) -> Response:
+    """Minimal HTTP/1.1 request without a body; reads until close/timeout."""
+    req = (f"{method} {path} HTTP/1.1\r\nHost: {host}:{port}\r\n"
+           "Content-Length: 0\r\nConnection: close\r\n\r\n").encode()
+    data = b""
+    with socket.create_connection((host, port), timeout=timeout) as s:
+        s.sendall(req)
+        try:
+            while True:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+        except socket.timeout:
+            pass
+    if not data:
+        raise NanoleafError("empty HTTP response")
+    return parse_raw_http_response(data)
+
+
 def ext_control_body(version: str = "v2") -> dict:
     return {"write": {"command": "display", "animType": "extControl",
                       "extControlVersion": version}}
@@ -338,7 +401,10 @@ def capture_state(client: NanoleafClient) -> dict:
 
 
 def restore_state(client: NanoleafClient, snap: dict) -> List[Response]:
-    """Best-effort restore: colour/effect first, then brightness, then on/off."""
+    """Best-effort restore: colour/effect first, then brightness, then on/off.
+
+    One key per PUT: the Essentials doc only ever shows single-key state bodies.
+    """
     out = []
     mode = snap.get("color_mode")
     if mode == "effect" and snap.get("effect") and "extControl" not in str(snap.get("effect")):
@@ -346,7 +412,9 @@ def restore_state(client: NanoleafClient, snap: dict) -> List[Response]:
     elif mode == "ct" and snap.get("ct") is not None:
         out.append(client.set_state(ct=snap["ct"]))
     elif snap.get("hue") is not None:
-        out.append(client.set_state(hue=snap["hue"], sat=snap.get("sat")))
+        out.append(client.set_state(hue=snap["hue"]))
+        if snap.get("sat") is not None:
+            out.append(client.set_state(sat=snap["sat"]))
     if snap.get("brightness") is not None:
         out.append(client.set_state(brightness=snap["brightness"]))
     if snap.get("on") is not None:

@@ -98,7 +98,29 @@ class TestPackets:
 
     def test_default_transition_per_layout(self):
         assert nl.encode_packets(nl.LAYOUTS["v2"], [(0, 1, 2, 3)])[0][-2:] == hx("0000")
-        assert nl.encode_packets(nl.LAYOUTS["v1"], [(0, 1, 2, 3)])[0][-1:] == hx("01")
+        assert nl.encode_packets(nl.LAYOUTS["v1"], [(0, 1, 2, 3)])[0][-1:] == hx("00")
+
+
+class TestRawHttp:
+    """Pairing bypasses http.client, which discards bodies on 204 responses."""
+
+    def test_204_with_body_keeps_token(self):
+        raw = (b"HTTP/1.1 204 No Content\r\nContent-Type: application/json\r\n"
+               b"Content-Length: 21\r\n\r\n{\"auth_token\": \"abc\"}")
+        r = nl.parse_raw_http_response(raw)
+        assert r.status == 204 and r.body == {"auth_token": "abc"}
+
+    def test_204_without_length_reads_to_close(self):
+        r = nl.parse_raw_http_response(b"HTTP/1.0 204 No Content\r\n\r\n{\"auth_token\":\"x\"}")
+        assert r.body == {"auth_token": "x"}
+
+    def test_chunked_and_403(self):
+        r = nl.parse_raw_http_response(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+            b"9\r\n{\"auth_to\r\nb\r\nken\": \"q1\"}\r\n0\r\n\r\n")
+        assert r.body == {"auth_token": "q1"}
+        r = nl.parse_raw_http_response(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+        assert r.status == 403 and r.body is None
 
 
 class TestPatternsAndPlan:
@@ -302,23 +324,26 @@ def base_args(device, tmp_path, *extra):
 
 
 class TestAgainstMockDevice:
-    def test_pair_saves_token(self, device, tmp_path, capsys):
+    @pytest.mark.parametrize("status", [200, 204])  # doc: "204 No Content" + JSON body
+    def test_pair_saves_token_then_reuses_saved_host_and_port(self, device, tmp_path, capsys,
+                                                              status):
+        device.pair_status = status
         rc = probe.main(base_args(device, tmp_path, "--pair", "--pair-wait", "5"))
         assert rc == 0
         path = tmp_path / "nanoleaf.json"
         assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
         entry = json.loads(path.read_text())["devices"]["127.0.0.1"]
-        assert entry["auth_token"] == TOKEN
+        assert entry == {"port": device.port, "auth_token": TOKEN}
         assert ("POST", "/api/v1/new", None) in device.requests
         assert "Connect to API" in capsys.readouterr().out
+        # No --host/--port/--token: everything comes from the saved file.
+        assert probe.main(["--token-file", str(path), "--info"]) == 0
+        assert ("GET", f"/api/v1/{TOKEN}/length", None) in device.requests
 
-    def test_pair_accepts_204_with_body_and_reports_403(self, device):
+    def test_pair_403_when_window_closed(self, device):
         c = nl.NanoleafClient("127.0.0.1", device.port)
         device.pair_open = False
         assert c.pair().status == 403
-        device.pair_open, device.pair_status = True, 201
-        r = c.pair()
-        assert r.status == 201 and r.body == {"auth_token": TOKEN}
 
     def test_info_parsing(self, device, tmp_path, capsys):
         nl.save_token("127.0.0.1", TOKEN, str(tmp_path / "nanoleaf.json"))
@@ -352,7 +377,8 @@ class TestAgainstMockDevice:
                                 "extControlVersion": "v2"}}) in puts
         # on+brightness before extControl, restore (select effect, brightness, off) after
         idx_ext = puts.index((eff, nl.ext_control_body("v2")))
-        assert puts[idx_ext - 1][1] == {"on": {"value": True}, "brightness": {"value": 60}}
+        assert [b for _, b in puts[:idx_ext]] == [{"on": {"value": True}},
+                                                  {"brightness": {"value": 60}}]
         assert puts[idx_ext + 1:] == [
             (eff, {"select": "Northern Lights"}),
             (f"/api/v1/{TOKEN}/state", {"brightness": {"value": 40}}),

@@ -285,7 +285,7 @@ def cmd_pair(args) -> int:
     while time.monotonic() < deadline:
         try:
             r = client.pair()
-        except OSError as e:
+        except (OSError, nl.NanoleafError) as e:
             print(f"  connection error: {e}")
             r = None
         if r is not None:
@@ -309,7 +309,10 @@ def resolve(args) -> Tuple[str, Optional[str]]:
     host, entry = nl.lookup_device(args.host, args.token_file)
     if not host:
         sys.exit("No --host given and no single saved device; pass --host.")
-    token = args.token or (entry or {}).get("auth_token")
+    entry = entry or {}
+    if args.port is None:
+        args.port = int(entry.get("port") or nl.DEFAULT_HTTP_PORT)
+    token = args.token or entry.get("auth_token")
     if not token and not args.dry_run:
         sys.exit(f"No token for {host}. Run --pair first or pass --token.")
     args.host = host
@@ -396,8 +399,17 @@ def cmd_stream_test(args) -> int:
     sender = None
     try:
         if not dry:
-            r = client.set_state(on=True, brightness=args.brightness or 60)
-            log(clock, f"PUT /state on+brightness -> HTTP {r.status}")
+            # One key per PUT (the Essentials doc only shows single-key bodies).
+            r = client.set_state(on=True)
+            log(clock, f"PUT /state on=true -> HTTP {r.status}")
+            if not http_ok(r):
+                log(clock, "!!! WARNING: could not switch the lights ON "
+                           f"(HTTP {r.status} {r.raw[:120]!r}). A dark strip below does NOT "
+                           "mean streaming failed. Fix with --state on and re-run.")
+            r = client.set_state(brightness=args.brightness or 60)
+            log(clock, f"PUT /state brightness={args.brightness or 60} -> HTTP {r.status}")
+            if not http_ok(r):
+                log(clock, f"!!! WARNING: brightness PUT failed (HTTP {r.status}).")
         for lay in layouts:
             layout = nl.LAYOUTS[lay]
             log(clock, f"=== layout {lay}: {layout.description}")
@@ -481,7 +493,8 @@ def build_parser() -> argparse.ArgumentParser:
     act.add_argument("--state", choices=["on", "off"], help="set power (with optional colour)")
     act.add_argument("--stream-test", action="store_true", help="run the UDP streaming probe")
     ap.add_argument("--host", help="device IP/hostname (default: only saved device)")
-    ap.add_argument("--port", type=int, default=nl.DEFAULT_HTTP_PORT, help="HTTP port (16021)")
+    ap.add_argument("--port", type=int, default=None,
+                    help="HTTP port (default: saved port, else 16021)")
     ap.add_argument("--udp-port", type=int, default=nl.DEFAULT_STREAM_PORT, help="UDP port (60222)")
     ap.add_argument("--token", help="auth token (overrides saved token)")
     ap.add_argument("--token-file", default=None,
@@ -508,11 +521,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.dry_run and not args.stream_test:
+        sys.exit("--dry-run is only supported with --stream-test")
     if args.discover:
         return cmd_discover(args)
     if args.pair:
         if not args.host:
             sys.exit("--pair needs --host")
+        args.port = args.port or nl.DEFAULT_HTTP_PORT
         return cmd_pair(args)
     if args.info:
         return cmd_info(args)
