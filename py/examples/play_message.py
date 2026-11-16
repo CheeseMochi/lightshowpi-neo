@@ -5,8 +5,9 @@
 # which will allow us to manipulate the lights at the same time
 # the os module is also required, allowing the audio to be ended
 # if a play now event happens in the pre show
-import subprocess
 import os
+import signal
+import subprocess
 
 # exit_event is passed in from the pre/post show script as is required
 # if an exit_event is generated the pre/post show script can terminate the script 
