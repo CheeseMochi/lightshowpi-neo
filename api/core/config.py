@@ -42,6 +42,9 @@ class APIConfig:
         self.cloud_url = self._get_str('api', 'cloud_url', '')
         self.cloud_key = self._get_str('api', 'cloud_key', '')
         self.db_path = self._get_str('api', 'db_path', '')
+        self.test_mode_timeout_minutes = self._get_float('api', 'test_mode_timeout_minutes', 10.0)
+        if self.test_mode_timeout_minutes <= 0:
+            self.test_mode_timeout_minutes = 10.0
 
         # Load client settings (for client Pis)
         self.client_id = self._get_str('client', 'client_id', '')
@@ -78,14 +81,21 @@ class APIConfig:
         except Exception:
             return default
 
+    def _get_float(self, section: str, key: str, default: float) -> float:
+        """Get float config value with fallback."""
+        try:
+            return self.cm.config.getfloat(section, key)
+        except Exception:
+            return default
+
     def is_server(self) -> bool:
         """
-        Check if this Pi is configured as a server.
+        Check if this Pi is a server or standalone (not a network client).
 
         Returns:
             bool: True if server mode
         """
-        return self.cm.network.mode == "server" or self.cm.network.mode == ""
+        return not self.is_client()
 
     def is_client(self) -> bool:
         """
@@ -94,7 +104,9 @@ class APIConfig:
         Returns:
             bool: True if client mode
         """
-        return self.cm.network.mode == "client"
+        # [network] networking: off, server, serverjson, client, sacn_server, sacn_client
+        mode = str(getattr(self.cm.network, "networking", "off") or "off").strip().lower()
+        return mode in ("client", "sacn_client")
 
     def update_state(self, key: str, value: str):
         """

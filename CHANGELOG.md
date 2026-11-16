@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `py/gpio_adapter.py` no longer fails at import time when `lgpio` is missing; it
   raises a clear `RuntimeError` when GPIO is initialised instead.
+- **Hardware test mode**: `/api/test/*` endpoints (enter, exit, status, per-channel
+  on/off with brightness, all on/off, test patterns) backed by a long-running
+  `hardware_controller.py --serve` process. Test mode and the lightshow are
+  exclusive: the show, the start endpoint and scheduled starts are refused while
+  test mode is active. It exits automatically after
+  `[api] test_mode_timeout_minutes` (default 10) without commands, turning all
+  lights off.
+- Test patterns in `hardware_controller.py` moved into a `Patterns` class so the
+  CLI and serve mode share them.
 
 ## [0.9.1] - 2026-09-23
 

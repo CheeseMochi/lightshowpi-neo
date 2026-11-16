@@ -236,10 +236,47 @@ class LightshowStatus(BaseModel):
 
 # Test mode models
 class ChannelControl(BaseModel):
-    """Request model for controlling a specific channel."""
-    channel: int = Field(..., ge=0, le=15)
+    """Request model for controlling a specific channel.
+
+    `channel` is a 0-based index; the upper bound is the configured channel
+    count and is checked at runtime.
+    """
+    channel: int = Field(..., ge=0)
     state: bool  # True = on, False = off
-    client_id: Optional[str] = None  # If None, applies to server
+    brightness: Optional[float] = Field(None, ge=0.0, le=1.0)  # PWM channels only
+    client_id: Optional[str] = None  # If None, applies to server (clients not supported yet)
+
+
+class TestPattern(str, Enum):
+    """Test patterns available in test mode."""
+    FLASH = "flash"
+    FADE = "fade"
+    CYLON = "cylon"
+    STEP = "step"
+    DANCE = "dance"
+    RANDOM_PATTERN = "random_pattern"
+
+
+class TestModeAll(BaseModel):
+    """Request model for switching all channels."""
+    on: bool
+
+
+class TestModePatternRequest(BaseModel):
+    """Request model for running a test pattern."""
+    name: TestPattern
+
+
+class TestModeStatus(BaseModel):
+    """Response model for test mode status."""
+    active: bool
+    channel_count: Optional[int] = None
+    channels: List[float] = []
+    timeout_seconds: float
+    seconds_remaining: Optional[float] = None
+    entered_by: Optional[str] = None
+    exit_reason: Optional[str] = None
+    pid: Optional[int] = None
 
 
 # Analytics models
