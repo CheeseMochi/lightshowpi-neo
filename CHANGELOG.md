@@ -16,9 +16,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[api] test_mode_timeout_minutes` (default 10) without commands, turning all
   lights off.
 
+- `[lightshow] light_delay_legacy_math` (default `True`). Set it to `False` to
+  get `light_delay` in true seconds; see Fixed.
+- `py/outputs/`: an `Output` interface (`LedOutput` for LED configs) and
+  `ThreadedOutput`, which runs a slow or network output on its own thread
+  (newest frame wins, fps cap, retry with back-off). Groundwork for Nanoleaf.
+
 ### Changed
 - Test patterns in `hardware_controller.py` moved into a `Patterns` class so the
   CLI and serve mode share them.
+- LEDs are driven through `hc.outputs`. Ambient mode, the exit blackout and
+  scripts that call `hc.set_array` now light the LEDs too (they only moved GPIO
+  before). With several LED configs, each one uses its own
+  `led_channel_configuration`.
+- The show loop re-reads `config/state.cfg` only when it changes (or once a
+  second) instead of on every audio chunk.
+- `networking = sacn_server` / `sacn_client` now log a clear error and run
+  standalone; they were silently ignored before. `defaults.cfg` no longer
+  recommends them.
+
+### Fixed
+- Network clients never lit their LEDs during the show (the server sends
+  `BcastArray`, clients only handled raw arrays).
+- Clients with fewer channels than the server crashed on pre/post-show pin
+  messages (`IndexError`).
+- Clients ignored ambient mode's keepalive broadcast.
+- A client dropping off Wi-Fi could crash the server (`TypeError` while
+  handling the socket error); a garbled packet crashed the client.
+- `serverjson` failed on every show frame.
+- A blank or malformed playlist line exited the show instead of being skipped.
+- `audio-in` mode never updated the lights (full ALSA periods were discarded).
+- `light_delay` was 4x too long for stereo files (2x for mono). The old maths
+  stays the default via `light_delay_legacy_math = True` so tuned shows don't
+  shift.
+- Client override handling crashed (`Channel.inverted` called as a method).
+- `RunningStats` used an undefined `length`; `APIConfig.is_server()` /
+  `is_client()` read a missing setting; values in `defaults.cfg` with inline
+  comments were parsed including the comment.
 
 ## [0.9.1] - 2026-09-23
 

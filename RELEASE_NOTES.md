@@ -1,5 +1,25 @@
 # LightShowPi Neo - Release Notes
 
+## Version 0.10.0 (in progress)
+
+Draft. See the [Unreleased] section of [CHANGELOG.md](CHANGELOG.md).
+
+### 🐛 Notable Fixes
+
+- Multi-Pi shows: client LEDs now follow the show, clients with fewer channels
+  no longer crash, and a client dropping off Wi-Fi no longer crashes the server.
+- A blank line in the playlist no longer stops the show.
+- `audio-in` mode drives the lights again.
+
+### ⚠️ Upgrade Notes
+
+- `light_delay` keeps its old timing by default. To use true seconds, set
+  `light_delay_legacy_math = False` under `[lightshow]` in `overrides.cfg` and
+  re-tune `light_delay` (expect roughly 4x the old value for stereo files).
+- `sacn_server` / `sacn_client` networking is not wired up; use
+  `server` / `client`. The show now logs an error if sACN networking is set.
+- Ambient mode and `set_array` scripts now light LED strips as well as GPIO.
+
 ## Version 0.9.1 - Beta 2 (September 2026)
 
 Second beta. It integrates the button manager with the API, adds live status and
