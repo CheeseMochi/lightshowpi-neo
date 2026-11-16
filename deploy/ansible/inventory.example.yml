@@ -1,0 +1,27 @@
+---
+# Copy to inventory.yml (git-ignored) and replace the placeholders.
+# A host may be in several groups (e.g. the show Pi is usually also the server).
+#
+#   show   - the Pi that plays the show and runs cloudflared (public + admin site)
+#   server - network-mode server Pi (sends light data to clients)
+#   client - network-mode client Pis (receive light data)
+#   bench  - test-bench Pi running a self-hosted GitHub Actions runner
+all:
+  vars:
+    ansible_user: pi
+  children:
+    show:
+      hosts:
+        lsp-show:
+          ansible_host: show-pi.local        # placeholder hostname or IP
+    server:
+      hosts:
+        lsp-show: {}
+    client:
+      hosts:
+        lsp-client1:
+          ansible_host: client1-pi.local     # placeholder
+    bench:
+      hosts:
+        lsp-bench:
+          ansible_host: bench-pi.local       # placeholder

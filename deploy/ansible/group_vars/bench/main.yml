@@ -1,0 +1,22 @@
+---
+# Self-hosted GitHub Actions runner on the test-bench Pi
+gh_runner_user: ghrunner
+gh_runner_home: "/home/{{ gh_runner_user }}"
+gh_runner_dir: "{{ gh_runner_home }}/actions-runner"
+gh_runner_version: "2.338.2"
+# Optional sha256 of the tarball, e.g. "sha256:abc..." (from the release notes)
+gh_runner_checksum: ""
+gh_runner_repo_url: "https://github.com/CheeseMochi/lightshowpi-neo"
+gh_runner_name: "{{ inventory_hostname }}"
+# Default labels self-hosted, Linux, ARM64 are added automatically by config.sh
+gh_runner_extra_labels: [pi-bench]
+# Users whose show crontab entries are commented out on bench hosts (missing users are skipped)
+gh_runner_cron_users: [root, pi]
+# One-time registration token (expires after ~1 hour). `make runner TOKEN=...` passes it
+# via the GH_RUNNER_TOKEN environment variable; secrets.yml also works.
+gh_runner_token: "{{ vault_gh_runner_token | default(lookup('ansible.builtin.env', 'GH_RUNNER_TOKEN'), true) }}"
+
+# The runner user owns the bench conda env and checkout (no access to pi's home needed).
+# A bench Pi that also plays the client role belongs in the `client` group via a separate host entry.
+lsp_user: "{{ gh_runner_user }}"
+lsp_home: "{{ gh_runner_home }}"

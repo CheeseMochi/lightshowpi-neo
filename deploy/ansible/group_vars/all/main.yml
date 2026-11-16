@@ -1,0 +1,43 @@
+---
+# ---------------------------------------------------------------------------
+# LightShowPi Neo deployment defaults. Override per host/group in inventory.yml.
+# Secrets live in group_vars/all/secrets.yml (git-ignored, see secrets.example.yml).
+# ---------------------------------------------------------------------------
+
+# Account that owns the checkout and runs the API service
+lsp_user: pi
+lsp_home: "/home/{{ lsp_user }}"
+lsp_repo_dir: "{{ lsp_home }}/lightshowpi"
+
+# Source code
+lsp_git_repo: https://github.com/CheeseMochi/lightshowpi-neo.git
+lsp_git_version: main
+
+# Conda (Miniforge) location and environment
+conda_prefix: "{{ lsp_home }}/miniforge3"
+conda_env: lightshowpi-neo
+conda_env_prefix: "{{ conda_prefix }}/envs/{{ conda_env }}"
+# Channels for the env (replaces environment.yml's list; Miniforge ships conda-forge only)
+conda_channels: [conda-forge]
+miniforge_installer_url: https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-aarch64.sh
+
+# Python version for the conda env. Empty = use the Pi's system python3
+# major.minor (required so the apt python3-lgpio C extension can be symlinked).
+python_version: ""
+
+# API service (uvicorn is started directly, without the --reload used by `python -m api.main`)
+lsp_api_bind: "0.0.0.0"
+lsp_api_port: 8000
+
+# Physical button manager service (only if buttons are wired up)
+lsp_enable_buttons: false
+
+# Admin password for the first admin user (only applied when the user DB is empty)
+lsp_admin_password: "{{ vault_lsp_admin_password | default('') }}"
+
+# Optional pre-built web UI: synced to the Pi if this directory has an index.html.
+# Build locally first with: (cd web && npm ci && npm run build)
+lsp_web_dist_src: "{{ playbook_dir }}/../../web/dist"
+
+# Groups the service account joins (missing groups are skipped)
+lsp_hw_groups: [gpio, audio, i2c, spi]

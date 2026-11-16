@@ -100,6 +100,21 @@ api/data/*.db
 api/data/*.db-journal
 .env
 
+# Deployment (deploy/): inventories, secrets and Terraform state never get committed
+deploy/ansible/inventory.yml
+deploy/ansible/group_vars/all/secrets.yml
+deploy/ansible/group_vars/show/tunnel.yml
+deploy/ansible/collections/
+deploy/ansible/.vault_pass*
+*.vault_pass
+deploy/terraform/**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+*.tfplan
+
 # Web Frontend
 web/node_modules/
 web/dist/

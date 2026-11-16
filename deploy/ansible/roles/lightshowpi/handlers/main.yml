@@ -1,0 +1,9 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart lightshowpi-api
+  ansible.builtin.systemd_service:
+    name: lightshowpi-api.service
+    state: restarted
