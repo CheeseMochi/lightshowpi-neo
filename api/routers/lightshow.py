@@ -16,6 +16,7 @@ from api.services.lightshow_manager import (
     LightshowManager,
 )
 from api.services.scheduler import SchedulerService
+from api.services.test_mode_manager import get_test_mode_manager
 from api.routers.schedules import get_optional_scheduler
 from api.models.schemas import (
     LightshowStart,
@@ -97,11 +98,17 @@ def list_clients(database: Optional[Database]) -> List[Dict]:
         return []
 
 
+def get_optional_test_mode():
+    """Dependency returning the TestModeManager, or None if not initialized."""
+    return get_test_mode_manager()
+
+
 @router.post("/start", status_code=status.HTTP_200_OK)
 async def start_lightshow(
     request: LightshowStart,
     manager: LightshowManager = Depends(get_manager),
     scheduler: Optional[SchedulerService] = Depends(get_optional_scheduler),
+    test_mode=Depends(get_optional_test_mode),
     current_user: dict = Depends(require_admin)
 ):
     """
@@ -124,6 +131,13 @@ async def start_lightshow(
     }
     ```
     """
+    # Test mode and the show are exclusive
+    if test_mode is not None and test_mode.is_active():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Test mode is active - exit test mode before starting the lightshow"
+        )
+
     # Start the lightshow with optional mode and playlist
     success = manager.start(
         mode=request.mode.value if request.mode else None,

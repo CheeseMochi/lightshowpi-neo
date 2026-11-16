@@ -22,16 +22,20 @@ log = logging.getLogger(__name__)
 class SchedulerService:
     """Manages scheduled lightshow start/stop times using APScheduler."""
 
-    def __init__(self, database: Database, lightshow_manager: LightshowManager):
+    def __init__(self, database: Database, lightshow_manager: LightshowManager,
+                 test_mode_manager=None):
         """
         Initialize the scheduler service.
 
         Args:
             database: Database instance for loading schedules
             lightshow_manager: LightshowManager instance for controlling lightshow
+            test_mode_manager: Optional TestModeManager; scheduled starts are
+                skipped while test mode is active
         """
         self.db = database
         self.lightshow = lightshow_manager
+        self.test_mode = test_mode_manager
         self.scheduler = BackgroundScheduler()
 
         # Add event listeners
@@ -151,6 +155,10 @@ class SchedulerService:
         """
         if self.is_suspended():
             log.info(f"Scheduled start skipped (mode: {mode}): schedule is suspended")
+            return
+
+        if self.test_mode is not None and self.test_mode.is_active():
+            log.warning(f"Scheduled start skipped (mode: {mode}): test mode is active")
             return
 
         log.info(f"Scheduled start triggered (mode: {mode})")

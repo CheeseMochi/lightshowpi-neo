@@ -20,6 +20,7 @@ lgpio: modern GPIO library for Linux (via gpio_adapter.py)
 """
 
 import argparse
+import json
 import logging
 import math
 import time
@@ -50,16 +51,21 @@ except ImportError as e:
 
 args = None
 cm = None
+hc = None
+patterns = None
 
 
 def exit_function():
     """atexit function"""
-    if args:
-        if not args.state == "on" and not args.state == "off":
-            hc.turn_off_lights()
-        if args.state == "random_pattern":
-            exit_event.set()
+    if args and hc is not None:
+        if getattr(args, 'serve', False):
+            # serve() turns the lights off and cleans up itself
+            return
+        if args.state == "random_pattern" and patterns is not None:
+            patterns.exit_event.set()
             time.sleep(3)
+            hc.turn_off_lights()
+        elif not args.state == "on" and not args.state == "off":
             hc.turn_off_lights()
 
 
@@ -420,7 +426,7 @@ class Hardware(object):
         temp_override = True
 
         if self.led and isinstance(data[0], np.ndarray):
-            for led_instance in hc.led:
+            for led_instance in self.led:
                 led_instance.write_all(data[0])
 
         if isinstance(data[0], int):
@@ -572,392 +578,511 @@ class Channel(object):
         self.action(brightness)
 
 
-# test functions
-def light_on(pins, override=False, brightness=1.0):
-    """work around to make custom channel mapping work with hardware tests"""
-    if ccm:
-        pins = ccm_map[pins]
-    else:
-        pins = [pins]
+# Test patterns
+#
+# Patterns used to depend on module globals (hc, lights, sleep, flashes, ...)
+# set in the __main__ block. They now live on the Patterns class so they can be
+# used both from the CLI (looping until Ctrl-C) and from --serve (run once).
+class Patterns(object):
+    """Light test patterns bound to a Hardware instance.
 
-    if len(pins) == 0:
-        return
-
-    for pin in pins:
-        if not cm.hardware.is_pin_pwm[pin]:
-            brightness = 1
-
-        hc.set_light(pin, use_overrides=override, brightness=brightness)
-
-
-def light_off(pins, override=False, brightness=0.0):
-    """work around to make custom channel mapping work with hardware tests"""
-    if ccm:
-        pins = ccm_map[pins]
-    else:
-        pins = [pins]
-
-    if len(pins) == 0:
-        return
-
-    for pin in pins:
-        hc.set_light(pin, use_overrides=override, brightness=brightness)
-
-
-def fade(from_test=False):
-    """Fade lights in and out in sequence"""
-    # Test fading in and out for each light configured in pwm mode
-    if not from_test:
-        print("Press <CTRL>-C to stop")
-
-    if ccm:
-        print("custom channel mapping is being used")
-        print("multiple channels may display that the same time")
-
-    while True:
-        for light in lights:
-            if ccm:
-                for p in ccm_map[light]:
-                    print("channel %s : gpio pin number %d" % (str(p + 1), cm.hardware.gpio_pins[p]))
-            else:
-                print("channel %s : gpio pin number %d" % (
-                    str(light + 1), cm.hardware.gpio_pins[light]))
-
-            print
-
-            if cm.hardware.is_pin_pwm[light]:
-                for _ in range(flashes):
-                    for brightness in range(0, cm.hardware.pwm_range + 1):
-                        # fade in
-                        light_on(light, False, float(brightness) / cm.hardware.pwm_range)
-                        time.sleep(sleep / cm.hardware.pwm_range)
-                    for brightness in range(cm.hardware.pwm_range - 1, -1, -1):
-                        # fade out
-                        light_on(light, False, float(brightness) / cm.hardware.pwm_range)
-                        time.sleep(sleep / cm.hardware.pwm_range)
-            else:
-                print("channel %s not set to pwm mode" % light)
-
-        if from_test:
-            return
-
-
-def flash(from_test=False):
-    """Flash lights in sequence"""
-    if not from_test:
-        print("Press <CTRL>-C to stop")
-
-    if ccm:
-        print("custom channel mapping is being used")
-        print("multiple channels may display that the same time")
-
-    while True:
-        for light in lights:
-            if ccm:
-                for p in ccm_map[light]:
-                    print("channel %s : gpio pin number %d" % (str(p + 1), cm.hardware.gpio_pins[p]))
-            else:
-                print("channel %s : gpio pin number %d" % (
-                    str(light + 1), cm.hardware.gpio_pins[light]))
-
-            print
-
-            for _ in range(flashes):
-                light_on(light, False, 1.0)
-                time.sleep(sleep)
-                light_off(light, False, 0.0)
-                time.sleep(sleep)
-        if from_test:
-            return
-
-
-def cylon():
-    """Cylon
-
-    Lights one channel at a time in order
-    Then backs down to the first rapidly
+    :param hardware: Hardware instance
+    :param lights: list of channel indexes, or None / [-1] for all channels
+    :param sleep: seconds between flashes/fades
+    :param flashes: number of times to flash or fade each light
+    :param lights_per_group: lights bound together in random_pattern
+    :param pwm_speed: seconds to go full on or off in random_pattern
+    :param echo: function used for progress output (default print)
     """
-    # pause for 1 second
-    time.sleep(1)
 
-    # working loop
-    print("Press <CTRL>-C to stop")
-    while True:
-        # here we just loop over the gpio pins and do something with them
-        # except the last one
-        for light in lights[:-1]:
-            # turn off all the lights
-            for l in lights:
-                light_off(l, False, 0.0)
+    NAMES = ("flash", "fade", "cylon", "step", "dance", "random_pattern")
 
-            # then turn on one
-            light_on(light, False, 1.0)
+    def __init__(self, hardware, lights=None, sleep=0.5, flashes=2,
+                 lights_per_group=1, pwm_speed=0.5, echo=print):
+        self.hc = hardware
+        self.cm = hardware.cm
+        self.sleep = float(sleep)
+        self.flashes = int(flashes)
+        self.lights_per_group = max(1, int(lights_per_group))
+        self.pwm_speed = float(pwm_speed)
+        self.echo = echo
+        self.exit_event = threading.Event()
 
-            # wait a little bit
-            time.sleep(.02)
+        hw = self.cm.hardware
+        self.ccm = False
+        self.ccm_map = dict()
 
-        # to make the transition back smoother we handle the last pin here
-        light_off(lights[-2], False, 0.0)
-        light_on(lights[-1], False, 1.0)
+        lights = list(lights) if lights is not None else [-1]
+        if -1 in lights:
+            lights = list(range(0, hw.gpio_len))
+            mapping = self.cm.audio_processing.custom_channel_mapping
 
-        # this loop walks it back the other way
-        for light in lights[::-1][:-1]:
-            # turn off all the lights
-            for l in lights:
-                light_off(l, False, 0.0)
+            if mapping != 0 and mapping and len(mapping) == hw.gpio_len:
+                self.ccm = True
+                cc = [i - 1 for i in mapping]
 
-            # then turn on one
-            light_on(light, False, 1.0)
+                for lit in lights:
+                    self.ccm_map[lit] = [idx for idx, pin_num in enumerate(cc) if pin_num == lit]
 
-            # wait a little bit
-            time.sleep(.02)
+                if len(lights) == hw.gpio_len:
+                    lights = list(range(max(mapping)))
 
-        # again to make it smoother handle the first pin like the last pin
-        light_off(lights[::-1][-2], False, 0.0)
-        light_on(lights[::-1][-1], False, 1.0)
+        self.lights = lights
 
+    # Low-level helpers ------------------------------------------------------
 
-def random_pattern():
-    """Display a random pattern of lights
+    def light_on(self, pins, override=False, brightness=1.0):
+        """work around to make custom channel mapping work with hardware tests"""
+        if self.ccm:
+            pins = self.ccm_map[pins]
+        else:
+            pins = [pins]
 
-    This will turn your lights on in a random pattern.  It will read the pin modes
-    and use that for the channels you have set.  pwm fade for pwm mode and flash
-    for onoff mode.
+        for pin in pins:
+            level = brightness
+            if not self.cm.hardware.is_pin_pwm[pin]:
+                level = 1
 
-    From the command line you can set lights to work in groups by using the
-    --lights_in_group option (default 1)
-    --lights_in_group is the number of lights that you wish to be bound as a group.
-    if set to 3, 3 channels will be bound to the first group, and this will continue
-    until all channels have been use in order of pin assignment with the last
-    group containing the all leftover channels in the case of odd assignment.
+            self.hc.set_light(pin, use_overrides=override, brightness=level)
 
-    and you can adjust the speed of fade with the --pwm_speed option (default .5).
+    def light_off(self, pins, override=False, brightness=0.0):
+        """work around to make custom channel mapping work with hardware tests"""
+        if self.ccm:
+            pins = self.ccm_map[pins]
+        else:
+            pins = [pins]
 
-    If you wish to alter the pattern delay the --sleep' (default 0.5 seconds) is
-    the minimum between transitions and the maximum is defined as max_pause
-    (default 4 time min_pause) in this function.  This value is a random time
-    between the min and max values and not a guarantee of exact time between
-    transitions and will change for every transitions.
+        for pin in pins:
+            self.hc.set_light(pin, use_overrides=override, brightness=brightness)
 
-    --pwm_speed is the time it takes for full on or full off measured in seconds.
-    .5 is half a second and 1 is a full second
+    def _announce(self, light):
+        if self.ccm:
+            for p in self.ccm_map[light]:
+                self.echo("channel %s : gpio pin number %d" % (str(p + 1), self.cm.hardware.gpio_pins[p]))
+        else:
+            self.echo("channel %s : gpio pin number %d" % (
+                str(light + 1), self.cm.hardware.gpio_pins[light]))
 
-    A complete command string would look like
-    sudo python hardware_controller --random_pattern --lights_in_group=2 --sleep=.75 --pwm_speed=1.5
+    def _ccm_notice(self):
+        if self.ccm:
+            self.echo("custom channel mapping is being used")
+            self.echo("multiple channels may display that the same time")
 
-    Initial implementation Thanks to Russell Pyburn.
-    """
-    # your gpio pins
-    pins = cm.hardware.gpio_pins
+    # Patterns ---------------------------------------------------------------
 
-    min_pause = sleep * 1000
+    def run(self, name, repeat=False):
+        """Run a pattern by name. With repeat=False the pattern runs one cycle."""
+        if name not in self.NAMES:
+            raise ValueError("unknown pattern: %s" % name)
+        return getattr(self, name)(repeat=repeat)
 
-    # min and max time to pause before restarting light group
-    max_pause = min_pause * 4.0
+    def fade(self, repeat=True):
+        """Fade lights in and out in sequence"""
+        # Test fading in and out for each light configured in pwm mode
+        hw = self.cm.hardware
+        self._ccm_notice()
 
-    light_group = list()
-    step_range = [_ for _ in range(cm.hardware.pwm_range)]
-    step_range.extend([_ for _ in range(cm.hardware.pwm_range, -1, -1)])
-
-    def the_lights(exit_e, lits):
         while True:
-            if exit_e.is_set():
-                break
+            for light in self.lights:
+                self._announce(light)
 
-            time.sleep(random.randrange(min_pause, max_pause) * .001)
-
-            # activate the lights
-            for stp in step_range:
-                for pin in lits:
-                    light_on(pins.index(pin), True, stp * .01)
-
-                time.sleep(pwm_speed / float(cm.hardware.pwm_range))
-
-    # start the threads
-    for group in range(0, len(pins), lights_per_group):
-        light_group.append(threading.Thread(target=the_lights, args=(
-            exit_event, pins[group:group + lights_per_group],)))
-        light_group[-1].setDaemon(True)
-        light_group[-1].start()
-
-    print("press <ctrl-c> to exit")
-    while True:
-        time.sleep(.1)
-
-
-def dance():
-    """
-    dancing pair
-
-    Start at each end and dance to the other using pwm or onoff
-    """
-    # the gpio pins in reversed order
-    lights2 = lights[::-1]
-
-    # get cm.hardware.pwm_range from the hc module
-    # this is the max value for the pwm channels
-    pwm_max = cm.hardware.pwm_range
-
-    # working loop, we will do this sequence 10 times then end
-    while True:
-        # here we just loop over the gpio pins and turn them on and off
-        # with the pwm feature of lightshowpi
-        for light in range(int(len(lights) / 2)):
-            if cm.hardware.is_pin_pwm[light]:
-                for brightness in range(0, pwm_max):
-                    # fade in
-                    light_on(lights[light], False, float(brightness) / pwm_max)
-                    light_on(lights2[light], False, float(brightness) / pwm_max)
-                    time.sleep(.1 / pwm_max)
-
-                for brightness in range(pwm_max - 1, -1, -1):
-                    # fade out
-                    light_on(lights[light], False, float(brightness) / pwm_max)
-                    light_on(lights2[light], False, float(brightness) / pwm_max)
-                    time.sleep(.1 / pwm_max)
-            else:
-                light_on(lights[light], False, 1.0)
-                light_on(lights2[light], False, 1.0)
-                time.sleep(.5)
-                light_off(lights[light], False, 0.0)
-                light_off(lights2[light], False, 0.0)
-
-        for light in range(int(len(lights) / 2) - 1, -1, -1):
-            if cm.hardware.is_pin_pwm[light]:
-                for brightness in range(0, pwm_max):
-                    # fade in
-                    light_on(lights[light], False, float(brightness) / pwm_max)
-                    light_on(lights2[light], False, float(brightness) / pwm_max)
-                    time.sleep(.1 / pwm_max)
-
-                for brightness in range(pwm_max - 1, -1, -1):
-                    # fade out
-                    light_on(lights[light], False, float(brightness) / pwm_max)
-                    light_on(lights2[light], False, float(brightness) / pwm_max)
-                    time.sleep(.1 / pwm_max)
-            else:
-                light_on(lights[light], False, 1.0)
-                light_on(lights2[light], False, 1.0)
-                time.sleep(.5)
-                light_off(lights[light], False, 0.0)
-                light_off(lights2[light], False, 0.0)
-
-
-def step():
-    """Test fading in and out for each light configured in pwm mode"""
-    print("Press <CTRL>-C to stop")
-    while True:
-        for light in lights:
-            print("channel %s " % light)
-            for brightness in range(0, cm.hardware.pwm_range):
-                # fade in
-                light_on(light, False, float(brightness) / cm.hardware.pwm_range)
-                time.sleep(sleep / cm.hardware.pwm_range)
-
-        for light in reversed(lights):
-            print("channel %s " % light)
-            for brightness in range(cm.hardware.pwm_range - 1, -1, -1):
-                # fade out
-                if cm.hardware.is_pin_pwm[light]:
-                    light_on(light, False, float(brightness) / cm.hardware.pwm_range)
+                if hw.is_pin_pwm[light]:
+                    for _ in range(self.flashes):
+                        for brightness in range(0, hw.pwm_range + 1):
+                            # fade in
+                            self.light_on(light, False, float(brightness) / hw.pwm_range)
+                            time.sleep(self.sleep / hw.pwm_range)
+                        for brightness in range(hw.pwm_range - 1, -1, -1):
+                            # fade out
+                            self.light_on(light, False, float(brightness) / hw.pwm_range)
+                            time.sleep(self.sleep / hw.pwm_range)
                 else:
-                    light_off(light, False, 0)
-                time.sleep(sleep / cm.hardware.pwm_range)
+                    self.echo("channel %s not set to pwm mode" % light)
+
+            if not repeat:
+                return
+
+    def flash(self, repeat=True):
+        """Flash lights in sequence"""
+        self._ccm_notice()
+
+        while True:
+            for light in self.lights:
+                self._announce(light)
+
+                for _ in range(self.flashes):
+                    self.light_on(light, False, 1.0)
+                    time.sleep(self.sleep)
+                    self.light_off(light, False, 0.0)
+                    time.sleep(self.sleep)
+            if not repeat:
+                return
+
+    def cylon(self, repeat=True):
+        """Cylon
+
+        Lights one channel at a time in order
+        Then backs down to the first rapidly
+        """
+        lights = self.lights
+        if len(lights) < 2:
+            self.echo("cylon needs at least 2 channels")
+            return
+
+        # pause for 1 second
+        time.sleep(1)
+
+        # working loop
+        while True:
+            # here we just loop over the gpio pins and do something with them
+            # except the last one
+            for light in lights[:-1]:
+                # turn off all the lights
+                for l in lights:
+                    self.light_off(l, False, 0.0)
+
+                # then turn on one
+                self.light_on(light, False, 1.0)
+
+                # wait a little bit
+                time.sleep(.02)
+
+            # to make the transition back smoother we handle the last pin here
+            self.light_off(lights[-2], False, 0.0)
+            self.light_on(lights[-1], False, 1.0)
+
+            # this loop walks it back the other way
+            for light in lights[::-1][:-1]:
+                # turn off all the lights
+                for l in lights:
+                    self.light_off(l, False, 0.0)
+
+                # then turn on one
+                self.light_on(light, False, 1.0)
+
+                # wait a little bit
+                time.sleep(.02)
+
+            # again to make it smoother handle the first pin like the last pin
+            self.light_off(lights[::-1][-2], False, 0.0)
+            self.light_on(lights[::-1][-1], False, 1.0)
+
+            if not repeat:
+                return
+
+    def random_pattern(self, repeat=True):
+        """Display a random pattern of lights
+
+        This will turn your lights on in a random pattern.  It will read the pin modes
+        and use that for the channels you have set.  pwm fade for pwm mode and flash
+        for onoff mode.
+
+        From the command line you can set lights to work in groups by using the
+        --lights_in_group option (default 1)
+        --lights_in_group is the number of lights that you wish to be bound as a group.
+        if set to 3, 3 channels will be bound to the first group, and this will continue
+        until all channels have been use in order of pin assignment with the last
+        group containing the all leftover channels in the case of odd assignment.
+
+        and you can adjust the speed of fade with the --pwm_speed option (default .5).
+
+        If you wish to alter the pattern delay the --sleep' (default 0.5 seconds) is
+        the minimum between transitions and the maximum is defined as max_pause
+        (default 4 time min_pause) in this function.  This value is a random time
+        between the min and max values and not a guarantee of exact time between
+        transitions and will change for every transitions.
+
+        --pwm_speed is the time it takes for full on or full off measured in seconds.
+        .5 is half a second and 1 is a full second
+
+        A complete command string would look like
+        sudo python hardware_controller --state=random_pattern --lights_in_group=2 --sleep=.75 --pwm_speed=1.5
+
+        Initial implementation Thanks to Russell Pyburn.
+        """
+        hw = self.cm.hardware
+        # your gpio pins
+        pins = hw.gpio_pins
+
+        # min and max time (ms) to pause before restarting light group
+        min_pause = max(1, int(self.sleep * 1000))
+        max_pause = min_pause * 4
+
+        step_range = [_ for _ in range(hw.pwm_range)]
+        step_range.extend([_ for _ in range(hw.pwm_range, -1, -1)])
+
+        exit_event = self.exit_event
+
+        def the_lights(lits):
+            while not exit_event.is_set():
+                time.sleep(random.randrange(min_pause, max_pause) * .001)
+
+                # activate the lights
+                for stp in step_range:
+                    if exit_event.is_set():
+                        break
+                    for pin in lits:
+                        self.light_on(pins.index(pin), True, float(stp) / hw.pwm_range)
+
+                    time.sleep(self.pwm_speed / float(hw.pwm_range))
+
+                if not repeat:
+                    return
+
+        # start the threads
+        light_group = list()
+        for group in range(0, len(pins), self.lights_per_group):
+            light_group.append(threading.Thread(
+                target=the_lights, args=(pins[group:group + self.lights_per_group],),
+                daemon=True))
+            light_group[-1].start()
+
+        if repeat:
+            self.echo("press <ctrl-c> to exit")
+            while not exit_event.is_set():
+                time.sleep(.1)
+        else:
+            for thread in light_group:
+                thread.join()
+
+    def dance(self, repeat=True):
+        """
+        dancing pair
+
+        Start at each end and dance to the other using pwm or onoff
+        """
+        hw = self.cm.hardware
+        lights = self.lights
+        # the gpio pins in reversed order
+        lights2 = lights[::-1]
+
+        # this is the max value for the pwm channels
+        pwm_max = hw.pwm_range
+
+        def pair(light):
+            if hw.is_pin_pwm[lights[light]]:
+                for brightness in range(0, pwm_max):
+                    # fade in
+                    self.light_on(lights[light], False, float(brightness) / pwm_max)
+                    self.light_on(lights2[light], False, float(brightness) / pwm_max)
+                    time.sleep(.1 / pwm_max)
+
+                for brightness in range(pwm_max - 1, -1, -1):
+                    # fade out
+                    self.light_on(lights[light], False, float(brightness) / pwm_max)
+                    self.light_on(lights2[light], False, float(brightness) / pwm_max)
+                    time.sleep(.1 / pwm_max)
+            else:
+                self.light_on(lights[light], False, 1.0)
+                self.light_on(lights2[light], False, 1.0)
+                time.sleep(.5)
+                self.light_off(lights[light], False, 0.0)
+                self.light_off(lights2[light], False, 0.0)
+
+        while True:
+            for light in range(int(len(lights) / 2)):
+                pair(light)
+
+            for light in range(int(len(lights) / 2) - 1, -1, -1):
+                pair(light)
+
+            if not repeat:
+                return
+
+    def step(self, repeat=True):
+        """Test fading in and out for each light configured in pwm mode"""
+        hw = self.cm.hardware
+        while True:
+            for light in self.lights:
+                self.echo("channel %s " % light)
+                for brightness in range(0, hw.pwm_range):
+                    # fade in
+                    self.light_on(light, False, float(brightness) / hw.pwm_range)
+                    time.sleep(self.sleep / hw.pwm_range)
+
+            for light in reversed(self.lights):
+                self.echo("channel %s " % light)
+                for brightness in range(hw.pwm_range - 1, -1, -1):
+                    # fade out
+                    if hw.is_pin_pwm[light]:
+                        self.light_on(light, False, float(brightness) / hw.pwm_range)
+                    else:
+                        self.light_off(light, False, 0)
+                    time.sleep(self.sleep / hw.pwm_range)
+
+            if not repeat:
+                return
+
+    def test(self):
+        cm = self.cm
+        pi_info = Platform.get_hardware_info()
+
+        print("We are going to do some basic tests to make sure")
+        print("your hardware is working as expected.")
+        print("Raspberry Pi %s" % pi_info['model'])
+        print("You have %s channels defined" % str(cm.hardware.gpio_len))
+        print("They are using gpio pins %s" % ", ".join(map(str, cm.hardware.gpio_pins)))
+        print("You have configured your relays as active %s" % (
+            "low" if cm.hardware.active_low_mode else "high"))
+        print("pin_modes are %s " % ", ".join(cm.hardware.pin_modes))
+        print("custom_channel_mapping %s being used" % ("is" if self.ccm else "is not"))
+
+        if self.ccm:
+            print("[%s]" % ", ".join(map(str, cm.audio_processing.custom_channel_mapping)))
+
+        print("\nFirst we are going to flash each light in order to see if they are all working")
+
+        input("Press Enter to continue....")
+
+        self.flash(repeat=False)
+
+        print("If everything went correctly you should have seen each of your channels")
+        print("flash one at a time in order of assignment.")
+
+        while True:
+            answer = input("Did you see all channels flash in order? (yes/no) ").lower()
+            yes = ['yes', 'y', 'yep', 'ja', 'si', 'oui']
+            no = ['no', 'n', 'nope', 'nein', 'non']
+
+            if answer in yes or answer in no:
+                if answer in yes:
+                    print("Great, your basic config is ready for you to start with\n\n")
+
+                    sys.exit(1)
+
+                if answer in no:
+                    print("Lets make sure you're using the correct gpio pins")
+                    print("Here is what the %s header looks like\n" % pi_info['model'])
+                    print(Platform.get_gpio_header())
+                    print()
+                    print("Make sure you are using the correct pins as listed above")
+
+                    if self.ccm:
+                        print("Disable custom channel mapping to help with debugging your config")
+
+                    print("After you have made these corrections please rerun this test\n\n")
+
+                    sys.exit(1)
+
+            print("Please answer yes or no")
 
 
-def test():
-    pi_info = Platform.get_hardware_info()
-
-    print("We are going to do some basic tests to make sure")
-    print("your hardware is working as expected.")
-    print("Raspberry Pi %s" % pi_info['model'])
-    print("You have %s channels defined" % str(cm.hardware.gpio_len))
-    print("They are using gpio pins %s" % ", ".join(map(str, cm.hardware.gpio_pins)))
-    print("You have configured your relays as active %s" % (
-        "low" if cm.hardware.active_low_mode else "high"))
-    print("pin_modes are %s " % ", ".join(cm.hardware.pin_modes))
-    print("custom_channel_mapping %s being used" % ("is" if ccm else "is not"))
-
-    if ccm:
-        print("[%s]" % ", ".join(map(str, cm.audio_processing.custom_channel_mapping)))
-
-    print("\nFirst we are going to flash each light in order to see if they are all working")
-
-    input("Press Enter to continue....")
-
-    flash(True)
-
-    print("If everything went correctly you should have seen each of your channels")
-    print("flash one at a time in order of assignment.")
-
-    while True:
-        answer = input("Did you see all channels flash in order? (yes/no) ").lower()
-        yes = ['yes', 'y', 'yep', 'ja', 'si', 'oui']
-        no = ['no', 'n', 'nope', 'nein', 'non']
-
-        if answer in yes or answer in no:
-            if answer in yes:
-                print("Great, your basic config is ready for you to start with\n\n")
-
-                sys.exit(1)
-
-            if answer in no:
-                print("Lets make sure you're using the correct gpio pins")
-                print("Here is what the %s header looks like\n" % pi_info['model'])
-                print(Platform.get_gpio_header())
-                print
-                print("Make sure you are using the correct pins as listed above")
-
-                if ccm:
-                    print("Disable custom channel mapping to help with debugging your config")
-
-                print("After you have made these corrections please rerun this test\n\n")
-
-                sys.exit(1)
-
-        print("Please answer yes or no")
-
-
-# def main():
-# """main"""
-# hc.initialize()
-# hc.network.unset_playing()
+# Serve mode ------------------------------------------------------------------
 #
-#     if args.test:
-#         test()
-#         return
+# Long-running process used by the API's test mode. Reads one JSON command per
+# line from stdin and replies with one JSON line on stdout:
 #
-#     if args.cleanup:
-#         clean_up()
+#   {"cmd": "set", "channel": 0, "on": true, "brightness": 0.5}
+#   {"cmd": "all", "on": false}
+#   {"cmd": "pattern", "name": "flash"}
+#   {"cmd": "status"}
+#   {"cmd": "quit"}
 #
-#     elif args.lights_off:
-#         for light in lights:
-#             light_off(light, False, 0.0)
-#
-#     elif args.lights_on:
-#         for light in lights:
-#             light_on(light, False, 1.0)
-#
-#     elif args.fade:
-#         fade()
-#
-#     elif args.flash:
-#         flash()
-#
-#     elif args.random_pattern:
-#         random_pattern()
-#
-#     elif args.cylon:
-#         cylon()
-#
-#     elif args.dance:
-#         dance()
-#
-#     elif args.step:
-#         step()
-#
-#     else:
-#         parser.print_help()
+# Reply: {"ok": bool, "channels": [levels...], "error": str|null}
+# A {"ok": true, "ready": true, ...} line is written once the hardware is ready.
+# On EOF, SIGTERM or quit all lights are turned off and hc.clean_up() is run.
+
+def _serve_reply(out, ok=True, channels=None, error=None, **extra):
+    reply = {"ok": ok, "channels": list(channels or []), "error": error}
+    reply.update(extra)
+    out.write(json.dumps(reply) + "\n")
+    out.flush()
+
+
+def serve(hardware, stdin=None, stdout=None, patterns=None):
+    """Run the JSON-lines command loop for test mode.
+
+    :param hardware: Hardware instance
+    :param stdin: text stream to read commands from (default sys.stdin)
+    :param stdout: text stream for replies (default sys.stdout)
+    :param patterns: optional Patterns instance (created if omitted)
+    """
+    stdin = stdin or sys.stdin
+    stdout = stdout or sys.stdout
+    hw = hardware.cm.hardware
+    channel_count = hw.gpio_len
+    levels = [0.0] * channel_count
+
+    if patterns is None:
+        patterns = Patterns(hardware, echo=lambda *a: logging.info(" ".join(map(str, a))))
+
+    def all_lights(on):
+        if on:
+            hardware.turn_on_lights()
+        else:
+            hardware.turn_off_lights()
+        for i in range(channel_count):
+            levels[i] = 1.0 if on else 0.0
+
+    try:
+        hardware.initialize()
+        hardware.network.unset_playing()
+        all_lights(False)
+        _serve_reply(stdout, True, levels, ready=True, channel_count=channel_count)
+
+        while True:
+            line = stdin.readline()
+            if not line:
+                break  # EOF
+            line = line.strip()
+            if not line:
+                continue
+
+            try:
+                cmd = json.loads(line)
+                if not isinstance(cmd, dict):
+                    raise ValueError("command must be a JSON object")
+            except ValueError as error:
+                _serve_reply(stdout, False, levels, "invalid JSON command: %s" % error)
+                continue
+
+            name = cmd.get("cmd")
+            try:
+                if name == "set":
+                    channel = int(cmd["channel"])
+                    if not 0 <= channel < channel_count:
+                        raise ValueError("channel %d out of range 0-%d" % (channel, channel_count - 1))
+                    on = bool(cmd.get("on", True))
+                    brightness = cmd.get("brightness")
+                    brightness = 1.0 if brightness is None else float(brightness)
+                    brightness = max(0.0, min(1.0, brightness))
+                    level = brightness if on else 0.0
+                    if level > 0 and not hw.is_pin_pwm[channel]:
+                        level = 1.0
+                    hardware.set_light(channel, False, level)
+                    levels[channel] = level
+                    _serve_reply(stdout, True, levels)
+
+                elif name == "all":
+                    all_lights(bool(cmd.get("on", False)))
+                    _serve_reply(stdout, True, levels)
+
+                elif name == "pattern":
+                    pattern = cmd.get("name")
+                    if pattern not in Patterns.NAMES:
+                        raise ValueError("unknown pattern: %s" % pattern)
+                    all_lights(False)
+                    patterns.run(pattern, repeat=False)
+                    all_lights(False)
+                    _serve_reply(stdout, True, levels, pattern=pattern)
+
+                elif name == "status":
+                    _serve_reply(stdout, True, levels, channel_count=channel_count)
+
+                elif name == "quit":
+                    _serve_reply(stdout, True, levels)
+                    break
+
+                else:
+                    raise ValueError("unknown command: %s" % name)
+
+            except (KeyError, TypeError, ValueError) as error:
+                _serve_reply(stdout, False, levels, str(error))
+    finally:
+        try:
+            hardware.turn_off_lights()
+        finally:
+            hardware.clean_up()
 
 
 def main():
@@ -966,43 +1091,29 @@ def main():
     hc.network.unset_playing()
 
     if args.test:
-        test()
+        patterns.test()
         return
 
     if state == "cleanup":
         hc.clean_up()
 
     elif state == "off":
-        if len(lights) != cm.hardware.gpio_len:
-            for light in lights:
-                light_off(light)
+        if len(patterns.lights) != cm.hardware.gpio_len:
+            for light in patterns.lights:
+                patterns.light_off(light)
         else:
             hc.turn_off_lights(use_always_onoff=True)
 
     elif state == "on":
-        if len(lights) != cm.hardware.gpio_len:
-            for light in lights:
-                light_on(light)
+        if len(patterns.lights) != cm.hardware.gpio_len:
+            for light in patterns.lights:
+                patterns.light_on(light)
         else:
             hc.turn_on_lights(use_always_onoff=True)
 
-    elif state == "fade":
-        fade()
-
-    elif state == "flash":
-        flash()
-
-    elif state == "random_pattern":
-        random_pattern()
-
-    elif state == "cylon":
-        cylon()
-
-    elif state == "dance":
-        dance()
-
-    elif state == "step":
-        step()
+    elif state in Patterns.NAMES:
+        print("Press <CTRL>-C to stop")
+        patterns.run(state, repeat=True)
 
     else:
         parser.print_help()
@@ -1026,6 +1137,9 @@ if __name__ == "__main__":
                              'dance, step or cleanup')
     parser.add_argument('--test', action="store_true",
                         help='Run a basic hardware test')
+    parser.add_argument('--serve', action="store_true",
+                        help='Test mode: read JSON commands from stdin, one per line '
+                             '(used by the API)')
 
     parser.add_argument('--light', default='-1',
                         help='the lights to act on (comma delimited list), -1 for all lights')
@@ -1042,34 +1156,23 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    if args.serve:
+        # Keep stdout for the JSON protocol; send any stray prints to stderr
+        protocol_out = sys.stdout
+        sys.stdout = sys.stderr
+        signal.signal(signal.SIGTERM, lambda x, y: sys.exit(0))
+
     hc = Hardware(param_config=args.config)
 
     state = args.state
-    sleep = float(args.sleep)
+    patterns = Patterns(hc,
+                        lights=[int(lit) for lit in args.light.split(',')],
+                        sleep=args.sleep,
+                        flashes=args.flashes,
+                        lights_per_group=args.lights_in_group,
+                        pwm_speed=args.pwm_speed)
 
-    flashes = int(args.flashes)
-    lights_per_group = int(args.lights_in_group)
-    pwm_speed = float(args.pwm_speed)
-    # use custom_channel_mapping if defined.
-    ccm = False
-    lights = [int(lit) for lit in args.light.split(',')]
-
-    if -1 in lights:
-        lights = range(0, cm.hardware.gpio_len)
-
-        if cm.audio_processing.custom_channel_mapping != 0 and len(
-                cm.audio_processing.custom_channel_mapping) == cm.hardware.gpio_len:
-            ccm = True
-            cc = [i - 1 for i in cm.audio_processing.custom_channel_mapping]
-            ccm_map = dict()
-
-            for lit in lights:
-                ccm_map[lit] = [idx for idx, pin_num in enumerate(cc) if pin_num == lit]
-
-            if len(lights) == cm.hardware.gpio_len:
-                lights = range(max(cm.audio_processing.custom_channel_mapping))
-
-    if state == "random_pattern":
-        exit_event = threading.Event()
-
-    main()
+    if args.serve:
+        serve(hc, sys.stdin, protocol_out)
+    else:
+        main()

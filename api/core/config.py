@@ -42,6 +42,9 @@ class APIConfig:
         self.cloud_url = self._get_str('api', 'cloud_url', '')
         self.cloud_key = self._get_str('api', 'cloud_key', '')
         self.db_path = self._get_str('api', 'db_path', '')
+        self.test_mode_timeout_minutes = self._get_float('api', 'test_mode_timeout_minutes', 10.0)
+        if self.test_mode_timeout_minutes <= 0:
+            self.test_mode_timeout_minutes = 10.0
 
         # Load client settings (for client Pis)
         self.client_id = self._get_str('client', 'client_id', '')
@@ -75,6 +78,13 @@ class APIConfig:
         """Get integer config value with fallback."""
         try:
             return self.cm.config.getint(section, key)
+        except Exception:
+            return default
+
+    def _get_float(self, section: str, key: str, default: float) -> float:
+        """Get float config value with fallback."""
+        try:
+            return self.cm.config.getfloat(section, key)
         except Exception:
             return default
 
