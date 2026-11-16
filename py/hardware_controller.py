@@ -483,6 +483,10 @@ class Hardware(object):
             brightness_levels = np.asarray(data[0].array)
             temp_override = data[0].use_overrides
 
+        elif isinstance(data[0], list):
+            # ambient mode's keepalive broadcasts a plain list
+            brightness_levels = np.asarray(data[0], dtype='float32')
+
         else:
             logging.warning("unrecognized type of received net data[0] %s", type(data[0]))
             return
