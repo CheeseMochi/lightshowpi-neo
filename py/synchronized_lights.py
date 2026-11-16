@@ -1057,7 +1057,8 @@ class Lightshow(object):
             row += 1
 
             # Load new application state in case we've been interrupted
-            cm.load_state()
+            # (stat-gated: re-parses only when state.cfg changed or every 1 s)
+            cm.refresh_state()
             play_now = int(cm.get_state('play_now', "0"))
 
         if not self.cache_found and not play_now and self.sequence_type == 'auto':

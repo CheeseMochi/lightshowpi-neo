@@ -22,6 +22,7 @@ import logging
 import os
 import os.path
 import sys
+import time
 import warnings
 import json
 import shlex
@@ -127,7 +128,41 @@ class Configuration(object):
         with open(self.state_file) as state_fp:
             fcntl.lockf(state_fp, fcntl.LOCK_SH)
             self.state.read_file(state_fp, self.state_file)
+            # Stat under the shared lock so no writer can slip in between
+            # the read and the signature refresh_state() compares against.
+            self._state_signature = self._stat_state_file()
             fcntl.lockf(state_fp, fcntl.LOCK_UN)
+        self._state_loaded_at = time.monotonic()
+
+    # Upper bound on how stale refresh_state() may leave self.state. Covers two
+    # writes landing in the same filesystem timestamp tick with the same size.
+    STATE_MAX_AGE_S = 1.0
+
+    def _stat_state_file(self):
+        """Return a cheap change signature for the state file, or None if missing."""
+        try:
+            st = os.stat(self.state_file)
+        except OSError:
+            return None
+        return (st.st_mtime_ns, st.st_size, st.st_ino)
+
+    def refresh_state(self):
+        """Reload the state file only if it changed or STATE_MAX_AGE_S has passed.
+
+        The show loop calls this once per audio chunk (~20x/s). A stat() is much
+        cheaper than open + lock + parse, so this keeps play_now responsive
+        without re-parsing an unchanged file every chunk.
+
+        :return: True if the state was reloaded
+        :rtype: bool
+        """
+        loaded_at = getattr(self, '_state_loaded_at', None)
+        if (loaded_at is not None
+                and time.monotonic() - loaded_at < self.STATE_MAX_AGE_S
+                and self._stat_state_file() == getattr(self, '_state_signature', None)):
+            return False
+        self.load_state()
+        return True
 
     def get_state(self, name, default=""):
         """
