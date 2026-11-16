@@ -17,14 +17,28 @@ Key features:
 - Digital I/O via lgpio GPIO functions
 - I2C expander support via adafruit-circuitpython-mcp230xx
 - Compatible with existing hardware_controller.py code
+- GPIO chip auto-detection (Pi 5 header may be gpiochip4 on older kernels)
+
+Importing this module never requires lgpio; a clear RuntimeError is raised
+when GPIO is actually initialised on a system without it.
 """
 
+import glob
 import logging
-import lgpio
-from typing import Dict, Optional
+import os
+import re
+from typing import Dict, List, Optional, Tuple
+
+try:
+    import lgpio
+    _LGPIO_IMPORT_ERROR: Optional[BaseException] = None
+except ImportError as _e:  # Not a Pi, or lgpio not installed/linked
+    lgpio = None
+    _LGPIO_IMPORT_ERROR = _e
 
 # Global state
 _chip_handle: Optional[int] = None
+_chip_number: Optional[int] = None  # /dev/gpiochipN index that was opened
 _pwm_pins: Dict[int, dict] = {}  # Track PWM state per pin
 _pwm_frequency = 100  # Default PWM frequency in Hz
 _pin_mode = 'wiringpi'  # Pin numbering mode: 'wiringpi' or 'bcm'
@@ -70,6 +84,105 @@ _WIRINGPI_TO_BCM = {
     28: 20,  # Physical pin 38
     29: 21,  # Physical pin 40
 }
+
+
+# Environment variable that forces a specific /dev/gpiochipN
+GPIOCHIP_ENV = 'LSP_GPIOCHIP'
+
+# gpiochip labels of the 40-pin header controller, in order of preference
+#   pinctrl-rp1      Raspberry Pi 5 (gpiochip4 on older kernels, gpiochip0 on newer)
+#   pinctrl-bcm2711  Raspberry Pi 4 / 400 / CM4
+#   pinctrl-bcm2835  Raspberry Pi 3 and earlier
+_HEADER_CHIP_LABELS = ('pinctrl-rp1', 'pinctrl-bcm2711', 'pinctrl-bcm2835')
+
+
+# ============================================================================
+# GPIO Chip Selection
+# ============================================================================
+
+def _require_lgpio():
+    """Raise a clear error if lgpio is not available."""
+    if lgpio is None:
+        raise RuntimeError(
+            "lgpio is not available, so GPIO cannot be used "
+            f"({_LGPIO_IMPORT_ERROR}). On a Raspberry Pi install python3-lgpio "
+            "and link it into your environment (see bin/link_lgpio.sh).")
+
+
+def _parse_chip(value: str) -> int:
+    """Parse an LSP_GPIOCHIP value: '4', 'gpiochip4' or '/dev/gpiochip4'."""
+    match = re.fullmatch(r'\s*(?:/dev/)?(?:gpiochip)?(\d+)\s*', value)
+    if not match:
+        raise ValueError(
+            f"Invalid {GPIOCHIP_ENV}={value!r}; expected a chip number such as "
+            "'0', 'gpiochip4' or '/dev/gpiochip4'")
+    return int(match.group(1))
+
+
+def _list_chip_labels() -> List[Tuple[int, str]]:
+    """Return (chip number, label) for every /dev/gpiochipN on this system.
+
+    Labels are read through lgpio. Chips that can't be opened are skipped.
+    """
+    chips = []
+    for path in glob.glob('/dev/gpiochip*'):
+        match = re.fullmatch(r'/dev/gpiochip(\d+)', path)
+        if not match:
+            continue
+        number = int(match.group(1))
+        handle = None
+        try:
+            handle = lgpio.gpiochip_open(number)
+            info = lgpio.gpio_get_chip_info(handle)  # (status, lines, name, label)
+            chips.append((number, str(info[3])))
+        except Exception as e:
+            logging.debug(f"Could not read label of gpiochip{number}: {e}")
+        finally:
+            if handle is not None:
+                try:
+                    lgpio.gpiochip_close(handle)
+                except Exception:
+                    pass
+    return sorted(chips)
+
+
+def select_gpiochip() -> int:
+    """Choose which /dev/gpiochipN drives the 40-pin header.
+
+    Order:
+      1. ``LSP_GPIOCHIP`` environment variable (invalid values raise ValueError)
+      2. Auto-detect by chip label (pinctrl-rp1, pinctrl-bcm2711, pinctrl-bcm2835)
+      3. Fall back to chip 0 (the historical default; correct on Pi 3/4)
+    """
+    env_value = os.environ.get(GPIOCHIP_ENV, '').strip()
+    if env_value:
+        chip = _parse_chip(env_value)
+        logging.debug(f"Using gpiochip{chip} from {GPIOCHIP_ENV}")
+        return chip
+
+    try:
+        chips = _list_chip_labels()
+    except Exception as e:
+        logging.debug(f"gpiochip auto-detection failed: {e}")
+        chips = []
+
+    for label in _HEADER_CHIP_LABELS:
+        for number, chip_label in chips:
+            if chip_label == label:
+                logging.debug(f"Auto-detected gpiochip{number} ({label})")
+                return number
+
+    logging.debug("No known header gpiochip label found, using gpiochip0")
+    return 0
+
+
+def _open_chip():
+    """Open the selected GPIO chip and store its handle."""
+    global _chip_handle, _chip_number
+    _require_lgpio()
+    chip = select_gpiochip()
+    _chip_handle = lgpio.gpiochip_open(chip)
+    _chip_number = chip
 
 
 # ============================================================================
@@ -119,13 +232,14 @@ def wiringPiSetupPY():
     This opens the gpiochip device and stores the handle globally.
     Sets pin numbering mode to 'wiringpi' for compatibility.
 
-    Maps to: lgpio.gpiochip_open(0)
+    Maps to: lgpio.gpiochip_open(select_gpiochip())
     """
-    global _chip_handle, _pin_mode
+    global _pin_mode
     try:
-        _chip_handle = lgpio.gpiochip_open(0)
+        _open_chip()
         _pin_mode = 'wiringpi'  # Use wiringPi pin numbering
-        logging.debug(f"GPIO initialized with lgpio, handle: {_chip_handle}, mode: wiringPi")
+        logging.debug(f"GPIO initialized with lgpio, chip: gpiochip{_chip_number}, "
+                      f"handle: {_chip_handle}, mode: wiringPi")
     except Exception as e:
         logging.error(f"Failed to initialize GPIO: {e}")
         raise
@@ -137,13 +251,14 @@ def wiringPiSetupGpio():
     This opens the gpiochip device and stores the handle globally.
     Sets pin numbering mode to 'bcm' (Broadcom GPIO numbers).
 
-    Maps to: lgpio.gpiochip_open(0)
+    Maps to: lgpio.gpiochip_open(select_gpiochip())
     """
-    global _chip_handle, _pin_mode
+    global _pin_mode
     try:
-        _chip_handle = lgpio.gpiochip_open(0)
+        _open_chip()
         _pin_mode = 'bcm'  # Use BCM pin numbering
-        logging.debug(f"GPIO initialized with lgpio, handle: {_chip_handle}, mode: BCM")
+        logging.debug(f"GPIO initialized with lgpio, chip: gpiochip{_chip_number}, "
+                      f"handle: {_chip_handle}, mode: BCM")
     except Exception as e:
         logging.error(f"Failed to initialize GPIO: {e}")
         raise
@@ -499,7 +614,7 @@ def pcf8574SetupPY(pinBase: int, i2cAddress: int):
 
 def cleanup():
     """Cleanup GPIO resources"""
-    global _chip_handle
+    global _chip_handle, _chip_number
 
     if _chip_handle is not None:
         try:
@@ -517,6 +632,7 @@ def cleanup():
             logging.error(f"Error during GPIO cleanup: {e}")
         finally:
             _chip_handle = None
+            _chip_number = None
             _pwm_pins.clear()
             _expanders.clear()
 
@@ -530,6 +646,7 @@ def get_info():
     return {
         'backend': 'lgpio',
         'chip_handle': _chip_handle,
+        'chip_number': _chip_number,
         'pwm_pins': list(_pwm_pins.keys()),
         'expanders': list(_expanders.keys()),
         'initialized': _chip_handle is not None

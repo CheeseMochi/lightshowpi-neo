@@ -77,6 +77,7 @@ sudo $(which python) py/hardware_controller.py --state flash
 ## Testing conventions
 
 - Use pytest markers from `pytest.ini`: `unit`, `integration`, `platform`, `gpio`, `audio`, `slow`. `--strict-markers` is on, so register any new marker there first.
+- `gpio`, `audio` and `platform` mean real hardware: `tests/conftest.py` skips them unless `LSP_BENCH=1`. Mocked hardware tests must use `unit`/`integration` so they run in CI. Bench loopback wiring lives in `tests/bench.yaml`; run with `LSP_BENCH=1 pytest -m gpio -rs` on a Pi.
 - Mock hardware with `unittest.mock.patch` on `gpio_adapter.lgpio` and similar. Tests that need a real Pi must `skip` cleanly elsewhere.
 - API tests use FastAPI's `TestClient` and override dependencies. Follow the patterns in `tests/test_lightshow_endpoints.py` and `tests/test_button_endpoints.py`.
 - Give production classes whose names start with `Test` the attribute `__test__ = False` so pytest doesn't try to collect them (see `TestModeManager`).

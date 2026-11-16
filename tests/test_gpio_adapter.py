@@ -217,3 +217,119 @@ class TestErrorHandling:
             # Don't call wiringPiSetupPY - should handle gracefully
             gpio_adapter.digitalWritePY(17, 1)
             # Should not crash, just log error
+
+
+@pytest.fixture
+def fresh_adapter(mock_lgpio, monkeypatch):
+    """Import a fresh gpio_adapter bound to the mocked lgpio, with LSP_GPIOCHIP unset."""
+    monkeypatch.delenv('LSP_GPIOCHIP', raising=False)
+    sys.modules.pop('gpio_adapter', None)
+    import gpio_adapter
+    yield gpio_adapter
+    gpio_adapter.cleanup()
+
+
+@pytest.mark.unit
+class TestLgpioImportGuard:
+    """gpio_adapter must import without lgpio and fail clearly when used."""
+
+    def test_import_without_lgpio(self):
+        sys.modules.pop('gpio_adapter', None)
+        with patch.dict('sys.modules', {'lgpio': None}):
+            import gpio_adapter
+            assert gpio_adapter.lgpio is None
+            with pytest.raises(RuntimeError, match='lgpio is not available'):
+                gpio_adapter.wiringPiSetupGpio()
+            with pytest.raises(RuntimeError, match='lgpio is not available'):
+                gpio_adapter.wiringPiSetupPY()
+            assert gpio_adapter._chip_handle is None
+        sys.modules.pop('gpio_adapter', None)
+
+
+@pytest.mark.unit
+class TestGpiochipSelection:
+    """Test selection of the /dev/gpiochipN that drives the 40-pin header."""
+
+    @pytest.mark.parametrize('value, expected', [
+        ('4', 4), ('0', 0), ('gpiochip4', 4), ('/dev/gpiochip4', 4), (' 2 ', 2),
+    ])
+    def test_env_var_selects_chip(self, fresh_adapter, monkeypatch, value, expected):
+        monkeypatch.setenv('LSP_GPIOCHIP', value)
+        with patch.object(fresh_adapter, '_list_chip_labels') as labels:
+            assert fresh_adapter.select_gpiochip() == expected
+            labels.assert_not_called()  # env var wins, no probing
+
+    @pytest.mark.parametrize('value', ['abc', 'gpiochip', '-1', '/dev/gpiomem'])
+    def test_invalid_env_var_raises(self, fresh_adapter, monkeypatch, value):
+        monkeypatch.setenv('LSP_GPIOCHIP', value)
+        with pytest.raises(ValueError, match='LSP_GPIOCHIP'):
+            fresh_adapter.select_gpiochip()
+
+    def test_empty_env_var_is_ignored(self, fresh_adapter, monkeypatch):
+        monkeypatch.setenv('LSP_GPIOCHIP', '')
+        with patch.object(fresh_adapter, '_list_chip_labels', return_value=[]):
+            assert fresh_adapter.select_gpiochip() == 0
+
+    @pytest.mark.parametrize('chips, expected', [
+        # Pi 5, older kernel: RP1 header controller is gpiochip4
+        ([(0, 'gpio-brcmstb@107d508500'), (1, 'gpio-brcmstb@107d508520'),
+          (2, 'gpio-brcmstb@107d517c00'), (3, 'gpio-brcmstb@107d517c20'),
+          (4, 'pinctrl-rp1')], 4),
+        # Pi 5, newer kernel: RP1 renumbered to gpiochip0
+        ([(0, 'pinctrl-rp1'), (10, 'gpio-brcmstb@107d508500')], 0),
+        # Pi 4
+        ([(0, 'pinctrl-bcm2711'), (1, 'raspberrypi-exp-gpio')], 0),
+        # Pi 3
+        ([(0, 'pinctrl-bcm2835'), (1, 'raspberrypi-exp-gpio')], 0),
+    ], ids=['pi5-old-kernel', 'pi5-new-kernel', 'pi4', 'pi3'])
+    def test_auto_detect_by_label(self, fresh_adapter, chips, expected):
+        with patch.object(fresh_adapter, '_list_chip_labels', return_value=chips):
+            assert fresh_adapter.select_gpiochip() == expected
+
+    @pytest.mark.parametrize('chips', [[], [(0, 'some-other-chip'), (3, 'gpio-mockup')]],
+                             ids=['no-chips', 'unknown-labels'])
+    def test_falls_back_to_chip_zero(self, fresh_adapter, chips):
+        with patch.object(fresh_adapter, '_list_chip_labels', return_value=chips):
+            assert fresh_adapter.select_gpiochip() == 0
+
+    def test_detection_error_falls_back_to_chip_zero(self, fresh_adapter):
+        with patch.object(fresh_adapter, '_list_chip_labels', side_effect=OSError('boom')):
+            assert fresh_adapter.select_gpiochip() == 0
+
+    def test_list_chip_labels_reads_labels_via_lgpio(self, fresh_adapter, mock_lgpio):
+        handles = {0: 10, 4: 14}
+        mock_lgpio.gpiochip_open.side_effect = lambda n: handles[n]
+        mock_lgpio.gpio_get_chip_info.side_effect = lambda h: {
+            10: (0, 54, 'gpiochip0', 'gpio-brcmstb@107d508500'),
+            14: (0, 54, 'gpiochip4', 'pinctrl-rp1'),
+        }[h]
+        with patch.object(fresh_adapter.glob, 'glob',
+                          return_value=['/dev/gpiochip4', '/dev/gpiochip0', '/dev/gpiochip-bad']):
+            chips = fresh_adapter._list_chip_labels()
+        assert chips == [(0, 'gpio-brcmstb@107d508500'), (4, 'pinctrl-rp1')]
+        closed = sorted(c.args[0] for c in mock_lgpio.gpiochip_close.call_args_list)
+        assert closed == [10, 14]
+
+    def test_list_chip_labels_skips_unopenable_chip(self, fresh_adapter, mock_lgpio):
+        mock_lgpio.gpiochip_open.side_effect = PermissionError('denied')
+        with patch.object(fresh_adapter.glob, 'glob', return_value=['/dev/gpiochip0']):
+            assert fresh_adapter._list_chip_labels() == []
+
+    @pytest.mark.parametrize('setup', ['wiringPiSetupPY', 'wiringPiSetupGpio'])
+    def test_setup_opens_selected_chip(self, fresh_adapter, mock_lgpio, setup):
+        with patch.object(fresh_adapter, '_list_chip_labels', return_value=[(4, 'pinctrl-rp1')]):
+            getattr(fresh_adapter, setup)()
+        mock_lgpio.gpiochip_open.assert_called_once_with(4)
+        assert fresh_adapter.get_info()['chip_number'] == 4
+
+    def test_setup_defaults_to_chip_zero(self, fresh_adapter, mock_lgpio):
+        with patch.object(fresh_adapter, '_list_chip_labels', return_value=[]):
+            fresh_adapter.wiringPiSetupPY()
+        mock_lgpio.gpiochip_open.assert_called_once_with(0)
+
+    def test_cleanup_resets_chip_number(self, fresh_adapter, mock_lgpio, monkeypatch):
+        monkeypatch.setenv('LSP_GPIOCHIP', '4')
+        fresh_adapter.wiringPiSetupGpio()
+        fresh_adapter.cleanup()
+        assert fresh_adapter.get_info()['chip_number'] is None
+        mock_lgpio.gpiochip_close.assert_called_once()
