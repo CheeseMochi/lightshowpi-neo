@@ -362,7 +362,7 @@ class Hardware(object):
             self.broadcast(data)
 
         if len(brightnesses) != cm.hardware.physical_gpio_len:
-            logging.warning("brightnesses length {} not equal to physical_gpio_length {}", len(brightnesses), cm.hardware.physical_gpio_len)
+            logging.warning("brightnesses length %s not equal to physical_gpio_length %s", len(brightnesses), cm.hardware.physical_gpio_len)
         for pin in range(min(len(brightnesses),cm.hardware.physical_gpio_len)):
             self.channels[pin].set_action(use_overrides, brightnesses[pin])
 
@@ -425,42 +425,50 @@ class Hardware(object):
         data = self.network.receive()
         temp_override = True
 
-        if self.led and isinstance(data[0], np.ndarray):
-            for led_instance in self.led:
-                led_instance.write_all(data[0])
-
-        if isinstance(data[0], int):
+        if isinstance(data[0], (int, np.integer)):
+            # legacy (pin, brightness) tuple
             pin = data[0]
             for x in range(len(channels)):
                 if pin == abs(channels[x]):
                     # Generally these are not music related, so let's ignore the overrides
-                    self.set_light(x, False, float(data[1] if channels[pin] >= 0 else 0))
+                    self.set_light(x, False, float(data[1] if channels[x] >= 0 else 0))
             return
-
-        elif isinstance(data[0], np.ndarray):
-            brightness_levels = data[0]
 
         elif isinstance(data[0], networking.BcastPin):
             pin = data[0].pin
             for x in range(len(channels)):
                 if pin == abs(channels[x]):
-                    self.set_light(x, data[0].use_overrides, float(data[0].brightness if channels[pin] >= 0 else 0))
+                    self.set_light(x, data[0].use_overrides,
+                                   float(data[0].brightness if channels[x] >= 0 else 0))
             return
 
         elif isinstance(data[0], networking.BcastOverrides):
             self.set_custom_overrides(always_off=data[0].always_off, always_on=data[0].always_on, inverted=data[0].inverted)
             return
 
+        elif isinstance(data[0], np.ndarray):
+            brightness_levels = data[0]
+
         elif isinstance(data[0], networking.BcastArray):
-            brightness_levels = data[0].array
+            brightness_levels = np.asarray(data[0].array)
             temp_override = data[0].use_overrides
 
         else:
-            logging.warning("unrecognized type of received net data[0] {}", type(data[0]))
+            logging.warning("unrecognized type of received net data[0] %s", type(data[0]))
             return
 
+        # LEDs get the full brightness array, whichever way the server wrapped it
+        if self.led:
+            for led_instance in self.led:
+                led_instance.write_all(brightness_levels)
+
         for pin in range(len(channels)):
-            self.set_light(pin, temp_override, brightness_levels[channels[pin]] if channels[pin] >= 0 else 0)
+            channel = channels[pin]
+            if 0 <= channel < len(brightness_levels):
+                level = brightness_levels[channel]
+            else:
+                level = 0
+            self.set_light(pin, temp_override, level)
 
 
     def clean_up(self):

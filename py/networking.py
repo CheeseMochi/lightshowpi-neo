@@ -68,9 +68,9 @@ class Networking(object):
             self.network_stream.bind(('', 0))
             self.network_stream.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             log.info("streaming on port: " + str(self.port))
-        except socket.error as msg:
-            log.error('Failed create socket or bind. Error code: ' +
-                      str(msg[0]) + ' : ' + msg[1])
+        except OSError as err:
+            log.error('Failed create socket or bind. Error code: %s : %s',
+                      err.errno, err.strerror)
             print("error creating and binding socket for broadcast")
             sys.exit(1)
 
@@ -86,10 +86,11 @@ class Networking(object):
 
             log.info("client channels mapped as\n" + str(self.channels))
             log.info("listening on port: " + str(self.port))
-        except socket.error as msg:
-            log.error('Failed create socket or bind. Error code: ' +
-                      str(msg[0]) + ' : ' + msg[1])
-            self.network_stream.close()
+        except OSError as err:
+            log.error('Failed create socket or bind. Error code: %s : %s',
+                      err.errno, err.strerror)
+            if self.network_stream:
+                self.network_stream.close()
             sys.exit(1)
 
     def close_connection(self):
@@ -105,11 +106,12 @@ class Networking(object):
         :return: data
         :rtype tuple: np.array | tuple
         """
+        data, address = self.network_stream.recvfrom(self.network_buffer)
         try:
-            data, address = self.network_stream.recvfrom(self.network_buffer)
             data = pickle.loads(data)
-        except (IndexError, pickle.PickleError):
-            data = tuple(np.array([0 for _ in range(cm.hardware.gpio_len)]))
+        except Exception as err:  # truncated/garbled packet: lights off for one frame
+            log.warning("Dropping undecodable network packet (%d bytes): %s", len(data), err)
+            data = (np.zeros(self.cm.hardware.gpio_len, dtype='float32'),)
 
         return data
 
@@ -137,24 +139,37 @@ class Networking(object):
                         self.network_stream.sendto(data, (ip_client, self.port))
                 else:
                     self.network_stream.sendto(data, ('<broadcast>', self.port))
-            except socket.error as msg:
-                if msg[0] != 9:
-                    log.error(str(msg[0]) + ' ' + msg[1])
-                    print(str(msg[0]) + ' ' + msg[1])
+            except OSError as err:
+                self._log_send_error(err)
 
         if self.networking == "serverjson":
+            payload = args[0] if args else None
+            if isinstance(payload, BcastArray):
+                payload = payload.array
+            elif isinstance(payload, (BcastPin, BcastOverrides)):
+                # JSON clients only understand brightness arrays
+                return
             try:
-                data = list(map(str, [(round(item,3)) for item in args[0]]))
+                data = list(map(str, [(round(float(item), 3)) for item in payload]))
                 j_data = json.dumps({'data':(data)})
                 if self.ip_clients[0] != '':
                     for ip_client in self.ip_clients:
                         self.network_stream.sendto(bytes(j_data, 'utf-8'), (ip_client, self.port))
                 else:
                     self.network_stream.sendto(bytes(j_data, 'utf-8'), ('<broadcast>', self.port))
-            except socket.error as msg:
-                if msg[0] != 9:
-                    log.error(str(msg[0]) + ' ' + msg[1])
-                    print(str(msg[0]) + ' ' + msg[1])
+            except OSError as err:
+                self._log_send_error(err)
+
+    @staticmethod
+    def _log_send_error(err):
+        """Log a failed UDP send without stopping the show.
+
+        A client dropping off Wi-Fi (ENETUNREACH, EHOSTUNREACH, ...) must not
+        crash the server's audio loop. EBADF (9) means the socket was closed
+        during shutdown and is ignored.
+        """
+        if err.errno != 9:
+            log.error("network send failed: %s %s", err.errno, err.strerror)
 
     def set_playing(self):
         """Set a flag for playing,
