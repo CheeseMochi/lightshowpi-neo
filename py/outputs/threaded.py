@@ -72,7 +72,9 @@ class ThreadedOutput(Output):
         self._thread.start()
 
     def write_frame(self, levels):
-        self._post((_FRAME, levels))
+        # Copy: the worker reads the frame later, after the caller may reuse it
+        copy = getattr(levels, 'copy', None)
+        self._post((_FRAME, copy() if copy else list(levels)))
 
     def all_on(self):
         self._post((_ON, None))
@@ -104,6 +106,10 @@ class ThreadedOutput(Output):
     # -- internals -----------------------------------------------------------
 
     def _post(self, command):
+        # Start lazily so a caller that skipped Hardware.initialize() still
+        # gets its frames shown.
+        if self._thread is None:
+            self.start()
         with self._cond:
             if self._pending is not None:
                 self.frames_dropped += 1

@@ -40,6 +40,7 @@ import configuration_manager
 import networking
 import networking_sacn
 from outputs.led import LedOutput
+from outputs.threaded import ThreadedOutput
 
 # LED module is optional (only needed for RGB LED strips/matrices)
 try:
@@ -138,13 +139,16 @@ class Hardware(object):
 
     def _add_led_output(self, led, config_file):
         """Wrap a Led as an Output, using the LED config that was just loaded."""
-        self.outputs.append(LedOutput(
+        output = LedOutput(
             led,
             channel_configuration=self.cm.led.led_channel_configuration,
             physical_gpio_len=self.cm.hardware.physical_gpio_len,
             gpio_len=self.cm.hardware.gpio_len,
             slice_levels=self.network.networking != "client",
-            name="led:%s" % config_file))
+            name="led:%s" % config_file)
+        if getattr(self.cm.led, 'threaded', False):
+            output = ThreadedOutput(output, max_fps=getattr(self.cm.led, 'max_fps', 0) or None)
+        self.outputs.append(output)
 
     def write_outputs(self, levels):
         """Send one frame of channel levels to every output.

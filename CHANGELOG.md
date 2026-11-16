@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `py/outputs/`: an `Output` interface (`LedOutput` for LED configs) and
   `ThreadedOutput`, which runs a slow or network output on its own thread
   (newest frame wins, fps cap, retry with back-off). Groundwork for Nanoleaf.
+- LED configs take `threaded` (default `True`) and `max_fps` (default 30). LEDs
+  are drawn and sent on their own thread, so a slow matrix render or an sACN
+  controller dropping off Wi-Fi no longer stalls or crashes the show. Set
+  `threaded = False` for the old in-loop behaviour.
 
 ### Changed
 - Test patterns in `hardware_controller.py` moved into a `Patterns` class so the

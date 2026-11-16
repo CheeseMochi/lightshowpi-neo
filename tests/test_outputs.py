@@ -170,3 +170,86 @@ class TestOutputLifecycle:
         inner.write_frame.assert_called()
         inner.all_off.assert_called()
         inner.close.assert_called_once_with()
+
+
+class TestThreadedLedSwitch:
+    def _hc(self, led_cfg, networking="off"):
+        hc = hardware_controller.Hardware.__new__(hardware_controller.Hardware)
+        hc.cm = SimpleNamespace(
+            led=SimpleNamespace(led_channel_configuration="MIRROR", **led_cfg),
+            hardware=SimpleNamespace(physical_gpio_len=2, gpio_len=2))
+        hc.network = SimpleNamespace(networking=networking)
+        hc.outputs = []
+        return hc
+
+    def test_threaded_by_default_with_fps_cap(self):
+        from outputs.threaded import ThreadedOutput
+        hc = self._hc({"threaded": True, "max_fps": 30.0})
+        hc._add_led_output(Mock(), "led1.cfg")
+        out = hc.outputs[0]
+        assert isinstance(out, ThreadedOutput)
+        assert isinstance(out.inner, LedOutput)
+        assert out.max_fps == 30.0
+
+    def test_zero_fps_means_uncapped(self):
+        hc = self._hc({"threaded": True, "max_fps": 0})
+        hc._add_led_output(Mock(), "led1.cfg")
+        assert hc.outputs[0].max_fps is None
+
+    def test_switch_off_keeps_old_inline_behaviour(self):
+        hc = self._hc({"threaded": False, "max_fps": 30.0})
+        hc._add_led_output(Mock(), "led1.cfg")
+        assert isinstance(hc.outputs[0], LedOutput)
+
+
+class TestLedConfigParsing:
+    LED_CFG = """[led]
+led_connection = SACN
+led_configuration = STRIP
+strip_type = WS2811
+channel_order = rgb
+led_channel_configuration = MIRROR
+led_channel_count = 2
+max_brightness = 100
+per_channel = 2
+custom_per_channel =
+pattern_color_map = MONO
+pattern_color = 255,255,255
+pattern_type = FULL
+enable_multicast = False
+sacn_address = 192.168.3.177
+sacn_port = 5568
+universe_boundary = 510
+universe_start = 1
+device_id = 0
+device_address =
+hardware_id =
+baud_rate = 1000000
+update_throttle = 1
+matrix_width = 2
+matrix_height = 2
+matrix_pattern_type = SBARS
+beats = 5
+image_path =
+banner_text = hi
+"""
+
+    def _parse(self, tmp_path, extra=""):
+        import configuration_manager
+        cfg = tmp_path / "led.cfg"
+        cfg.write_text(self.LED_CFG + extra)
+        config = configuration_manager.Configuration.__new__(configuration_manager.Configuration)
+        config.config_dir = str(tmp_path) + "/"
+        config.home_dir = str(tmp_path)
+        config.hardware = Mock()
+        config.hardware.get.return_value = 2
+        config.set_led(config_file="led.cfg")
+        return config.led
+
+    def test_old_led_files_default_to_threaded(self, tmp_path):
+        led = self._parse(tmp_path)
+        assert led.threaded is True and led.max_fps == 30.0
+
+    def test_keys_override(self, tmp_path):
+        led = self._parse(tmp_path, "threaded = False\nmax_fps = 20\n")
+        assert led.threaded is False and led.max_fps == 20.0

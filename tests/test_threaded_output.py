@@ -176,3 +176,23 @@ def test_close_is_idempotent_and_close_errors_swallowed():
     out.start()
     out.close()
     out.close()
+
+
+def test_write_without_start_still_delivers():
+    inner = Recorder()
+    out = ThreadedOutput(inner)
+    out.write_frame(frame(0.5))  # no start(): lazily started
+    assert wait_for(lambda: inner.calls == [0.5])
+    out.close()
+
+
+def test_frame_is_copied_before_queueing():
+    inner = Recorder(delay=0.05)
+    out = ThreadedOutput(inner)
+    out.start()
+    out.write_frame(frame(0.0))  # occupies the worker
+    buf = frame(0.25)
+    out.write_frame(buf)
+    buf[0] = 0.99  # caller reuses its buffer
+    out.close()
+    assert inner.calls[-1] == 0.25

@@ -442,6 +442,10 @@ class Configuration(object):
             led["hardware_id"] = "1D50:60AB"
         led["baud_rate"] = self.led_config.getint('led', 'baud_rate')
         led["update_throttle"] = self.led_config.getint('led', 'update_throttle')
+        # Draw and send LED frames on their own thread so a slow render or a
+        # network error never stalls the audio loop. max_fps 0 = uncapped.
+        led["threaded"] = self.led_config.getboolean('led', 'threaded', fallback=True)
+        led["max_fps"] = self.led_config.getfloat('led', 'max_fps', fallback=30.0)
 
         led["matrix_width"] = self.led_config.getint('led', 'matrix_width')
         led["matrix_height"] = self.led_config.getint('led', 'matrix_height')
