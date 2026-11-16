@@ -4,6 +4,8 @@
 
 Some tests in the LightShowPi test suite are **platform-specific** and will be skipped on non-Linux systems. This is **expected behavior** and not a test failure.
 
+Tests marked `platform`, `audio` or `gpio` are also skipped everywhere (including Linux and the Pi) unless `LSP_BENCH=1` is set; see "Hardware Test Bench" in [README.md](README.md). With `LSP_BENCH=1`, the ALSA checks below still apply.
+
 ## Why Tests Are Skipped on macOS/Windows
 
 ### ALSA Audio Library
@@ -39,7 +41,11 @@ These tests **do not require ALSA** and run on all platforms:
 
 ## Running Tests on Raspberry Pi/Linux
 
-When you run tests on a **Raspberry Pi or Linux** system with pyalsaaudio installed, all platform-specific tests will execute.
+When you run tests on a **Raspberry Pi or Linux** system with pyalsaaudio installed and `LSP_BENCH=1` set, all platform-specific tests will execute:
+
+```bash
+LSP_BENCH=1 pytest -m "platform or audio"
+```
 
 ### Install ALSA on Linux
 ```bash
@@ -94,6 +100,7 @@ sf.write('tests/fixtures/test_tone.wav', audio, sample_rate)
 ## Continuous Integration
 
 When setting up GitHub Actions CI/CD:
-- Use **Ubuntu runners** for full test coverage
+- Hosted runners (Ubuntu/macOS) skip `platform`/`audio`/`gpio` tests because `LSP_BENCH` is unset
+- Run hardware tests on a self-hosted Pi runner with `LSP_BENCH=1`
 - Consider adding a macOS runner to verify tests skip correctly
 - Mark platform-specific jobs clearly in workflow

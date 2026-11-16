@@ -15,7 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test mode is active. It exits automatically after
   `[api] test_mode_timeout_minutes` (default 10) without commands, turning all
   lights off.
-
+- **GPIO chip selection**: `py/gpio_adapter.py` now picks the gpiochip that drives the
+  40-pin header instead of always opening `gpiochip0`. Set `LSP_GPIOCHIP` (e.g. `4`,
+  `gpiochip4` or `/dev/gpiochip4`) to force one; otherwise it auto-detects by label
+  (`pinctrl-rp1` on Pi 5, `pinctrl-bcm2711` on Pi 4, `pinctrl-bcm2835` on Pi 3) and
+  falls back to `gpiochip0`. Fixes Pi 5 on older kernels where the header is `gpiochip4`.
+- **Hardware test bench**: `tests/test_gpio_hardware.py` is now a pytest suite of GPIO
+  loopback tests (digital, `Channel` active_low/inverted, soft-PWM duty) with wiring in
+  `tests/bench.yaml`. Tests marked `gpio`, `audio` or `platform` are skipped unless
+  `LSP_BENCH=1`, so they can run unattended on a Pi runner (`LSP_BENCH=1 pytest -m gpio`).
 - `[lightshow] light_delay_legacy_math` (default `True`). Set it to `False` to
   get `light_delay` in true seconds; see Fixed.
 - `py/outputs/`: an `Output` interface (`LedOutput` for LED configs) and
@@ -25,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Test patterns in `hardware_controller.py` moved into a `Patterns` class so the
   CLI and serve mode share them.
+- `py/gpio_adapter.py` no longer fails at import time when `lgpio` is missing; it
+  raises a clear `RuntimeError` when GPIO is initialised instead.
 - LEDs are driven through `hc.outputs`. Ambient mode, the exit blackout and
   scripts that call `hc.set_array` now light the LEDs too (they only moved GPIO
   before). With several LED configs, each one uses its own

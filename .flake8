@@ -1,0 +1,13 @@
+[flake8]
+max-line-length = 120
+exclude =
+    .git,
+    __pycache__,
+    .claude,
+    build_dir,
+    web/node_modules,
+    # Dead Python 2 code (Tkinter simulator); slated for removal
+    py/light_simulator.py
+per-file-ignores =
+    # Example scripts get `hc` injected as a builtin by prepostshow.start_script()
+    py/examples/*.py: F821

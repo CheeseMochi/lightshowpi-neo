@@ -186,10 +186,6 @@ class TestGPIOInterfaceCompatibility:
             assert hasattr(wiring_pi, method), f"wiring_pi.py missing {method}"
             assert callable(getattr(wiring_pi, method)), f"{method} should be callable"
 
-    @pytest.mark.skipif(
-        Platform.platform_detect() != Platform.RASPBERRY_PI,
-        reason="gpio_adapter requires Raspberry Pi (lgpio library)"
-    )
     def test_gpio_adapter_has_py_methods(self):
         """Test that gpio_adapter.py has all PY-suffixed methods."""
         import gpio_adapter
@@ -211,10 +207,6 @@ class TestGPIOInterfaceCompatibility:
             assert hasattr(gpio_adapter, method), f"gpio_adapter.py missing {method}"
             assert callable(getattr(gpio_adapter, method)), f"{method} should be callable"
 
-    @pytest.mark.skipif(
-        Platform.platform_detect() != Platform.RASPBERRY_PI,
-        reason="gpio_adapter requires Raspberry Pi (lgpio library)"
-    )
     def test_both_have_matching_interfaces(self):
         """Test that both GPIO modules have matching method signatures."""
         import wiring_pi

@@ -3,7 +3,8 @@ Tests for decoder wrapper - audioread-based audio decoding (replaces git-based d
 
 Note: Many tests require pyalsaaudio which is Linux-only (ALSA).
 These tests will be skipped on macOS/Windows - this is expected behavior.
-They will run on Raspberry Pi/Linux systems.
+Tests marked platform/audio only run with LSP_BENCH=1 (see tests/conftest.py),
+and then only on Raspberry Pi/Linux systems with ALSA.
 """
 import pytest
 import numpy as np
