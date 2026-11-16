@@ -87,6 +87,7 @@ import numpy as np
 from numpy import where, clip, round, nan_to_num
 
 import Platform
+import audio_timing
 import fft
 from prepostshow import PrePostShow
 import RunningStats
@@ -281,6 +282,7 @@ class Lightshow(object):
             os.mkfifo(cm.lightshow.fifo, 0o777)
 
         self.chunk_size = cm.audio_processing.chunk_size  # Use a multiple of 8
+        self.chunk_unit = audio_timing.UNIT_FRAMES
 
         atexit.register(self.exit_function)
 
@@ -377,16 +379,8 @@ class Lightshow(object):
         if not hasattr(brightness, "__len__"):
             brightness = np.array([brightness])
 
+        # GPIO channels, network clients and every output (LEDs, ...)
         hc.set_array(brightness,True)
-
-        if hc.led:
-            if cm.led.led_channel_configuration == "EXTEND":
-                leds = brightness[self.physical_gpio_len:]
-            else:
-                leds = brightness[:cm.hardware.gpio_len]
-
-            for led_instance in hc.led:
-                led_instance.write_all(leds)
 
     def set_audio_device(self):
 
@@ -415,6 +409,8 @@ class Lightshow(object):
                                     periodsize=self.chunk_size)
 
             stream_reader = lambda: self.streaming.read()[-1]
+            # ALSA periods are chunk_size frames
+            self.chunk_unit = audio_timing.UNIT_FRAMES
 
         elif cm.lightshow.mode == 'stream-in':
 
@@ -437,6 +433,9 @@ class Lightshow(object):
                 stream_reader = lambda: self.streaming.stdout.read(self.chunk_size)
                 outthr = Thread(target=self.enqueue_output, args=(self.streaming.stderr, outq))
 
+            # stream-in reads chunk_size bytes at a time
+            self.chunk_unit = audio_timing.UNIT_BYTES
+
             outthr.daemon = True
             outthr.start()
 
@@ -454,8 +453,11 @@ class Lightshow(object):
         print("Running in %s mode, use Ctrl+C to stop" % cm.lightshow.mode)
 
         # setup light_delay.
-        chunks_per_sec = ((16 * self.num_channels * self.sample_rate) / 8) / self.chunk_size
-        light_delay = int(cm.lightshow.light_delay * chunks_per_sec)
+        light_delay = audio_timing.light_delay_chunks(
+            cm.lightshow.light_delay, self.sample_rate, self.num_channels,
+            self.chunk_size, self.chunk_unit, cm.lightshow.light_delay_legacy_math)
+        full_chunk_bytes = audio_timing.expected_chunk_bytes(
+            self.num_channels, self.chunk_size, self.chunk_unit)
         matrix_buffer = deque([], 1000)
 
         self.set_audio_device()
@@ -526,7 +528,7 @@ class Lightshow(object):
             except aa.ALSAAudioError:
                 continue
 
-            if len(data) == self.chunk_size:
+            if len(data) == full_chunk_bytes:
                 # if the maximum of the absolute value of all samples in
                 # data is below a threshold we will disregard it
                 # audioop.max removed in Python 3.13, using numpy instead
@@ -749,8 +751,11 @@ class Lightshow(object):
         # setup output device
         self.set_audio_device()
 
-        chunks_per_sec = ((16 * self.num_channels * self.sample_rate) / 8) / self.chunk_size
-        self.light_delay = int(cm.lightshow.light_delay * chunks_per_sec)
+        # decoder.readframes() returns chunk_size frames per read
+        self.light_delay = audio_timing.light_delay_chunks(
+            cm.lightshow.light_delay, self.sample_rate, self.num_channels,
+            self.chunk_size, audio_timing.UNIT_FRAMES,
+            cm.lightshow.light_delay_legacy_math)
 
         # Output a bit about what we're about to play to the logs
         num_frames = str(self.music_file.getnframes() / self.sample_rate)
@@ -1057,7 +1062,8 @@ class Lightshow(object):
             row += 1
 
             # Load new application state in case we've been interrupted
-            cm.load_state()
+            # (stat-gated: re-parses only when state.cfg changed or every 1 s)
+            cm.refresh_state()
             play_now = int(cm.get_state('play_now', "0"))
 
         if not self.cache_found and not play_now and self.sequence_type == 'auto':

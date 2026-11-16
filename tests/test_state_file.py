@@ -105,3 +105,57 @@ class TestStateFile:
         text = make_config.state_file.read_text()
         assert 'long song title' not in text
         assert _read_state(make_config.state_file) == {'song_title': 'Short'}
+
+
+class TestRefreshState:
+    """refresh_state() re-parses state.cfg only when it changed or is stale."""
+
+    def test_skips_unchanged_file(self, make_config, monkeypatch):
+        writer = make_config()
+        writer.update_states({'play_now': '0'})
+        reader = make_config()
+        reader.load_state()
+
+        calls = []
+        real_load = reader.load_state
+        monkeypatch.setattr(reader, 'load_state', lambda: (calls.append(1), real_load()))
+        for _ in range(20):
+            assert reader.refresh_state() is False
+        assert calls == []
+
+    def test_reloads_when_another_process_writes(self, make_config):
+        writer = make_config()
+        writer.update_states({'play_now': '0'})
+        reader = make_config()
+        reader.load_state()
+        assert reader.get_state('play_now') == '0'
+
+        writer.update_states({'play_now': '1', 'extra': 'x'})
+        assert reader.refresh_state() is True
+        assert reader.get_state('play_now') == '1'
+
+    def test_same_size_same_tick_write_caught_by_max_age(self, make_config, monkeypatch):
+        import configuration_manager as cm_mod
+
+        writer = make_config()
+        writer.update_states({'play_now': '0'})
+        reader = make_config()
+        reader.load_state()
+
+        # Simulate a write the stat signature can't see (same mtime tick, same size)
+        writer.update_states({'play_now': '1'})
+        monkeypatch.setattr(reader, '_stat_state_file', lambda: reader._state_signature)
+
+        clock = [cm_mod.time.monotonic()]
+        monkeypatch.setattr(cm_mod.time, 'monotonic', lambda: clock[0])
+        assert reader.refresh_state() is False
+        assert reader.get_state('play_now') == '0'
+
+        clock[0] += reader.STATE_MAX_AGE_S + 0.01
+        assert reader.refresh_state() is True
+        assert reader.get_state('play_now') == '1'
+
+    def test_missing_file_reload_does_not_raise_on_stat(self, make_config, tmp_path):
+        config = make_config()
+        config.state_file = str(tmp_path / 'nope' / 'state.cfg')
+        assert config._stat_state_file() is None

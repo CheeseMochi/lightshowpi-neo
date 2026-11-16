@@ -100,3 +100,21 @@ class TestDefaultsCfgValues:
                          if "=" in line and not line.lstrip().startswith(("#", ";"))
                          and " # " in line.split("=", 1)[1]]
         assert offenders == []
+
+
+@pytest.mark.unit
+class TestPlaylistInvalidLines:
+    """get_playlist() used an undefined `log`, so a blank or malformed line killed the show."""
+
+    def test_blank_and_malformed_lines_are_skipped(self, tmp_path):
+        import configuration_manager
+
+        playlist = tmp_path / ".playlist"
+        playlist.write_text("Song A\t/music/a.mp3\n\nbadline\nSong B\t/music/b.mp3\n\n")
+
+        config = configuration_manager.Configuration.__new__(configuration_manager.Configuration)
+        config.playlist_path = str(playlist)
+        songs = config.get_playlist()
+
+        assert [s[0] for s in songs] == ["Song A", "Song B"]
+        assert songs[0][2] == set()

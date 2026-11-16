@@ -39,6 +39,7 @@ from collections import defaultdict
 import configuration_manager
 import networking
 import networking_sacn
+from outputs.led import LedOutput
 
 # LED module is optional (only needed for RGB LED strips/matrices)
 try:
@@ -105,6 +106,10 @@ class Hardware(object):
         self.server = self.network.networking == "server" or self.network.networking == "serverjson"
         self.broadcast = self.network.broadcast
 
+        # Every frame destination (LEDs, Nanoleaf, ...). GPIO channels are still
+        # driven directly through self.channels. self.led keeps the raw Led
+        # instances for user scripts that use hc.led.
+        self.outputs = list()
         self.led = None
         if self.cm.configs.led:
             if not LED_MODULE_AVAILABLE:
@@ -120,14 +125,39 @@ class Hardware(object):
                         self.ledmanager.start()
                         self.cm.led.multiprocess = True
                         self.led.append(self.ledmanager.LED(self.cm.led))
+                        self._add_led_output(self.led[-1], lc)
                 else:
                     for lc in self.cm.configs.led:
                         self.cm.set_led(config_file=lc)
                         self.cm.led.multiprocess = False
                         self.led.append(led_module.Led(self.cm.led))
+                        self._add_led_output(self.led[-1], lc)
 
         self.create_lights()
         self.set_overrides()
+
+    def _add_led_output(self, led, config_file):
+        """Wrap a Led as an Output, using the LED config that was just loaded."""
+        self.outputs.append(LedOutput(
+            led,
+            channel_configuration=self.cm.led.led_channel_configuration,
+            physical_gpio_len=self.cm.hardware.physical_gpio_len,
+            gpio_len=self.cm.hardware.gpio_len,
+            slice_levels=self.network.networking != "client",
+            name="led:%s" % config_file))
+
+    def write_outputs(self, levels):
+        """Send one frame of channel levels to every output.
+
+        :param levels: per-channel levels 0..1; lists are converted, since
+            led_module scales with ``levels * 255``
+        """
+        outputs = getattr(self, 'outputs', ())
+        if not outputs:
+            return
+        levels = np.asarray(levels, dtype='float32')
+        for output in outputs:
+            output.write_frame(levels)
 
     # Methods
     @staticmethod
@@ -262,10 +292,8 @@ class Hardware(object):
         for pin in range(cm.hardware.physical_gpio_len):
             self.set_light(pin, use_always_onoff, 1.0)
 
-        if self.led:
-            for led_instance in self.led:
-                led_instance.all_set_on = True
-                led_instance.all_leds_on()
+        for output in getattr(self, 'outputs', ()):
+            output.all_on()
 
     def turn_off_lights(self, use_always_onoff=False):
         """
@@ -278,10 +306,8 @@ class Hardware(object):
         for pin in range(cm.hardware.physical_gpio_len):
             self.set_light(pin, use_always_onoff, 0)
 
-        if self.led:
-            for led_instance in self.led:
-                led_instance.all_set_on = False
-                led_instance.all_leds_off()
+        for output in getattr(self, 'outputs', ()):
+            output.all_off()
 
     # turn_off_light and turn_on_light are left in for compatibility
     # with external scripts and will be removed in future versions
@@ -361,8 +387,12 @@ class Hardware(object):
             data = networking.BcastArray(array=brightnesses,use_overrides=use_overrides)
             self.broadcast(data)
 
+        # LEDs and other outputs follow the same frame, so ambient mode and
+        # scripts that use set_array light them too
+        self.write_outputs(brightnesses)
+
         if len(brightnesses) != cm.hardware.physical_gpio_len:
-            logging.warning("brightnesses length {} not equal to physical_gpio_length {}", len(brightnesses), cm.hardware.physical_gpio_len)
+            logging.warning("brightnesses length %s not equal to physical_gpio_length %s", len(brightnesses), cm.hardware.physical_gpio_len)
         for pin in range(min(len(brightnesses),cm.hardware.physical_gpio_len)):
             self.channels[pin].set_action(use_overrides, brightnesses[pin])
 
@@ -425,42 +455,49 @@ class Hardware(object):
         data = self.network.receive()
         temp_override = True
 
-        if self.led and isinstance(data[0], np.ndarray):
-            for led_instance in self.led:
-                led_instance.write_all(data[0])
-
-        if isinstance(data[0], int):
+        if isinstance(data[0], (int, np.integer)):
+            # legacy (pin, brightness) tuple
             pin = data[0]
             for x in range(len(channels)):
                 if pin == abs(channels[x]):
                     # Generally these are not music related, so let's ignore the overrides
-                    self.set_light(x, False, float(data[1] if channels[pin] >= 0 else 0))
+                    self.set_light(x, False, float(data[1] if channels[x] >= 0 else 0))
             return
-
-        elif isinstance(data[0], np.ndarray):
-            brightness_levels = data[0]
 
         elif isinstance(data[0], networking.BcastPin):
             pin = data[0].pin
             for x in range(len(channels)):
                 if pin == abs(channels[x]):
-                    self.set_light(x, data[0].use_overrides, float(data[0].brightness if channels[pin] >= 0 else 0))
+                    self.set_light(x, data[0].use_overrides,
+                                   float(data[0].brightness if channels[x] >= 0 else 0))
             return
 
         elif isinstance(data[0], networking.BcastOverrides):
             self.set_custom_overrides(always_off=data[0].always_off, always_on=data[0].always_on, inverted=data[0].inverted)
             return
 
+        elif isinstance(data[0], np.ndarray):
+            brightness_levels = data[0]
+
         elif isinstance(data[0], networking.BcastArray):
-            brightness_levels = data[0].array
+            brightness_levels = np.asarray(data[0].array)
             temp_override = data[0].use_overrides
 
         else:
-            logging.warning("unrecognized type of received net data[0] {}", type(data[0]))
+            logging.warning("unrecognized type of received net data[0] %s", type(data[0]))
             return
 
+        # LEDs get the full brightness array, whichever way the server wrapped it
+        # (client LedOutputs are built with slice_levels=False)
+        self.write_outputs(brightness_levels)
+
         for pin in range(len(channels)):
-            self.set_light(pin, temp_override, brightness_levels[channels[pin]] if channels[pin] >= 0 else 0)
+            channel = channels[pin]
+            if 0 <= channel < len(brightness_levels):
+                level = brightness_levels[channel]
+            else:
+                level = 0
+            self.set_light(pin, temp_override, level)
 
 
     def clean_up(self):

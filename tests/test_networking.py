@@ -33,4 +33,5 @@ class TestReceive:
         net.network_buffer = 1024
         net.network_stream = Mock()
         net.network_stream.recvfrom.return_value = (b"not a pickle", ("10.0.0.1", 8888))
-        assert list(net.receive()) == [0, 0, 0, 0]
+        data = net.receive()
+        assert len(data) == 1 and list(data[0]) == [0, 0, 0, 0]
