@@ -512,6 +512,7 @@ class Hardware(object):
         """
         self.network.unset_playing()
         self.turn_off_lights()
+        self.close_outputs()
         self.network.close_connection()
         self.set_pins_as_inputs()
 
@@ -520,8 +521,25 @@ class Hardware(object):
         wiringpi.wiringPiSetupPY()
         self.enable_device()
         self.set_pins_as_outputs()
+        self.start_outputs()
         if reset:
             self.turn_off_lights()
+
+    def start_outputs(self):
+        """Start every output (threads, connections). Safe to call repeatedly."""
+        for output in getattr(self, 'outputs', ()):
+            try:
+                output.start()
+            except Exception:
+                logging.exception("could not start output %s; continuing without it", output)
+
+    def close_outputs(self):
+        """Close every output. One failing output never blocks GPIO cleanup."""
+        for output in getattr(self, 'outputs', ()):
+            try:
+                output.close()
+            except Exception:
+                logging.exception("error closing output %s", output)
 
 
 class Channel(object):

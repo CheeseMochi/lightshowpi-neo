@@ -118,3 +118,55 @@ class TestSetArrayReachesOutputs:
         hc = self._hc(monkeypatch, out)
         hc.set_array(np.array([0.2, 0.3, 0.4], dtype="float32"), True)
         assert out.write_frame.call_count == 1
+
+
+class TestOutputLifecycle:
+    def _hc(self, monkeypatch, outputs):
+        cm = SimpleNamespace(hardware=SimpleNamespace(physical_gpio_len=0, gpio_len=0))
+        monkeypatch.setattr(hardware_controller, "cm", cm)
+        monkeypatch.setattr(hardware_controller.wiringpi, "wiringPiSetupPY", lambda: None, raising=False)
+        hc = hardware_controller.Hardware.__new__(hardware_controller.Hardware)
+        hc.outputs = outputs
+        hc.enable_device = Mock()
+        hc.set_pins_as_outputs = Mock()
+        hc.set_pins_as_inputs = Mock()
+        hc.network = Mock()
+        return hc
+
+    def test_initialize_starts_and_clean_up_closes_after_off(self, monkeypatch):
+        calls = []
+        out = Mock()
+        out.start.side_effect = lambda: calls.append("start")
+        out.all_off.side_effect = lambda: calls.append("off")
+        out.close.side_effect = lambda: calls.append("close")
+        hc = self._hc(monkeypatch, [out])
+        hc.initialize()
+        hc.clean_up()
+        assert calls == ["start", "off", "off", "close"]
+
+    def test_failing_output_does_not_block_others_or_gpio_cleanup(self, monkeypatch):
+        bad, good = Mock(), Mock()
+        bad.start.side_effect = OSError("no route")
+        bad.close.side_effect = OSError("gone")
+        hc = self._hc(monkeypatch, [bad, good])
+        hc.initialize()
+        good.start.assert_called_once_with()
+        hc.clean_up()
+        good.close.assert_called_once_with()
+        hc.set_pins_as_inputs.assert_called_once_with()
+
+    def test_threaded_output_gets_frames_after_initialize(self, monkeypatch):
+        import time
+        from outputs.threaded import ThreadedOutput
+        inner = Mock(max_fps=None, latency_s=0.0)
+        threaded = ThreadedOutput(inner)
+        hc = self._hc(monkeypatch, [threaded])
+        hc.initialize(reset=False)
+        hc.write_outputs([0.5])
+        deadline = time.monotonic() + 2
+        while not inner.write_frame.called and time.monotonic() < deadline:
+            time.sleep(0.005)
+        hc.clean_up()
+        inner.write_frame.assert_called()
+        inner.all_off.assert_called()
+        inner.close.assert_called_once_with()
