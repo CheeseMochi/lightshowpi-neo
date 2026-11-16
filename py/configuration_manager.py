@@ -29,6 +29,8 @@ import shlex
 import argparse
 from collections import defaultdict
 
+log = logging.getLogger(__name__)
+
 # The home directory and configuration directory for the application.
 HOME_DIR = os.getenv("SYNCHRONIZED_LIGHTS_HOME")
 
