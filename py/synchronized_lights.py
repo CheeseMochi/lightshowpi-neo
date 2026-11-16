@@ -380,15 +380,7 @@ class Lightshow(object):
             brightness = np.array([brightness])
 
         hc.set_array(brightness,True)
-
-        if hc.led:
-            if cm.led.led_channel_configuration == "EXTEND":
-                leds = brightness[self.physical_gpio_len:]
-            else:
-                leds = brightness[:cm.hardware.gpio_len]
-
-            for led_instance in hc.led:
-                led_instance.write_all(leds)
+        hc.write_outputs(brightness)
 
     def set_audio_device(self):
 

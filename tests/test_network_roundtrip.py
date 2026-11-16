@@ -17,6 +17,7 @@ import pytest
 
 import hardware_controller
 import networking
+from outputs.led import LedOutput
 
 pytestmark = pytest.mark.unit
 
@@ -75,6 +76,7 @@ def make_client(packets, channels, with_led=True):
     hc.server = False
     hc.channels = [Mock() for _ in channels]
     hc.led = [Mock()] if with_led else None
+    hc.outputs = [LedOutput(hc.led[0], "EXTEND", 2, 4, slice_levels=False)] if with_led else []
     return hc
 
 
