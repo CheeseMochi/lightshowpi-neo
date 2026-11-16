@@ -22,6 +22,7 @@ import logging
 import os
 import os.path
 import sys
+import time
 import warnings
 import json
 import shlex
@@ -129,7 +130,41 @@ class Configuration(object):
         with open(self.state_file) as state_fp:
             fcntl.lockf(state_fp, fcntl.LOCK_SH)
             self.state.read_file(state_fp, self.state_file)
+            # Stat under the shared lock so no writer can slip in between
+            # the read and the signature refresh_state() compares against.
+            self._state_signature = self._stat_state_file()
             fcntl.lockf(state_fp, fcntl.LOCK_UN)
+        self._state_loaded_at = time.monotonic()
+
+    # Upper bound on how stale refresh_state() may leave self.state. Covers two
+    # writes landing in the same filesystem timestamp tick with the same size.
+    STATE_MAX_AGE_S = 1.0
+
+    def _stat_state_file(self):
+        """Return a cheap change signature for the state file, or None if missing."""
+        try:
+            st = os.stat(self.state_file)
+        except OSError:
+            return None
+        return (st.st_mtime_ns, st.st_size, st.st_ino)
+
+    def refresh_state(self):
+        """Reload the state file only if it changed or STATE_MAX_AGE_S has passed.
+
+        The show loop calls this once per audio chunk (~20x/s). A stat() is much
+        cheaper than open + lock + parse, so this keeps play_now responsive
+        without re-parsing an unchanged file every chunk.
+
+        :return: True if the state was reloaded
+        :rtype: bool
+        """
+        loaded_at = getattr(self, '_state_loaded_at', None)
+        if (loaded_at is not None
+                and time.monotonic() - loaded_at < self.STATE_MAX_AGE_S
+                and self._stat_state_file() == getattr(self, '_state_signature', None)):
+            return False
+        self.load_state()
+        return True
 
     def get_state(self, name, default=""):
         """
@@ -407,6 +442,10 @@ class Configuration(object):
             led["hardware_id"] = "1D50:60AB"
         led["baud_rate"] = self.led_config.getint('led', 'baud_rate')
         led["update_throttle"] = self.led_config.getint('led', 'update_throttle')
+        # Draw and send LED frames on their own thread so a slow render or a
+        # network error never stalls the audio loop. max_fps 0 = uncapped.
+        led["threaded"] = self.led_config.getboolean('led', 'threaded', fallback=True)
+        led["max_fps"] = self.led_config.getfloat('led', 'max_fps', fallback=30.0)
 
         led["matrix_width"] = self.led_config.getint('led', 'matrix_width')
         led["matrix_height"] = self.led_config.getint('led', 'matrix_height')
@@ -535,6 +574,8 @@ class Configuration(object):
         lghtshw["decay_factor"] = self.config.getfloat(ls, 'decay_factor', fallback=0.0)
         lghtshw["attenuate_pct"] = self.config.getfloat(ls, 'attenuate_pct', fallback=0.0)
         lghtshw["light_delay"] = self.config.getfloat(ls, 'light_delay', fallback=0.0)
+        lghtshw["light_delay_legacy_math"] = self.config.getboolean(
+            ls, 'light_delay_legacy_math', fallback=True)
 
         lghtshw["log_level"] = self.config.get(ls, 'log_level', fallback='INFO').upper()
 

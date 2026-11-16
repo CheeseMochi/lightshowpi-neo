@@ -22,6 +22,8 @@ The workflow from AGENTS.md applies:
 | `py/configuration_manager.py` | Loads `config/defaults.cfg` with `overrides.cfg` layered on top. |
 | `py/buttonmanager.py` | Physical button daemon. Runs in `api`, `direct` (state file) or `auto` mode. |
 | `py/led_module.py`, `led_color_maps.py`, `driver_sacn.py`, `networking*.py` | LED and sACN/E1.31 output, plus server/client networking. |
+| `py/outputs/` | `Output` interface for frame destinations: `LedOutput` wraps `led_module.Led`, `ThreadedOutput` runs slow/network outputs off the audio loop. `Hardware.outputs` / `write_outputs()` drive them. |
+| `py/audio_timing.py` | Chunk-timing maths for `light_delay` (frames vs bytes per audio source). |
 | `api/` | FastAPI backend (optional). `core/` holds config, auth (JWT + bcrypt) and SQLite; `routers/` holds the endpoints; `services/` holds the managers. |
 | `api/services/lightshow_manager.py` | Runs `synchronized_lights.py` as a **subprocess**, which it starts, stops and monitors. |
 | `api/services/scheduler.py` | APScheduler start/stop jobs with suspend/resume, persisted in SQLite. |

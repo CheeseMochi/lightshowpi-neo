@@ -244,6 +244,9 @@ class TestWrapperMethods:
                 wrapper = synchronized_lights.AudioFileWrapper('test.mp3')
                 data = wrapper.readframes(1024)
                 assert isinstance(data, bytes)
+                # n is frames, not bytes: py/audio_timing.py's corrected
+                # light_delay maths (UNIT_FRAMES) depends on this
+                assert len(data) == 1024 * 2 * wrapper.getnchannels()
             except (ImportError, AttributeError):
                 pytest.skip("AudioFileWrapper not available")
 
