@@ -90,12 +90,12 @@ class APIConfig:
 
     def is_server(self) -> bool:
         """
-        Check if this Pi is configured as a server.
+        Check if this Pi is a server or standalone (not a network client).
 
         Returns:
             bool: True if server mode
         """
-        return self.cm.network.mode == "server" or self.cm.network.mode == ""
+        return not self.is_client()
 
     def is_client(self) -> bool:
         """
@@ -104,7 +104,9 @@ class APIConfig:
         Returns:
             bool: True if client mode
         """
-        return self.cm.network.mode == "client"
+        # [network] networking: off, server, serverjson, client, sacn_server, sacn_client
+        mode = str(getattr(self.cm.network, "networking", "off") or "off").strip().lower()
+        return mode in ("client", "sacn_client")
 
     def update_state(self, key: str, value: str):
         """
