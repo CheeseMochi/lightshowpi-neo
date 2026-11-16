@@ -483,6 +483,10 @@ class Hardware(object):
             brightness_levels = np.asarray(data[0].array)
             temp_override = data[0].use_overrides
 
+        elif isinstance(data[0], list):
+            # ambient mode's keepalive broadcasts a plain list
+            brightness_levels = np.asarray(data[0], dtype='float32')
+
         else:
             logging.warning("unrecognized type of received net data[0] %s", type(data[0]))
             return
@@ -508,6 +512,7 @@ class Hardware(object):
         """
         self.network.unset_playing()
         self.turn_off_lights()
+        self.close_outputs()
         self.network.close_connection()
         self.set_pins_as_inputs()
 
@@ -516,8 +521,25 @@ class Hardware(object):
         wiringpi.wiringPiSetupPY()
         self.enable_device()
         self.set_pins_as_outputs()
+        self.start_outputs()
         if reset:
             self.turn_off_lights()
+
+    def start_outputs(self):
+        """Start every output (threads, connections). Safe to call repeatedly."""
+        for output in getattr(self, 'outputs', ()):
+            try:
+                output.start()
+            except Exception:
+                logging.exception("could not start output %s; continuing without it", output)
+
+    def close_outputs(self):
+        """Close every output. One failing output never blocks GPIO cleanup."""
+        for output in getattr(self, 'outputs', ()):
+            try:
+                output.close()
+            except Exception:
+                logging.exception("error closing output %s", output)
 
 
 class Channel(object):

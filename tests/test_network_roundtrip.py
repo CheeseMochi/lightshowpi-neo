@@ -165,3 +165,15 @@ class TestUnsupportedSacnModes:
         assert net.network_stream is None
         assert "not supported yet" in caplog.text
         assert "running standalone" in capsys.readouterr().err
+
+
+class TestAmbientKeepalive:
+    def test_plain_list_broadcast_reaches_client(self, caplog):
+        import pickle
+        # synchronized_lights.ambient_mode: hc.network.broadcast(brightness_array)
+        client = make_client([pickle.dumps(([1.0, 0.0, 0.5],))], channels=[0, 1, 2])
+        with caplog.at_level("WARNING"):
+            client.receive_and_process()
+        assert "unrecognized" not in caplog.text
+        assert levels_set(client) == [1.0, 0.0, 0.5]
+        np.testing.assert_allclose(client.led[0].write_all.call_args.args[0], [1.0, 0.0, 0.5])
