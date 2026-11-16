@@ -568,6 +568,8 @@ class Configuration(object):
         lghtshw["decay_factor"] = self.config.getfloat(ls, 'decay_factor', fallback=0.0)
         lghtshw["attenuate_pct"] = self.config.getfloat(ls, 'attenuate_pct', fallback=0.0)
         lghtshw["light_delay"] = self.config.getfloat(ls, 'light_delay', fallback=0.0)
+        lghtshw["light_delay_legacy_math"] = self.config.getboolean(
+            ls, 'light_delay_legacy_math', fallback=True)
 
         lghtshw["log_level"] = self.config.get(ls, 'log_level', fallback='INFO').upper()
 
