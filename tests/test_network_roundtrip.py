@@ -151,3 +151,15 @@ class TestSendErrors:
         net = make_net("serverjson", sock)
         net.broadcast(networking.BcastPin(pin=1, brightness=1.0, use_overrides=False))
         assert sock.sent == []
+
+
+class TestUnsupportedSacnModes:
+    @pytest.mark.parametrize("mode", ["sacn_server", "sacn_client"])
+    def test_sacn_mode_is_loud_but_not_fatal(self, mode, caplog, capsys):
+        net = make_net(mode, sock=None)
+        with caplog.at_level("ERROR"):
+            net.setup()
+        assert net.ready is True
+        assert net.network_stream is None
+        assert "not supported yet" in caplog.text
+        assert "running standalone" in capsys.readouterr().err

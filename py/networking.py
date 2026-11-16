@@ -50,12 +50,29 @@ class Networking(object):
         self.network_stream = None
         self.setup()
 
+    # Modes documented in defaults.cfg but not wired into Hardware yet.
+    UNSUPPORTED_MODES = ("sacn_server", "sacn_client")
+
     def setup(self):
         """Setup as either server or client"""
         if self.networking == "server" or self.networking == "serverjson":
             self.setup_server()
         elif self.networking == "client":
             self.setup_client()
+        elif self.networking in self.UNSUPPORTED_MODES:
+            self.warn_unsupported_mode()
+
+    def warn_unsupported_mode(self):
+        """Say loudly that an sACN networking mode is configured but inactive.
+
+        Not fatal: the show still runs on this Pi's own outputs, but nothing is
+        sent to or received from other Pis.
+        """
+        msg = ("networking = %s is not supported yet: running standalone, "
+               "NO data will be sent to or received from other Pis. "
+               "Use networking = server / client instead." % self.networking)
+        log.error(msg)
+        print("\n" + "!" * 70 + "\nERROR: " + msg + "\n" + "!" * 70 + "\n", file=sys.stderr)
 
         self.ready = True
 
