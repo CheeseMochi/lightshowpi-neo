@@ -92,3 +92,29 @@ class TestHardwareOutputs:
         del hc.outputs
         hc.write_outputs(FRAME)
         hc.turn_off_lights()
+
+
+class TestSetArrayReachesOutputs:
+    def _hc(self, monkeypatch, out):
+        cm = SimpleNamespace(hardware=SimpleNamespace(physical_gpio_len=3, gpio_len=3))
+        monkeypatch.setattr(hardware_controller, "cm", cm)
+        hc = hardware_controller.Hardware.__new__(hardware_controller.Hardware)
+        hc.server = False
+        hc.channels = [Mock() for _ in range(3)]
+        hc.outputs = [out]
+        return hc
+
+    def test_ambient_list_reaches_outputs_as_ndarray(self, monkeypatch):
+        out = Mock()
+        hc = self._hc(monkeypatch, out)
+        hc.set_array([1.0, 0.0, 0.5])  # ambient mode passes a plain list
+        sent = out.write_frame.call_args.args[0]
+        assert isinstance(sent, np.ndarray)
+        np.testing.assert_allclose(sent * 255, [255, 0, 127.5])
+        assert [c.set_action.call_args.args[1] for c in hc.channels] == [1.0, 0.0, 0.5]
+
+    def test_show_frame_written_once(self, monkeypatch):
+        out = Mock()
+        hc = self._hc(monkeypatch, out)
+        hc.set_array(np.array([0.2, 0.3, 0.4], dtype="float32"), True)
+        assert out.write_frame.call_count == 1

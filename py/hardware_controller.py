@@ -147,8 +147,16 @@ class Hardware(object):
             name="led:%s" % config_file))
 
     def write_outputs(self, levels):
-        """Send one frame of channel levels to every output."""
-        for output in getattr(self, 'outputs', ()):
+        """Send one frame of channel levels to every output.
+
+        :param levels: per-channel levels 0..1; lists are converted, since
+            led_module scales with ``levels * 255``
+        """
+        outputs = getattr(self, 'outputs', ())
+        if not outputs:
+            return
+        levels = np.asarray(levels, dtype='float32')
+        for output in outputs:
             output.write_frame(levels)
 
     # Methods
@@ -378,6 +386,10 @@ class Hardware(object):
         if self.server:
             data = networking.BcastArray(array=brightnesses,use_overrides=use_overrides)
             self.broadcast(data)
+
+        # LEDs and other outputs follow the same frame, so ambient mode and
+        # scripts that use set_array light them too
+        self.write_outputs(brightnesses)
 
         if len(brightnesses) != cm.hardware.physical_gpio_len:
             logging.warning("brightnesses length %s not equal to physical_gpio_length %s", len(brightnesses), cm.hardware.physical_gpio_len)

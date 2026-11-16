@@ -379,8 +379,8 @@ class Lightshow(object):
         if not hasattr(brightness, "__len__"):
             brightness = np.array([brightness])
 
+        # GPIO channels, network clients and every output (LEDs, ...)
         hc.set_array(brightness,True)
-        hc.write_outputs(brightness)
 
     def set_audio_device(self):
 
