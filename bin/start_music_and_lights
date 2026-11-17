@@ -1,7 +1,12 @@
 #!/bin/bash
 #
 # Start the music and lights show (killing any existing instances first)
-# Starts: synchronized_lights.py + buttonmanager.py
+# Starts: synchronized_lights.py (looping over the playlist) + buttonmanager.py
+#
+# synchronized_lights.py plays ONE song per run and advances song_to_play in
+# config/state.cfg, so this loops it in the background until
+# bin/stop_music_and_lights, like the original LightShowPi play_sms did.
+# With --file=<song> it plays that file once.
 #
 # Author: Todd Giles (todd.giles@gmail.com)
 # Modifications: Chris Usey (chris.usey@gmail.com), Sean Millar (sean.millar@gmail.com)
@@ -21,20 +26,45 @@ fi
 $SYNCHRONIZED_LIGHTS_HOME/bin/stop_music_and_lights $$
 
 cd $SYNCHRONIZED_LIGHTS_HOME
+mkdir -p logs
 
-# Start lightshow with sudo, preserving environment (-E) and Python path
+# Resolve python once (the conda env's when it's active or first on PATH)
+PY=$(which python)
+SHOW="$SYNCHRONIZED_LIGHTS_HOME/py/synchronized_lights.py"
+LOOP_PID_FILE="$SYNCHRONIZED_LIGHTS_HOME/logs/show_loop.pid"
+MIN_RUN=${LSP_MIN_RUN_SECONDS:-5}
+
 # -E preserves environment variables (SYNCHRONIZED_LIGHTS_HOME, conda env, etc.)
-# $(which python) uses the active conda/venv Python binary
-echo "Starting synchronized_lights.py..."
-sudo -E $(which python) py/synchronized_lights.py $* &
+case " $* " in
+    *" --file="*|*" --file "*)
+        echo "Starting synchronized_lights.py (single file)..."
+        sudo -E "$PY" "$SHOW" "$@" &
+        ;;
+    *)
+        echo "Starting synchronized_lights.py (playlist loop)..."
+        show_loop() {
+            while true; do
+                started=$SECONDS
+                sudo -E "$PY" "$SHOW" "$@"
+                # A run that ends within MIN_RUN seconds is an error (bad
+                # config, missing playlist): pause so it can't spin
+                if [ $((SECONDS - started)) -lt "$MIN_RUN" ]; then
+                    sleep 5
+                fi
+            done
+        }
+        show_loop "$@" &
+        echo $! > "$LOOP_PID_FILE"
+        ;;
+esac
 
 # Start button manager if enabled in config
 # Check if buttons are enabled before starting
-BUTTONS_ENABLED=$(python -c "import sys; sys.path.insert(0, 'py'); import configuration_manager; cm = configuration_manager.Configuration(); print(cm.config.getboolean('buttons', 'enabled'))" 2>/dev/null)
+BUTTONS_ENABLED=$("$PY" -c "import sys; sys.path.insert(0, 'py'); import configuration_manager; cm = configuration_manager.Configuration(); print(cm.config.getboolean('buttons', 'enabled'))" 2>/dev/null)
 
 if [ "$BUTTONS_ENABLED" = "True" ]; then
     echo "Starting button manager..."
-    sudo -E $(which python) py/buttonmanager.py --mode auto &
+    sudo -E "$PY" "$SYNCHRONIZED_LIGHTS_HOME/py/buttonmanager.py" --mode auto &
     sleep 1
     echo "✓ Lightshow and button manager started"
 else
