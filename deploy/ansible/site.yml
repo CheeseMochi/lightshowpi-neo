@@ -32,8 +32,8 @@
         name: lightshowpi
       tags: [lightshowpi]
 
-- name: Show schedule (root crontab) on show hosts
-  hosts: show
+- name: Show schedule (root crontab) on show and client hosts
+  hosts: show:client
   become: true
   tasks:
     - name: Apply show_schedule role

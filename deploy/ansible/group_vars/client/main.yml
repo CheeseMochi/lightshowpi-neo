@@ -1,0 +1,4 @@
+---
+# Client Pis only receive light data from the server: no API (it would also
+# bring a scheduler that could start a second show on the client).
+lsp_enable_api: false

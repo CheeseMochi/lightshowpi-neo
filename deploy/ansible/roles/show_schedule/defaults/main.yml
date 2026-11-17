@@ -10,7 +10,10 @@
 #   show_schedule_entries:
 #     - {name: start show, minute: "30", hour: "17", job: "bin/start_music_and_lights"}
 #
-# Optional per entry: day, month, weekday (cron syntax, default "*").
+# Optional per entry: day, month, weekday (cron syntax, default "*"), or
+# special_time (reboot, daily, ...) instead of minute/hour/day/month/weekday,
+# e.g. a client that listens from boot:
+#     - {name: client at boot, special_time: reboot, job: "sleep 30; bin/start_lightshow_client"}
 show_schedule_entries: []
 
 # false removes every entry listed in show_schedule_entries (e.g. on a rollback box)

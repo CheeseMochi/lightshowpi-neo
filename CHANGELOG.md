@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`show_schedule_entries` in the inventory) in root's crontab on show hosts,
   with the conda env on PATH and output in `logs/cron.log`.
 - `py/examples/random_pattern_ci.py`: random twinkle postshow.
+- `lsp_enable_api` (Ansible, default true; false for the `client` group): client
+  Pis no longer run the API, whose scheduler could start a second show there.
+  `show_schedule` also runs on clients and accepts `special_time` (e.g. a
+  client that starts at boot).
 
 ### Changed
 - Test patterns in `hardware_controller.py` moved into a `Patterns` class so the
@@ -59,6 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recommends them.
 
 ### Fixed
+- `bin/start_lightshow_client` warned on every start unless networking was
+  `sacn_client`; it now accepts `client` too.
 - `preshow_script`/`postshow_script` accept `$SYNCHRONIZED_LIGHTS_HOME` and log a
   warning when the file is missing (it was silently skipped).
 - Network clients never lit their LEDs during the show (the server sends

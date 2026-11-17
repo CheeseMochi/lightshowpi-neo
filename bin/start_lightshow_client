@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Start lightshow CLIENT (receives sACN from server)
+# Start lightshow CLIENT (receives light data from the server)
 # Starts: synchronized_lights.py in client mode
 #
 # This is for CLIENT Pis in a distributed setup that receive light commands
@@ -8,9 +8,7 @@
 #
 # IMPORTANT: Your config must have:
 #   [network]
-#   networking = sacn_client
-#   [lightshow]
-#   mode = client
+#   networking = client        (or sacn_client)
 #
 # Usage: start_lightshow_client [ --config=filename.cfg ]
 
@@ -35,20 +33,14 @@ echo ""
 # Verify client configuration
 echo "Checking configuration..."
 NETWORK_MODE=$(python -c "import sys; sys.path.insert(0, 'py'); import configuration_manager; cm = configuration_manager.Configuration(); print(cm.network.networking)" 2>/dev/null)
-LIGHTSHOW_MODE=$(python -c "import sys; sys.path.insert(0, 'py'); import configuration_manager; cm = configuration_manager.Configuration(); print(cm.lightshow.mode)" 2>/dev/null)
 
-if [ "$NETWORK_MODE" != "sacn_client" ]; then
-    echo "⚠ WARNING: networking mode is '$NETWORK_MODE' (expected 'sacn_client')"
-    echo "   Update config/overrides.cfg: networking = sacn_client"
-fi
-
-if [ "$LIGHTSHOW_MODE" != "client" ]; then
-    echo "⚠ WARNING: lightshow mode is '$LIGHTSHOW_MODE' (expected 'client')"
-    echo "   Update config/overrides.cfg: mode = client"
+if [ "$NETWORK_MODE" != "client" ] && [ "$NETWORK_MODE" != "sacn_client" ]; then
+    echo "⚠ WARNING: networking mode is '$NETWORK_MODE' (expected 'client' or 'sacn_client')"
+    echo "   Update config/overrides.cfg: [network] networking = client"
 fi
 
 echo ""
-echo "Starting client (will receive sACN from server)..."
+echo "Starting client (will receive light data from the server)..."
 sudo -E $(which python) py/synchronized_lights.py $* &
 
 sleep 2
@@ -58,11 +50,9 @@ echo "========================================"
 echo "✓ LightShowPi Client Started"
 echo "========================================"
 echo ""
-echo "This Pi is now listening for sACN commands from the server."
+echo "This Pi is now listening for light data from the server."
 echo ""
-echo "Server should be configured with:"
-echo "  [network]"
-echo "  networking = sacn_server"
+echo "The server should have [network] networking = server (or sacn_server)."
 echo ""
 echo "To stop: bin/stop_lightshow_client"
 echo ""

@@ -31,6 +31,8 @@ lsp_api_port: 8000
 
 # Physical button manager service (only if buttons are wired up)
 lsp_enable_buttons: false
+# The API runs on show/server Pis; group_vars/client turns it off
+lsp_enable_api: true
 
 # Admin password for the first admin user (only applied when the user DB is empty)
 lsp_admin_password: "{{ vault_lsp_admin_password | default('') }}"

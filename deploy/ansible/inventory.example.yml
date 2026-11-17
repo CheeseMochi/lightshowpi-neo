@@ -31,6 +31,9 @@ all:
       hosts:
         lsp-client1:
           ansible_host: client1-pi.local     # placeholder
+          # Clients listen from boot (the sleep lets Wi-Fi come up first)
+          show_schedule_entries:
+            - {name: client at boot, special_time: reboot, job: "sleep 30; bin/start_lightshow_client"}
     bench:
       hosts:
         lsp-bench:
