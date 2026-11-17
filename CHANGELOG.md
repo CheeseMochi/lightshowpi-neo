@@ -77,6 +77,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and an OSV scan of a fresh `requirements-dev.txt` install both report none.
 
 ### Fixed
+- **`bin/start_music_and_lights` played only one song.** `synchronized_lights.py`
+  plays one song per run; the start script now loops it over the playlist
+  until `bin/stop_music_and_lights`, as the original LightShowPi did.
+- **`bin/stop_music_and_lights` could miss a running show**: it matched
+  `$SYNCHRONIZED_LIGHTS_HOME` in the command line, which a relative
+  `py/synchronized_lights.py` under the conda python lacks. It now stops the
+  playlist loop first, then the show and button manager by script name.
 - `bin/start_lightshow_client` warned on every start unless networking was
   `sacn_client`; it now accepts `client` too.
 - `preshow_script`/`postshow_script` accept `$SYNCHRONIZED_LIGHTS_HOME` and log a
