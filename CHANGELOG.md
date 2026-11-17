@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Nanoleaf output** (`py/outputs/nanoleaf.py`): streams per-LED colour to
+  Nanoleaf Essentials (tested: NL73K3 Permanent Outdoor Lights, 60 LEDs) over
+  UDP extControl v2. Configure with an `[output:<name>]` section
+  (`type = nanoleaf`; see the example at the end of `defaults.cfg`). The strip
+  is split into one segment per show channel; runs on its own thread and
+  re-enables stream mode every 30 s so it recovers from power or Wi-Fi drops.
+- `[output:<name>]` config sections for extra outputs (decision D5).
 - **sACN (E1.31) Pi-to-Pi networking works**: `networking = sacn_server` /
   `sacn_client`. The server unicasts to every address in `sacn_address`
   (recommended on Wi-Fi), handles show frames, pre/post-show single-channel
@@ -82,6 +89,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pause, the scheduler stops it, test mode becomes active, or three runs in a
   row end within 5 s (state ERROR instead of spinning). Single-song and
   ambient starts are unchanged.
+- **`bin/start_music_and_lights` played only one song.** `synchronized_lights.py`
+  plays one song per run; the start script now loops it over the playlist
+  until `bin/stop_music_and_lights`, as the original LightShowPi did.
+- **`bin/stop_music_and_lights` could miss a running show**: it matched
+  `$SYNCHRONIZED_LIGHTS_HOME` in the command line, which a relative
+  `py/synchronized_lights.py` under the conda python lacks. It now stops the
+  playlist loop first, then the show and button manager by script name.
 - `bin/start_lightshow_client` warned on every start unless networking was
   `sacn_client`; it now accepts `client` too.
 - `preshow_script`/`postshow_script` accept `$SYNCHRONIZED_LIGHTS_HOME` and log a

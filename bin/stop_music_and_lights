@@ -22,6 +22,28 @@ fi
 
 echo "Stopping lightshow and button manager..."
 
+# Stop the playlist loop first so it can't start another song
+LOOP_PID_FILE="$SYNCHRONIZED_LIGHTS_HOME/logs/show_loop.pid"
+if [ -f "$LOOP_PID_FILE" ]; then
+    loop_pid=$(cat "$LOOP_PID_FILE")
+    if [ -n "$loop_pid" ] && [ "$loop_pid" != "$id" ] && kill -0 "$loop_pid" 2>/dev/null; then
+        echo "Stopping playlist loop (PID ${loop_pid})"
+        sudo kill "$loop_pid"
+    fi
+    rm -f "$LOOP_PID_FILE"
+fi
+
+# Show and button processes by script name: catches relative paths and the
+# conda python, which the path match below misses
+for pattern in "synchronized_lights.py" "buttonmanager.py"; do
+    for OUTPUT in $(pgrep -f "$pattern"); do
+        if [ ${OUTPUT} != ${id} ] && [ ${OUTPUT} != $$ ]; then
+            echo "Killing ${pattern} (PID ${OUTPUT})"
+            sudo kill ${OUTPUT} 2>/dev/null
+        fi
+    done
+done
+
 # Kill synchronized_lights.py and buttonmanager.py processes
 for OUTPUT in $(pgrep -f lightshowpi); do
     if [ ${OUTPUT} != ${id} ] && [ ${OUTPUT} != $$ ]; then
@@ -32,14 +54,6 @@ for OUTPUT in $(pgrep -f lightshowpi); do
             echo "Killing: ${out}"
             sudo kill ${OUTPUT}
         fi
-    fi
-done
-
-# Also explicitly kill button manager if running
-for OUTPUT in $(pgrep -f "buttonmanager.py"); do
-    if [ ${OUTPUT} != ${id} ] && [ ${OUTPUT} != $$ ]; then
-        echo "Killing button manager (PID ${OUTPUT})"
-        sudo kill ${OUTPUT}
     fi
 done
 
