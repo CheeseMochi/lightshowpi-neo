@@ -13,7 +13,7 @@ VAULT_FLAGS := $(if $(ASK_VAULT),--ask-vault-pass,)
 PLAYBOOK    := ansible-playbook site.yml $(VAULT_FLAGS)
 
 .DEFAULT_GOAL := help
-.PHONY: help deploy-deps provision deploy runner tunnel tunnel-token test lint-deploy \
+.PHONY: help deploy-deps provision deploy media runner tunnel tunnel-token test lint-deploy \
         _require-host _require-inventory
 
 help: ## Show this help
@@ -25,6 +25,7 @@ help: ## Show this help
 	@echo "Examples:"
 	@echo "  make provision HOST=lsp-show"
 	@echo "  make deploy HOST=show"
+	@echo "  make media HOST=piserver-neo SRC=~/backups/piserver OLD_PREFIX=/home/scroce/test/lightshowpi"
 	@echo "  make runner HOST=lsp-bench TOKEN=<github-runner-registration-token>"
 	@echo "  ASK_VAULT=1 make provision HOST=all"
 
@@ -36,6 +37,10 @@ provision: _require-host _require-inventory ## Full setup of HOST (inventory hos
 
 deploy: _require-host _require-inventory ## Update code/config/services only (lightshowpi role) on HOST
 	cd $(ANSIBLE_DIR) && $(PLAYBOOK) --limit '$(HOST)' --tags lightshowpi $(ARGS)
+
+media: _require-host _require-inventory ## Copy music/ and config/*.cfg from a local backup (SRC=dir, optional OLD_PREFIX=old install path)
+	@test -n "$(SRC)" || { echo "ERROR: SRC=<local backup dir> is required"; exit 1; }
+	cd $(ANSIBLE_DIR) && ansible-playbook media.yml $(VAULT_FLAGS) --limit '$(HOST)' -e src='$(abspath $(patsubst ~%,$(HOME)%,$(SRC)))' -e old_prefix='$(OLD_PREFIX)' $(ARGS)
 
 runner: _require-host _require-inventory ## Install/register the GitHub Actions runner on bench HOST (TOKEN=... for first registration)
 	@cd $(ANSIBLE_DIR) && GH_RUNNER_TOKEN='$(TOKEN)' $(PLAYBOOK) --limit '$(HOST)' --tags base,gh_runner $(ARGS)
@@ -56,6 +61,7 @@ test: ## Run the Python test suite locally (conda env lightshowpi-neo-dev; overr
 
 lint-deploy: ## Lint Ansible (syntax-check, ansible-lint) and Terraform (fmt, validate)
 	cd $(ANSIBLE_DIR) && ansible-playbook --syntax-check -i inventory.example.yml site.yml
+	cd $(ANSIBLE_DIR) && ansible-playbook --syntax-check -i inventory.example.yml media.yml
 	cd $(ANSIBLE_DIR) && ansible-lint --offline
 	cd $(TF_DIR) && terraform fmt -check -recursive
 	cd $(TF_DIR) && terraform init -backend=false -input=false >/dev/null && terraform validate

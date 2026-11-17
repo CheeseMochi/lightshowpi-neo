@@ -1,0 +1,88 @@
+---
+# Copy show media and per-device config from a local backup to a Pi.
+#   make media HOST=piserver-neo SRC=~/backups/piserver
+#
+# SRC (on the machine running Ansible) may contain:
+#   music/             songs and *.playlist files, rsynced to <repo>/music/
+#   config/            overrides.cfg and led*.cfg are copied to <repo>/config/
+#                      (existing files backed up first); defaults/state files
+#                      are never copied
+# Then deploy/local/<host>/config/*.cfg (git-ignored), if present, is copied
+# over them: use it for configs already converted for Neo.
+#
+# OLD_PREFIX rewrites absolute playlist paths from the old install, e.g.
+#   OLD_PREFIX=/home/scroce/test/lightshowpi
+# becomes {{ lsp_repo_dir }} in every *.playlist and config/*.cfg copied.
+# Sync caches (.<song>.sync/.cfg) are copied too; Neo regenerates any whose
+# audio settings (e.g. chunk_size) no longer match.
+- name: Copy show media and config from a local backup
+  hosts: all
+  gather_facts: false
+  vars:
+    media_src: "{{ src | default('') }}"
+    media_old_prefix: "{{ old_prefix | default('') }}"
+  tasks:
+    - name: Require SRC
+      ansible.builtin.assert:
+        that: media_src | length > 0
+        fail_msg: "Pass SRC=<local backup dir> (make media HOST=... SRC=...)"
+
+    - name: Check what the backup holds
+      ansible.builtin.stat:
+        path: "{{ media_src }}/{{ item }}"
+      loop: [music, config]
+      register: media_parts
+      delegate_to: localhost
+
+    - name: Rsync music
+      ansible.posix.synchronize:
+        src: "{{ media_src }}/music/"
+        dest: "{{ lsp_repo_dir }}/music/"
+        archive: false
+        recursive: true
+        times: true
+        checksum: false
+      when: media_parts.results[0].stat.isdir | default(false)
+
+    # Only per-device files: never defaults.cfg, *.defaults.cfg or state.cfg,
+    # which belong to the installed version.
+    - name: Copy per-device configs from the backup
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ lsp_repo_dir }}/config/"
+        mode: "0644"
+        backup: true
+      with_fileglob:
+        - "{{ media_src }}/config/overrides.cfg"
+        - "{{ media_src }}/config/led*.cfg"
+      when:
+        - media_parts.results[1].stat.isdir | default(false)
+        - not (item | basename).endswith('.defaults.cfg')
+
+    # deploy/local/<host>/config/*.cfg (git-ignored) wins over the backup, e.g. an
+    # overrides.cfg already converted for Neo.
+    - name: Copy local per-host config overlay
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ lsp_repo_dir }}/config/"
+        mode: "0644"
+        backup: true
+      with_fileglob: "{{ playbook_dir }}/../local/{{ inventory_hostname }}/config/*.cfg"
+
+    - name: Find playlists and configs to rewrite
+      ansible.builtin.find:
+        paths: ["{{ lsp_repo_dir }}/music", "{{ lsp_repo_dir }}/config"]
+        patterns: ["*.playlist", ".playlist", "*.cfg"]
+        hidden: true
+      register: media_rewrite
+      when: media_old_prefix | length > 0
+
+    - name: Rewrite old install paths
+      ansible.builtin.replace:
+        path: "{{ item.path }}"
+        regexp: "{{ media_old_prefix | regex_escape }}"
+        replace: "{{ lsp_repo_dir }}"
+      loop: "{{ media_rewrite.files | default([]) }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when: media_old_prefix | length > 0

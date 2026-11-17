@@ -1,0 +1,20 @@
+---
+# Show schedule installed in root's crontab on show hosts.
+#
+# The show must keep running from cron even when the API is down, so the
+# schedule lives here rather than only in the API scheduler. Each entry is a
+# command run from the repo directory with the conda env on PATH; output goes
+# to logs/cron.log. Set the list per host in inventory.yml (see
+# inventory.example.yml). An empty list installs nothing.
+#
+#   show_schedule_entries:
+#     - {name: start show, minute: "30", hour: "17", job: "bin/start_music_and_lights"}
+#
+# Optional per entry: day, month, weekday (cron syntax, default "*"), or
+# special_time (reboot, daily, ...) instead of minute/hour/day/month/weekday,
+# e.g. a client that listens from boot:
+#     - {name: client at boot, special_time: reboot, job: "sleep 30; bin/start_lightshow_client"}
+show_schedule_entries: []
+
+# false removes every entry listed in show_schedule_entries (e.g. on a rollback box)
+show_schedule_enabled: true

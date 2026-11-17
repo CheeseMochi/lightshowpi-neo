@@ -1,0 +1,26 @@
+---
+- name: Ensure the logs directory exists
+  ansible.builtin.file:
+    path: "{{ lsp_repo_dir }}/logs"
+    state: directory
+    owner: "{{ lsp_user }}"
+    group: "{{ lsp_user }}"
+    mode: "0755"
+
+- name: Install show schedule in root's crontab
+  ansible.builtin.cron:
+    name: "LightShowPi: {{ item.name }}"
+    user: root
+    special_time: "{{ item.special_time | default(omit) }}"
+    minute: "{{ omit if item.special_time is defined else item.minute | default('0') }}"
+    hour: "{{ omit if item.special_time is defined else item.hour | default('*') }}"
+    day: "{{ omit if item.special_time is defined else item.day | default('*') }}"
+    month: "{{ omit if item.special_time is defined else item.month | default('*') }}"
+    weekday: "{{ omit if item.special_time is defined else item.weekday | default('*') }}"
+    job: >-
+      export SYNCHRONIZED_LIGHTS_HOME={{ lsp_repo_dir }} PATH={{ conda_env_prefix }}/bin:$PATH;
+      cd {{ lsp_repo_dir }} && ({{ item.job }}) >> {{ lsp_repo_dir }}/logs/cron.log 2>&1
+    state: "{{ 'present' if show_schedule_enabled | bool else 'absent' }}"
+  loop: "{{ show_schedule_entries }}"
+  loop_control:
+    label: "{{ item.name }}"

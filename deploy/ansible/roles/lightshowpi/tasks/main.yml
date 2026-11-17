@@ -129,11 +129,11 @@
 - name: Flush handlers so units are loaded before enabling
   ansible.builtin.meta: flush_handlers
 
-- name: Enable and start API service
+- name: API service (off on clients, which only receive light data)
   ansible.builtin.systemd_service:
     name: lightshowpi-api.service
-    enabled: true
-    state: started
+    enabled: "{{ lsp_enable_api | bool }}"
+    state: "{{ 'started' if lsp_enable_api | bool else 'stopped' }}"
 
 - name: Button manager service
   ansible.builtin.systemd_service:

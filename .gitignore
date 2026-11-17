@@ -131,3 +131,6 @@ pnpm-debug.log*
 # API database at the default location ($SYNCHRONIZED_LIGHTS_HOME/data)
 data/*.db
 data/*.db-journal
+
+# Per-host deployment files (converted configs etc.); never commit
+deploy/local/

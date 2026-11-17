@@ -1,7 +1,7 @@
 ---
 # LightShowPi Neo - full provisioning.
 #   ansible-playbook site.yml --limit <host|group>
-# Tags: base, conda_env, lightshowpi, gh_runner, cloudflared
+# Tags: base, conda_env, lightshowpi, show_schedule, gh_runner, cloudflared
 
 - name: Base system packages and groups
   hosts: show:server:client:bench
@@ -31,6 +31,15 @@
       ansible.builtin.import_role:
         name: lightshowpi
       tags: [lightshowpi]
+
+- name: Show schedule (root crontab) on show and client hosts
+  hosts: show:client
+  become: true
+  tasks:
+    - name: Apply show_schedule role
+      ansible.builtin.import_role:
+        name: show_schedule
+      tags: [show_schedule, lightshowpi]
 
 - name: Cloudflare Tunnel connector
   hosts: show
