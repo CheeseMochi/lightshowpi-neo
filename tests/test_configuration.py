@@ -278,3 +278,38 @@ class TestPlaylistErrorPaths:
         playlist.write_text("Good Song\t/music/good.mp3\nbad line without a tab\n")
         songs = self._cm().get_playlist(str(playlist))
         assert [s[0] for s in songs] == ["Good Song"]
+
+
+@pytest.mark.unit
+class TestShowScriptPaths:
+    """pre/postshow_script expand $SYNCHRONIZED_LIGHTS_HOME and warn when missing."""
+
+    def _config(self, home):
+        import configuration_manager
+        config = configuration_manager.Configuration.__new__(configuration_manager.Configuration)
+        config.home_dir = str(home)
+        return config
+
+    def test_expands_home(self, tmp_path):
+        script = tmp_path / "py" / "examples" / "random_pattern_ci.py"
+        script.parent.mkdir(parents=True)
+        script.write_text("def main(exit_event):\n    pass\n")
+        config = self._config(tmp_path)
+        resolved = config._resolve_show_script(
+            'postshow_script', '$SYNCHRONIZED_LIGHTS_HOME/py/examples/random_pattern_ci.py')
+        assert resolved == str(script)
+
+    def test_absolute_path_still_works(self, tmp_path):
+        script = tmp_path / "show.py"
+        script.write_text("")
+        assert self._config(tmp_path)._resolve_show_script('postshow_script', str(script)) == str(script)
+
+    def test_missing_script_warns(self, tmp_path, caplog):
+        with caplog.at_level("WARNING"):
+            result = self._config(tmp_path)._resolve_show_script(
+                'postshow_script', '/home/scroce/test/lightshowpi/py/examples/gone.py')
+        assert result is None
+        assert "not found" in caplog.text
+
+    def test_empty_is_none(self, tmp_path):
+        assert self._config(tmp_path)._resolve_show_script('preshow_script', '') is None

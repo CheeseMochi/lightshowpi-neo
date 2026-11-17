@@ -550,8 +550,7 @@ class Configuration(object):
                 msg = "Preshow_configuration not defined or not in JSON format."
                 logging.error(msg + str(error))
         else:
-            if preshow_script and os.path.isfile(preshow_script):
-                preshow = preshow_script
+            preshow = self._resolve_show_script('preshow_script', preshow_script)
 
         lghtshw['preshow'] = preshow
 
@@ -567,8 +566,7 @@ class Configuration(object):
                 msg = "Postshow_configuration not defined or not in JSON format."
                 logging.error(msg + str(error))
         else:
-            if postshow_script and os.path.isfile(postshow_script):
-                postshow = postshow_script
+            postshow = self._resolve_show_script('postshow_script', postshow_script)
 
         lghtshw['postshow'] = postshow
         lghtshw["decay_factor"] = self.config.getfloat(ls, 'decay_factor', fallback=0.0)
@@ -604,6 +602,21 @@ class Configuration(object):
             list(map(int, temp.split(','))) if temp else 0
 
         self.audio_processing = Section(audio_prcssng)
+
+    def _resolve_show_script(self, key, path):
+        """Return a pre/post-show script path, or None.
+
+        Expands $SYNCHRONIZED_LIGHTS_HOME (as image_path does) so configs don't
+        need absolute paths, and warns instead of silently skipping a
+        configured script that doesn't exist.
+        """
+        if not path:
+            return None
+        path = path.replace('$SYNCHRONIZED_LIGHTS_HOME', self.home_dir or '')
+        if os.path.isfile(path):
+            return path
+        log.warning("%s = %s not found; it will not run", key, path)
+        return None
 
     def get_playlist(self, play_list=None):
         play_list = play_list or self.playlist_path
