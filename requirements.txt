@@ -45,22 +45,23 @@ adafruit-blinka>=8.20.0  # CircuitPython compatibility layer
 #   Note: BiblioPixel only supports Python <=3.7 and is unmaintained.
 #   Only needed for RGB LED strips/matrices. Most users don't need this.
 #   Install separately if needed: pip install BiblioPixel==3.20210812.1
-Pillow>=10.0.0  # Image processing for LED effects
+Pillow>=13.0.0  # Image processing for LED effects
 
 # ----------------------------------------------------------------------------
 # Web Framework & API Backend
 # ----------------------------------------------------------------------------
 fastapi>=0.104.0  # Modern async web framework
+starlette>=0.49.1  # Security floor (multipart/Range DoS fixes); FastAPI pulls it in
+certifi>=2026.10.18  # Security floor: drops CA roots with compromised intermediates
 uvicorn[standard]>=0.24.0  # ASGI server for FastAPI
-python-multipart>=0.0.6  # File upload support
-jinja2>=3.1.2  # Template engine
+python-multipart>=0.0.18  # File upload support
+jinja2>=3.1.6  # Template engine
 websockets>=12.0  # WebSocket support for real-time updates
-requests>=2.31.0  # HTTP client (button manager -> API)
+requests>=2.32.4  # HTTP client (button manager -> API)
 
 # Authentication & Security
 bcrypt>=4.1.0  # Password hashing
-PyJWT>=2.8.0  # JWT token generation and validation
-python-jose[cryptography]>=3.3.0  # JWT utilities
+PyJWT>=2.15.0  # JWT token generation and validation
 
 # Scheduling & Background Tasks
 APScheduler>=3.10.0,<4  # Cron-like scheduling (code uses the 3.x BackgroundScheduler API)
@@ -80,7 +81,7 @@ pytest>=7.4.0  # Testing framework
 pytest-cov>=4.1.0  # Test coverage reporting
 pytest-asyncio>=0.21.0  # Async test support
 httpx  # Required by FastAPI TestClient (API endpoint tests)
-black>=23.10.0  # Code formatter
+black>=26.10.1  # Code formatter
 flake8>=6.1.0  # Linter
 mypy>=1.6.0  # Type checker
 
