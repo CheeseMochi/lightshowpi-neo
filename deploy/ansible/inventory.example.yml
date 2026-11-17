@@ -14,6 +14,16 @@ all:
       hosts:
         lsp-show:
           ansible_host: show-pi.local        # placeholder hostname or IP
+          # Show schedule for root's crontab (roles/show_schedule). Commands run
+          # from the repo dir with the conda env on PATH.
+          show_schedule_entries:
+            - {name: start show, minute: "30", hour: "17", job: "bin/start_music_and_lights"}
+            - {name: stop show, minute: "30", hour: "22", job: "bin/stop_music_and_lights"}
+            - name: after-show lights
+              minute: "31"
+              hour: "22"
+              job: "python py/hardware_controller.py --state=off; python py/hardware_controller.py --state=on --light 0,1,3,4,5,6"
+            - {name: all off, minute: "0", hour: "0", job: "bin/stop_music_and_lights"}
     server:
       hosts:
         lsp-show: {}

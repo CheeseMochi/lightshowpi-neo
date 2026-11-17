@@ -34,6 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   controller dropping off Wi-Fi no longer stalls or crashes the show. Set
   `threaded = False` for the old in-loop behaviour.
 
+- `make media HOST=... SRC=<backup> [OLD_PREFIX=<old install path>]`: copies
+  `music/` and per-device configs (`overrides.cfg`, `led*.cfg`) from a local
+  backup to a Pi and rewrites old absolute paths. A git-ignored
+  `deploy/local/<host>/config/` overlay is applied last.
+- Ansible `show_schedule` role: installs the show's cron schedule
+  (`show_schedule_entries` in the inventory) in root's crontab on show hosts,
+  with the conda env on PATH and output in `logs/cron.log`.
+- `py/examples/random_pattern_ci.py`: random twinkle postshow.
+
 ### Changed
 - Test patterns in `hardware_controller.py` moved into a `Patterns` class so the
   CLI and serve mode share them.
@@ -50,6 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recommends them.
 
 ### Fixed
+- `preshow_script`/`postshow_script` accept `$SYNCHRONIZED_LIGHTS_HOME` and log a
+  warning when the file is missing (it was silently skipped).
 - Network clients never lit their LEDs during the show (the server sends
   `BcastArray`, clients only handled raw arrays).
 - Clients with fewer channels than the server crashed on pre/post-show pin
