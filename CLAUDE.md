@@ -85,6 +85,7 @@ sudo $(which python) py/hardware_controller.py --state flash
 - Give production classes whose names start with `Test` the attribute `__test__ = False` so pytest doesn't try to collect them (see `TestModeManager`).
 - Every new endpoint, service or bug fix ships with tests.
 - CI: `.github/workflows/ci.yml` runs on every PR and push to `main`: pytest (excluding `gpio`/`audio`/`platform`) on Python 3.11 and 3.13, error-only flake8 (config in `.flake8`), and `npm ci && npm run build` in `web/`. Keep it green; run the same commands locally first.
+- Pi bench: `.github/workflows/pi-bench.yml` runs the suite on the self-hosted bench Pis (labels `pi-bench` + hostname) on push to `main`, nightly and on manual dispatch; GPIO loopback only when dispatched with `gpio` or repo variable `BENCH_GPIO_WIRED=true`. **Never add a `pull_request` trigger to a self-hosted workflow**: the repo is public.
 
 ## Code style
 
