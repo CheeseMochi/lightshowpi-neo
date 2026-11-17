@@ -49,6 +49,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   standalone; they were silently ignored before. `defaults.cfg` no longer
   recommends them.
 
+### Security
+- Removed the unused `python-jose` dependency (unfixed critical advisory; it also
+  pulled in `ecdsa`, `rsa` and `pyasn1`, which had open advisories). Auth uses PyJWT.
+- Raised minimum versions to releases with known advisories fixed: Pillow 13.0,
+  PyJWT 2.15, certifi 2026.10.18 (removes compromised CA roots), Starlette
+  0.49.1, Jinja2 3.1.6, python-multipart 0.0.18, requests 2.32.4, black 26.10.1.
+- Web: Vite 6.4 (with esbuild 0.25), fixing dev-server file-access and
+  cross-origin advisories; removed the unused `react-router-dom`. `npm audit`
+  and an OSV scan of a fresh `requirements-dev.txt` install both report none.
+
 ### Fixed
 - Network clients never lit their LEDs during the show (the server sends
   `BcastArray`, clients only handled raw arrays).
