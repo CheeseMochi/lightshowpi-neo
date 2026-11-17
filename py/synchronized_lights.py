@@ -89,6 +89,7 @@ from numpy import where, clip, round, nan_to_num
 import Platform
 import audio_timing
 import fft
+import networking
 from prepostshow import PrePostShow
 import RunningStats
 
@@ -273,8 +274,8 @@ class Lightshow(object):
         self.decay = np.zeros(cm.hardware.gpio_len, dtype='float32')
         self.physical_gpio_len = cm.hardware.physical_gpio_len
         self.network = hc.network
-        self.server = self.network.networking == "server" or self.network.networking == "serverjson"
-        self.client = self.network.networking == "client"
+        self.server = networking.is_server_mode(self.network.networking)
+        self.client = networking.is_client_mode(self.network.networking)
 
         if cm.lightshow.use_fifo:
             if os.path.exists(cm.lightshow.fifo):

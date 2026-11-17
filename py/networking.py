@@ -27,6 +27,33 @@ BcastPin = namedtuple('BcastPin', ['pin', 'brightness', 'use_overrides'])
 BcastArray = namedtuple('BcastArray', ['array', 'use_overrides'])
 BcastOverrides = namedtuple('BcastOverrides', ['always_off', 'always_on', 'inverted'])
 
+# [network] networking modes
+SERVER_MODES = ("server", "serverjson", "sacn_server")
+CLIENT_MODES = ("client", "sacn_client")
+SACN_MODES = ("sacn_server", "sacn_client")
+
+
+def is_server_mode(mode):
+    """True if this Pi sends light data to clients."""
+    return mode in SERVER_MODES
+
+
+def is_client_mode(mode):
+    """True if this Pi receives light data from a server."""
+    return mode in CLIENT_MODES
+
+
+def create(cm):
+    """Return the network controller for cm.network.networking.
+
+    sacn_server / sacn_client use E1.31 (networking_sacn.SACNNetworking);
+    everything else uses the legacy pickle/JSON transport.
+    """
+    if cm.network.networking in SACN_MODES:
+        import networking_sacn
+        return networking_sacn.SACNNetworking(cm)
+    return Networking(cm)
+
 class Networking(object):
     """Control the raspberry pi network.
 
@@ -50,29 +77,12 @@ class Networking(object):
         self.network_stream = None
         self.setup()
 
-    # Modes documented in defaults.cfg but not wired into Hardware yet.
-    UNSUPPORTED_MODES = ("sacn_server", "sacn_client")
-
     def setup(self):
         """Setup as either server or client"""
         if self.networking == "server" or self.networking == "serverjson":
             self.setup_server()
         elif self.networking == "client":
             self.setup_client()
-        elif self.networking in self.UNSUPPORTED_MODES:
-            self.warn_unsupported_mode()
-
-    def warn_unsupported_mode(self):
-        """Say loudly that an sACN networking mode is configured but inactive.
-
-        Not fatal: the show still runs on this Pi's own outputs, but nothing is
-        sent to or received from other Pis.
-        """
-        msg = ("networking = %s is not supported yet: running standalone, "
-               "NO data will be sent to or received from other Pis. "
-               "Use networking = server / client instead." % self.networking)
-        log.error(msg)
-        print("\n" + "!" * 70 + "\nERROR: " + msg + "\n" + "!" * 70 + "\n", file=sys.stderr)
 
         self.ready = True
 

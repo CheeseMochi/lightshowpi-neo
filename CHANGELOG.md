@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **sACN (E1.31) Pi-to-Pi networking works**: `networking = sacn_server` /
+  `sacn_client`. The server unicasts to every address in `sacn_address`
+  (recommended on Wi-Fi), handles show frames, pre/post-show single-channel
+  changes and overrides, and survives a client dropping off the network.
+  Clients drop out-of-order packets (E1.31 sequence rules), ignore other
+  universes, and assemble multi-universe frames. Default GPIO
+  `universe_start` is now 100, clear of LED controllers on universe 1.
 - **Hardware test mode**: `/api/test/*` endpoints (enter, exit, status, per-channel
   on/off with brightness, all on/off, test patterns) backed by a long-running
   `hardware_controller.py --serve` process. Test mode and the lightshow are
@@ -58,9 +65,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `led_channel_configuration`.
 - The show loop re-reads `config/state.cfg` only when it changes (or once a
   second) instead of on every audio chunk.
-- `networking = sacn_server` / `sacn_client` now log a clear error and run
-  standalone; they were silently ignored before. `defaults.cfg` no longer
-  recommends them.
 
 ### Security
 - Removed the unused `python-jose` dependency (unfixed critical advisory; it also
