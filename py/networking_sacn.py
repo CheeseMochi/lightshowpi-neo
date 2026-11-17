@@ -32,6 +32,10 @@ import json
 import time
 from collections import namedtuple
 
+import numpy as np
+
+import networking
+
 # Import existing E1.31 packet implementation
 from e131packet import E131Packet
 
@@ -64,6 +68,16 @@ class SACNNetworking(object):
         self.universe_boundary = getattr(cm.network, 'universe_boundary', 512)
         self.enable_multicast = getattr(cm.network, 'enable_multicast', False)
         self.sacn_priority = getattr(cm.network, 'sacn_priority', 100)
+
+        # Unicast targets: every address in sacn_address (comma separated)
+        self.target_addresses = [a.strip() for a in (self.sacn_address or '').split(',') if a.strip()]
+
+        # Last levels sent, so a single-pin update (pre/post-show) can be sent
+        # as a full frame: sACN has no "one channel" message
+        self._levels = np.zeros(cm.hardware.gpio_len, dtype='float32')
+
+        # Last levels received (client), across all universes
+        self._rx_levels = np.zeros(0, dtype='float32')
 
         # State tracking
         self.playing = False
@@ -100,10 +114,11 @@ class SACNNetworking(object):
             # E1.31 multicast address for universe N is 239.255.0.N
             self.target_address = f"239.255.{(self.universe_start >> 8) & 0xFF}.{self.universe_start & 0xFF}"
             log.info(f"sACN server mode - multicast to {self.target_address}:{self.sacn_port}")
-        elif self.sacn_address:
-            # Unicast to specific address(es)
-            self.target_address = self.sacn_address.split(',')[0].strip()  # First address for data
-            log.info(f"sACN server mode - unicast to {self.target_address}:{self.sacn_port}")
+        elif self.target_addresses:
+            # Unicast to every client (recommended on Wi-Fi: unicast frames are
+            # acknowledged and retried, broadcast/multicast frames are not)
+            self.target_address = self.target_addresses[0]
+            log.info(f"sACN server mode - unicast to {', '.join(self.target_addresses)}:{self.sacn_port}")
         else:
             # Broadcast fallback
             self.target_address = '<broadcast>'
@@ -187,7 +202,8 @@ class SACNNetworking(object):
             self.control_stream = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.control_stream.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.control_stream.bind(('', self.sacn_control_port))
-            self.control_stream.settimeout(0.01)  # Non-blocking with 10ms timeout
+            # Non-blocking: checked once per received frame, must not add latency
+            self.control_stream.setblocking(False)
 
             log.info(f"Control plane listening on port {self.sacn_control_port}")
             print(f"sACN control plane: port {self.sacn_control_port}")
@@ -209,26 +225,56 @@ class SACNNetworking(object):
             self.control_stream.close()
             self.control_stream = None
 
-    def broadcast(self, brightness_array, use_overrides=False):
-        """Broadcast GPIO brightness data via sACN (data plane).
+    def broadcast(self, *args):
+        """Send light data to clients via sACN (data plane).
 
-        Converts brightness values (0.0-1.0 float) to DMX values (0-255 int)
-        and sends via E1.31 protocol.
+        Accepts what Hardware sends to any network controller, so the show
+        code doesn't need to know which transport is in use:
 
-        Args:
-            brightness_array: List of float values (0.0-1.0) for each GPIO channel
-            use_overrides: Whether overrides are active (informational only)
+        - ``BcastArray`` / ndarray / list: a full frame of levels (0.0-1.0)
+        - ``BcastPin``: one channel changed (pre/post-show); the full frame is
+          resent with that channel updated
+        - ``BcastOverrides``: forwarded to the control plane
         """
+        if not args:
+            return
+        payload = args[0]
+
+        if isinstance(payload, networking.BcastOverrides):
+            self.broadcast_overrides(always_off=payload.always_off,
+                                     always_on=payload.always_on,
+                                     inverted=payload.inverted)
+            return
+        if isinstance(payload, networking.BcastPin):
+            if 0 <= payload.pin < len(self._levels):
+                self._levels[payload.pin] = payload.brightness
+            levels = self._levels
+        else:
+            if isinstance(payload, networking.BcastArray):
+                payload = payload.array
+            levels = np.asarray(payload, dtype='float32').ravel()
+            if len(levels) == len(self._levels):
+                self._levels[:] = levels
+            else:
+                self._levels = levels.copy()
+
+        self.send_levels(levels)
+
+    def send_levels(self, brightness_array):
+        """Encode levels (0.0-1.0) as DMX (0-255) and send them as E1.31."""
         if self.network_stream is None:
             log.debug("sACN stream closed, skipping broadcast")
             return
 
         # Convert brightness (0.0-1.0) to DMX (0-255)
-        dmx_data = [int(min(max(b, 0.0), 1.0) * 255) for b in brightness_array]
+        dmx_data = [int(min(max(float(b), 0.0), 1.0) * 255) for b in brightness_array]
 
         # Calculate number of universes needed
         num_channels = len(dmx_data)
-        num_universes = (num_channels + self.universe_boundary - 1) // self.universe_boundary
+        num_universes = max(1, (num_channels + self.universe_boundary - 1) // self.universe_boundary)
+
+        targets = self.target_addresses if (self.target_addresses and not self.enable_multicast) \
+            else [self.target_address]
 
         # Send data across one or more universes
         for univ_idx in range(num_universes):
@@ -243,26 +289,20 @@ class SACNNetworking(object):
             if not universe_data:
                 universe_data = [0]
 
-            try:
-                # Create E1.31 packet
-                packet = E131Packet(
-                    name='LightShowPi',
-                    universe=universe,
-                    data=universe_data,
-                    sequence=self.sequence_num
-                )
+            packet = E131Packet(
+                name='LightShowPi',
+                universe=universe,
+                data=universe_data,
+                sequence=self.sequence_num
+            ).packet_data
 
-                # Send packet
-                self.network_stream.sendto(
-                    packet.packet_data,
-                    (self.target_address, self.sacn_port)
-                )
-
-                log.debug(f"Sent sACN packet: universe={universe}, seq={self.sequence_num}, channels={len(universe_data)}")
-
-            except socket.error as e:
-                if e.errno != 9:  # Ignore "Bad file descriptor" during shutdown
-                    log.error(f"sACN send error: {e}")
+            for target in targets:
+                try:
+                    self.network_stream.sendto(packet, (target, self.sacn_port))
+                except OSError as e:
+                    # A client off Wi-Fi must never stop the show; 9 = closed at shutdown
+                    if e.errno != 9:
+                        log.error(f"sACN send to {target} failed: {e}")
 
         # Increment sequence number (0-255, wraps)
         self.sequence_num = (self.sequence_num + 1) % 256
@@ -294,13 +334,10 @@ class SACNNetworking(object):
             data = json.dumps(message).encode('utf-8')
 
             # Send to all configured clients
-            if self.sacn_address:
-                # Unicast to specific clients
-                for addr in self.sacn_address.split(','):
-                    addr = addr.strip()
-                    if addr:
-                        self.control_stream.sendto(data, (addr, self.sacn_control_port))
-                        log.info(f"Sent overrides to {addr}:{self.sacn_control_port}")
+            if self.target_addresses:
+                for addr in self.target_addresses:
+                    self.control_stream.sendto(data, (addr, self.sacn_control_port))
+                    log.info(f"Sent overrides to {addr}:{self.sacn_control_port}")
             else:
                 # Broadcast to all clients
                 self.control_stream.sendto(data, ('<broadcast>', self.sacn_control_port))
@@ -309,57 +346,60 @@ class SACNNetworking(object):
         except Exception as e:
             log.error(f"Failed to send override message: {e}")
 
+    # E1.31 section 6.7.2: a packet whose sequence number is 1-20 behind the
+    # last one accepted is out of order and is discarded.
+    SEQUENCE_REJECT_WINDOW = 20
+
     def receive(self):
-        """Receive sACN packet and extract brightness data.
+        """Receive one E1.31 packet and return its levels.
 
         Returns:
-            Tuple of (brightness_array, use_overrides) or None if invalid packet
-            brightness_array is list of floats (0.0-1.0)
+            ``(levels,)`` with ``levels`` a float32 ndarray (0.0-1.0) of the
+            channels the server sent, or None for an invalid, out-of-order or
+            timed-out packet. Clients map server channels with
+            ``[network] channels``; anything the server didn't send reads as 0.
         """
         try:
-            # Receive UDP packet
-            data, address = self.network_stream.recvfrom(1024)
-
-            # Parse E1.31 packet
-            parsed = self.parse_e131_packet(data)
-
-            if parsed is None:
-                return None
-
-            universe = parsed['universe']
-            sequence = parsed['sequence']
-            dmx_data = parsed['dmx_data']
-
-            # Check sequence number for this universe
-            last_seq = self.last_sequence.get(universe, -1)
-
-            # Detect out-of-order packets
-            # Allow wraparound (255 -> 0)
-            if last_seq >= 0:
-                # If new sequence is less than last AND we're not near wraparound
-                if sequence < last_seq and last_seq < 250:
-                    log.debug(f"Out-of-order packet: universe={universe}, seq={sequence} < {last_seq}")
-                    # Still process it, but log the issue
-
-            self.last_sequence[universe] = sequence
-
-            # Convert DMX (0-255) to brightness (0.0-1.0)
-            brightness_array = [dmx / 255.0 for dmx in dmx_data]
-
-            # Pad or truncate to match expected channel count
-            if len(brightness_array) < self.num_channels:
-                brightness_array.extend([0.0] * (self.num_channels - len(brightness_array)))
-            elif len(brightness_array) > self.num_channels:
-                brightness_array = brightness_array[:self.num_channels]
-
-            # Return as tuple (matches networking.py interface)
-            return (brightness_array,)
-
+            data, address = self.network_stream.recvfrom(1144)
         except socket.timeout:
             return None
-        except Exception as e:
+        except OSError as e:
             log.error(f"Error receiving sACN packet: {e}")
             return None
+
+        parsed = self.parse_e131_packet(data)
+        if parsed is None:
+            return None
+
+        universe = parsed['universe']
+        if not (self.universe_start <= universe < self.universe_start + 64):
+            # Someone else's universe (e.g. an LED controller's) on the same port
+            return None
+
+        sequence = parsed['sequence']
+        last_seq = self.last_sequence.get(universe)
+        if last_seq is not None:
+            behind = (last_seq - sequence) % 256
+            if 0 < behind <= self.SEQUENCE_REJECT_WINDOW:
+                log.debug(f"Dropping out-of-order sACN packet: universe={universe}, "
+                          f"seq={sequence} after {last_seq}")
+                return None
+        self.last_sequence[universe] = sequence
+
+        # Multi-universe frames: place this universe's slice at its offset
+        offset = (universe - self.universe_start) * self.universe_boundary
+        dmx = np.asarray(parsed['dmx_data'], dtype='float32') / 255.0
+        needed = offset + len(dmx)
+        if len(self._rx_levels) < needed:
+            grown = np.zeros(needed, dtype='float32')
+            grown[:len(self._rx_levels)] = self._rx_levels
+            self._rx_levels = grown
+        # Trailing zeros were trimmed by the parser: clear the rest of this universe
+        end = min(offset + self.universe_boundary, len(self._rx_levels))
+        self._rx_levels[offset:end] = 0.0
+        self._rx_levels[offset:needed] = dmx
+
+        return (self._rx_levels.copy(),)
 
     def receive_control_message(self):
         """Receive control messages from control plane (non-blocking).
@@ -382,10 +422,10 @@ class SACNNetworking(object):
             log.debug(f"Received control message type '{message['type']}' from {addr}")
             return message
 
-        except socket.timeout:
+        except (socket.timeout, BlockingIOError):
             # Expected - non-blocking receive
             return None
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
             log.error(f"Invalid JSON in control message: {e}")
             return None
         except Exception as e:

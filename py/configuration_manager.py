@@ -477,6 +477,15 @@ class Configuration(object):
         ntwrk["buffer"] = self.config.getint('network', 'buffer')
         ntwrk["get_overrides"] = self.config.getboolean('network', 'get_overrides')
 
+        # sACN (E1.31) Pi-to-Pi networking (networking = sacn_server / sacn_client)
+        ntwrk["sacn_address"] = self.config.get('network', 'sacn_address', fallback='').strip()
+        ntwrk["sacn_port"] = self.config.getint('network', 'sacn_port', fallback=5568)
+        ntwrk["sacn_control_port"] = self.config.getint('network', 'sacn_control_port', fallback=8889)
+        ntwrk["universe_start"] = self.config.getint('network', 'universe_start', fallback=100)
+        ntwrk["universe_boundary"] = self.config.getint('network', 'universe_boundary', fallback=512)
+        ntwrk["enable_multicast"] = self.config.getboolean('network', 'enable_multicast', fallback=False)
+        ntwrk["sacn_priority"] = self.config.getint('network', 'sacn_priority', fallback=100)
+
         if len(self.config.get('network', 'channels')) == 0:
             channels = [_ for _ in range(self.gpio_len)]
         else:

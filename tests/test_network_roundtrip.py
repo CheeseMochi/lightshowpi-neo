@@ -155,18 +155,6 @@ class TestSendErrors:
         assert sock.sent == []
 
 
-class TestUnsupportedSacnModes:
-    @pytest.mark.parametrize("mode", ["sacn_server", "sacn_client"])
-    def test_sacn_mode_is_loud_but_not_fatal(self, mode, caplog, capsys):
-        net = make_net(mode, sock=None)
-        with caplog.at_level("ERROR"):
-            net.setup()
-        assert net.ready is True
-        assert net.network_stream is None
-        assert "not supported yet" in caplog.text
-        assert "running standalone" in capsys.readouterr().err
-
-
 class TestAmbientKeepalive:
     def test_plain_list_broadcast_reaches_client(self, caplog):
         import pickle

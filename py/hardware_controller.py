@@ -103,8 +103,8 @@ class Hardware(object):
         self.channels = list()
 
         # network setup if used
-        self.network = networking.Networking(cm)
-        self.server = self.network.networking == "server" or self.network.networking == "serverjson"
+        self.network = networking.create(cm)
+        self.server = networking.is_server_mode(self.network.networking)
         self.broadcast = self.network.broadcast
 
         # Every frame destination (LEDs, Nanoleaf, ...). GPIO channels are still
@@ -144,7 +144,7 @@ class Hardware(object):
             channel_configuration=self.cm.led.led_channel_configuration,
             physical_gpio_len=self.cm.hardware.physical_gpio_len,
             gpio_len=self.cm.hardware.gpio_len,
-            slice_levels=self.network.networking != "client",
+            slice_levels=not networking.is_client_mode(self.network.networking),
             name="led:%s" % config_file)
         if getattr(self.cm.led, 'threaded', False):
             output = ThreadedOutput(output, max_fps=getattr(self.cm.led, 'max_fps', 0) or None)
@@ -457,6 +457,9 @@ class Hardware(object):
 
         # Receive data (sACN or legacy)
         data = self.network.receive()
+        if not data:
+            # sACN: invalid, out-of-order or someone else's packet
+            return
         temp_override = True
 
         if isinstance(data[0], (int, np.integer)):
