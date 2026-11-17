@@ -100,6 +100,7 @@ class Configuration(object):
         self.terminal = None
         self.led = None
         self.configs = None
+        self.outputs = []
 
         self.set_hardware()
         self.set_configs()
@@ -108,6 +109,26 @@ class Configuration(object):
         self.set_network()
         self.set_terminal()
         self.set_custom_sequences()
+        self.set_outputs()
+
+    def set_outputs(self):
+        """Collect ``[output:<name>]`` sections (Nanoleaf, ...) as raw dicts.
+
+        Each needs ``type``; ``enabled = false`` skips it. The output's own
+        class parses and validates the rest (see py/outputs/).
+        """
+        outputs = []
+        for section in self.config.sections():
+            if not section.lower().startswith("output:"):
+                continue
+            values = {k: (v or "") for k, v in self.config.items(section)}
+            name = section.split(":", 1)[1].strip()
+            if values.get("enabled", "true").strip().lower() in ("0", "false", "no", "off"):
+                log.info("output %s disabled in config", name)
+                continue
+            values["name"] = name
+            outputs.append(values)
+        self.outputs = outputs
 
     def load_config(self):
         """Load config files into ConfigParser instance"""

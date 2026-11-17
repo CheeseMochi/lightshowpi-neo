@@ -41,6 +41,7 @@ import networking
 import networking_sacn
 from outputs.led import LedOutput
 from outputs.threaded import ThreadedOutput
+from outputs.nanoleaf import NanoleafOutput
 
 # LED module is optional (only needed for RGB LED strips/matrices)
 try:
@@ -134,8 +135,38 @@ class Hardware(object):
                         self.led.append(led_module.Led(self.cm.led))
                         self._add_led_output(self.led[-1], lc)
 
+        self._add_configured_outputs()
+
         self.create_lights()
         self.set_overrides()
+
+    # [output:<name>] type -> factory(name, section, gpio_len)
+    OUTPUT_TYPES = {
+        "nanoleaf": lambda name, section, gpio_len:
+            NanoleafOutput.from_config(name, section, gpio_len),
+    }
+
+    def _add_configured_outputs(self):
+        """Build outputs from [output:<name>] sections, each on its own thread.
+
+        A bad section is logged and skipped: an optional output must never stop
+        the show from starting.
+        """
+        for section in getattr(self.cm, 'outputs', None) or []:
+            name = section.get("name", "?")
+            kind = section.get("type", "").strip().lower()
+            factory = self.OUTPUT_TYPES.get(kind)
+            if factory is None:
+                logging.error("output %s: unknown type %r (known: %s)", name, kind,
+                              ", ".join(sorted(self.OUTPUT_TYPES)))
+                continue
+            try:
+                output = factory(name, section, self.cm.hardware.gpio_len)
+            except Exception as err:
+                logging.error("output %s (%s) not started: %s", name, kind, err)
+                continue
+            self.outputs.append(ThreadedOutput(output))
+            logging.info("output %s (%s) added", name, kind)
 
     def _add_led_output(self, led, config_file):
         """Wrap a Led as an Output, using the LED config that was just loaded."""

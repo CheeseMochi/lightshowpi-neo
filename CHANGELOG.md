@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Nanoleaf output** (`py/outputs/nanoleaf.py`): streams per-LED colour to
+  Nanoleaf Essentials (tested: NL73K3 Permanent Outdoor Lights, 60 LEDs) over
+  UDP extControl v2. Configure with an `[output:<name>]` section
+  (`type = nanoleaf`; see the example at the end of `defaults.cfg`). The strip
+  is split into one segment per show channel; runs on its own thread and
+  re-enables stream mode every 30 s so it recovers from power or Wi-Fi drops.
+- `[output:<name>]` config sections for extra outputs (decision D5).
 - **sACN (E1.31) Pi-to-Pi networking works**: `networking = sacn_server` /
   `sacn_client`. The server unicasts to every address in `sacn_address`
   (recommended on Wi-Fi), handles show frames, pre/post-show single-channel
