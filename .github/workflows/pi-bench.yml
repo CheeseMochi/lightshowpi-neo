@@ -13,7 +13,9 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: "0 8 * * *"   # 02:00 US Central
+    # 14:00 US Central (20:00 UTC; 15:00 when DST is on). Afternoon so the
+    # bench can be powered off overnight, and well before the 17:30 show start.
+    - cron: "0 20 * * *"
   workflow_dispatch:
     inputs:
       gpio:
