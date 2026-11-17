@@ -276,32 +276,40 @@ def cmd_discover(args) -> int:
 def cmd_pair(args) -> int:
     client = nl.NanoleafClient(args.host, args.port, timeout=args.http_timeout)
     print("PAIRING\n"
-          "  1. In the Nanoleaf app open this device's settings and tap 'Connect to API'.\n"
-          "  2. The device then accepts pairing for 30 seconds.\n"
-          f"  This tool retries POST {client.base}/new every 2 s for {args.pair_wait:.0f} s,\n"
-          "  so you can start it first and then tap the button.")
-    deadline = time.monotonic() + args.pair_wait
-    last = None
-    while time.monotonic() < deadline:
-        try:
-            r = client.pair()
-        except (OSError, nl.NanoleafError) as e:
-            print(f"  connection error: {e}")
-            r = None
-        if r is not None:
-            if http_ok(r) and isinstance(r.body, dict) and r.body.get("auth_token"):
-                token = r.body["auth_token"]
-                path = nl.save_token(args.host, token, args.token_file, port=args.port)
-                print(f"  OK (HTTP {r.status}). Token saved to {path} (mode 600).")
-                return 0
-            if http_ok(r):
-                print(f"  HTTP {r.status} but no auth_token in body: {r.raw!r}")
-                return 2
-            if r.status != last:
-                print(f"  HTTP {r.status} {r.raw[:120]!r} (403 = pairing window not open yet)")
-                last = r.status
-        time.sleep(2)
-    print("  Gave up: no token. Tap 'Connect to API' and run --pair again.")
+          "  1. Leave this running.\n"
+          "  2. In the Nanoleaf app open this device's settings and tap 'Connect to API'.\n"
+          "     The device then accepts pairing for about 30 seconds.\n"
+          f"  Trying POST {client.base}/new every 2 s for {args.pair_wait:.0f} s. Ctrl-C to stop.\n")
+    start = time.monotonic()
+    deadline = start + args.pair_wait
+    attempt = 0
+    try:
+        while time.monotonic() < deadline:
+            attempt += 1
+            left = max(0, deadline - time.monotonic())
+            prefix = f"  [{attempt:2d}] {left:3.0f}s left:"
+            try:
+                r = client.pair()
+            except (OSError, nl.NanoleafError) as e:
+                print(f"{prefix} connection error: {e}", flush=True)
+                r = None
+            if r is not None:
+                if http_ok(r) and isinstance(r.body, dict) and r.body.get("auth_token"):
+                    token = r.body["auth_token"]
+                    path = nl.save_token(args.host, token, args.token_file, port=args.port)
+                    print(f"{prefix} OK (HTTP {r.status}). Token saved to {path} (mode 600).")
+                    return 0
+                if http_ok(r):
+                    print(f"{prefix} HTTP {r.status} but no auth_token in body: {r.raw!r}")
+                    return 2
+                hint = "pairing window not open: tap 'Connect to API' now" if r.status == 403 else ""
+                print(f"{prefix} HTTP {r.status} {r.raw[:120]!r} {hint}".rstrip(), flush=True)
+            time.sleep(2)
+    except KeyboardInterrupt:
+        print("\n  Stopped.")
+        return 130
+    print("  Gave up: no token. Run --pair again, then tap 'Connect to API' while it's running\n"
+          "  (some Essentials models: update the app/firmware if the option is missing).")
     return 1
 
 
@@ -515,7 +523,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--hex-full", action="store_true", help="dry-run: do not truncate hex")
     ap.add_argument("--timeout", type=float, default=3.0, help="discovery seconds")
     ap.add_argument("--http-timeout", type=float, default=3.0)
-    ap.add_argument("--pair-wait", type=float, default=40.0, help="seconds to keep trying pair")
+    ap.add_argument("--pair-wait", type=float, default=90.0, help="seconds to keep trying pair")
     return ap
 
 

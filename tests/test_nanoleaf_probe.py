@@ -413,3 +413,43 @@ class TestDryRun:
         assert "DRY-RUN HTTP PUT /effects" in out and '"extControlVersion": "v2"' in out
         head = nl.encode_frame_v2(nl.colors_to_pixels(probe.pattern_head(3, 0)))
         assert head.hex(" ") in out
+
+
+class TestPairFeedback:
+    """--pair printed only when the HTTP status changed, so 20 identical 403s
+    looked like a hang (reported on the first real pairing attempt)."""
+
+    def test_every_attempt_is_reported(self, monkeypatch, capsys, tmp_path):
+        attempts = []
+
+        class FakeClient:
+            def __init__(self, host, port, timeout=3.0):
+                self.base = f"http://{host}:{port}/api/v1"
+
+            def pair(self):
+                attempts.append(1)
+                if len(attempts) < 3:
+                    return nl.Response(403, None, b"")
+                return nl.Response(200, {"auth_token": "tok123"}, b'{"auth_token":"tok123"}')
+
+        monkeypatch.setattr(nl, "NanoleafClient", FakeClient)
+        monkeypatch.setattr(probe.time, "sleep", lambda s: None)
+        rc = probe.main(["--pair", "--host", "10.0.0.9", "--token-file", str(tmp_path / "t.json")])
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert out.count("HTTP 403") == 2
+        assert "tap 'Connect to API' now" in out
+        assert "Token saved" in out
+
+    def test_ctrl_c_exits_cleanly(self, monkeypatch, capsys, tmp_path):
+        class FakeClient:
+            def __init__(self, host, port, timeout=3.0):
+                self.base = "http://x/api/v1"
+
+            def pair(self):
+                raise KeyboardInterrupt
+
+        monkeypatch.setattr(nl, "NanoleafClient", FakeClient)
+        rc = probe.main(["--pair", "--host", "10.0.0.9", "--token-file", str(tmp_path / "t.json")])
+        assert rc == 130
+        assert "Stopped." in capsys.readouterr().out
