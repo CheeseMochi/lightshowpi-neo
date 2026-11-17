@@ -261,6 +261,23 @@ class TestManager:
         finally:
             manager.shutdown()
 
+    def test_status_during_exit_reports_exit_reason_not_crash(self, show):
+        """Regression (seen on the Zero 2 W bench): the process quits during
+        exit(reason="timeout") before _reap runs; status() called in that gap
+        recorded "process exited" instead of "timeout"."""
+        manager = TestModeManager(lightshow_manager=show)
+        manager.process = Mock()
+        manager.process.poll.return_value = 0   # already gone
+        manager._exiting_reason = "timeout"      # exit() still in progress
+
+        status = manager.status()
+
+        assert status["active"] is False
+        assert status["exit_reason"] == "timeout"
+        assert manager.process is not None       # left for exit() to reap
+        manager._reap(reason="timeout")
+        assert manager.status()["exit_reason"] == "timeout"
+
     def test_default_command_uses_absolute_path(self, monkeypatch):
         monkeypatch.delenv("SYNCHRONIZED_LIGHTS_HOME", raising=False)
         manager = TestModeManager()

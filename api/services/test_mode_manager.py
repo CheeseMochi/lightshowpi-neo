@@ -99,6 +99,9 @@ class TestModeManager:
         self.last_activity: Optional[float] = None
         self.entered_by: Optional[str] = None
         self.exit_reason: Optional[str] = None
+        # Set while exit() is stopping the process, so status() and the
+        # watchdog don't mistake that planned exit for a crash
+        self._exiting_reason: Optional[str] = None
 
         self._state_lock = Lock()   # enter/exit
         self._io_lock = Lock()      # one command at a time
@@ -125,7 +128,8 @@ class TestModeManager:
 
     def status(self) -> Dict[str, Any]:
         active = self.is_active()
-        if not active and self.process is not None:
+        exiting = self._exiting_reason
+        if not active and self.process is not None and exiting is None:
             # Process died on its own; tidy up
             self._reap(reason=self.exit_reason or "process exited")
         return {
@@ -135,7 +139,7 @@ class TestModeManager:
             "timeout_seconds": self.timeout_seconds,
             "seconds_remaining": self.seconds_remaining(),
             "entered_by": self.entered_by if active else None,
-            "exit_reason": None if active else self.exit_reason,
+            "exit_reason": None if active else (exiting or self.exit_reason),
             "pid": self.process.pid if active and self.process else None,
         }
 
@@ -202,6 +206,7 @@ class TestModeManager:
                 return self.status()
 
             log.info(f"Exiting test mode ({reason})")
+            self._exiting_reason = reason
             if self.is_active():
                 # Ask politely; skip if a long pattern holds the IO lock
                 if self._io_lock.acquire(timeout=2):
@@ -336,6 +341,7 @@ class TestModeManager:
             log.error(f"Error stopping test mode process: {e}")
 
     def _reap(self, reason: str):
+        self._exiting_reason = None
         self.process = None
         self.channels = []
         self.last_activity = None
@@ -355,6 +361,8 @@ class TestModeManager:
         while not self._watchdog_stop.wait(self.watchdog_interval):
             if self.process is None:
                 continue
+            if self._exiting_reason is not None:
+                continue  # exit() is stopping it on purpose
             if not self.is_active():
                 log.warning("Test mode process exited unexpectedly")
                 with self._state_lock:
