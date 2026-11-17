@@ -1,0 +1,77 @@
+# Runs the test suite on the self-hosted Pi test bench.
+#
+# SECURITY: this repo is public and the runners are Pis on a home network, so
+# this workflow must NEVER trigger on pull_request / pull_request_target.
+# Fork PRs need maintainer approval (Settings > Actions > General) and run on
+# GitHub-hosted runners only (ci.yml).
+#
+# Runners carry the labels self-hosted, pi-bench and their hostname
+# (pibench-server = Pi 5 with GPIO loopback jumpers, pibench-client = Zero 2 W).
+name: Pi bench
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # 14:00 US Central (20:00 UTC; 15:00 when DST is on). Afternoon so the
+    # bench can be powered off overnight, and well before the 17:30 show start.
+    - cron: "0 20 * * *"
+  workflow_dispatch:
+    inputs:
+      gpio:
+        description: "Also run the GPIO loopback tests (jumpers wired on pibench-server)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One bench run at a time: the jobs share real hardware
+concurrency:
+  group: pi-bench
+  cancel-in-progress: false
+
+env:
+  # Conda env built by Ansible for the runner user (roles/conda_env)
+  PY: /home/ghrunner/miniforge3/envs/lightshowpi-neo/bin/python
+
+jobs:
+  suite:
+    name: Tests on ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [pibench-server, pibench-client]
+    runs-on: [self-hosted, pi-bench, "${{ matrix.runner }}"]
+    timeout-minutes: 45
+    env:
+      SYNCHRONIZED_LIGHTS_HOME: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Describe the Pi
+        run: |
+          cat /proc/device-tree/model; echo
+          grep PRETTY /etc/os-release
+          "$PY" --version
+          free -m | head -2
+
+      - name: Test suite (no hardware)
+        run: '"$PY" -m pytest -q -p no:cacheprovider -m "not gpio and not audio and not platform"'
+
+  gpio:
+    name: GPIO loopback on pibench-server
+    needs: suite
+    # Manual run with gpio ticked, or every run once the repo variable
+    # BENCH_GPIO_WIRED is "true" (Settings > Secrets and variables > Actions)
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.gpio) || vars.BENCH_GPIO_WIRED == 'true' }}
+    runs-on: [self-hosted, pi-bench, pibench-server]
+    timeout-minutes: 15
+    env:
+      SYNCHRONIZED_LIGHTS_HOME: ${{ github.workspace }}
+      LSP_BENCH: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: GPIO loopback tests (tests/bench.yaml)
+        run: '"$PY" -m pytest -p no:cacheprovider -m gpio -rs'

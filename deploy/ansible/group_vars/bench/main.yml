@@ -9,7 +9,8 @@ gh_runner_checksum: ""
 gh_runner_repo_url: "https://github.com/CheeseMochi/lightshowpi-neo"
 gh_runner_name: "{{ inventory_hostname }}"
 # Default labels self-hosted, Linux, ARM64 are added automatically by config.sh
-gh_runner_extra_labels: [pi-bench]
+# The hostname label lets workflows pick a bench Pi (pi-bench.yml)
+gh_runner_extra_labels: [pi-bench, "{{ inventory_hostname }}"]
 # Users whose show crontab entries are commented out on bench hosts (missing users are skipped)
 gh_runner_cron_users: [root, pi]
 # One-time registration token (expires after ~1 hour). `make runner TOKEN=...` passes it
