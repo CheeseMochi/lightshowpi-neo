@@ -112,6 +112,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and an OSV scan of a fresh `requirements-dev.txt` install both report none.
 
 ### Fixed
+- sACN clients crashed on the first per-song override message from the server
+  (`'SACNNetworking' object has no attribute 'get_overrides'`); they now honour
+  `[network] get_overrides` like legacy clients. Found on the Pi bench.
+- The show's log file (`logs/music_and_lights.play.dbg`) was never written on
+  Pis without `bibliopixel`: an import-time warning claimed the root logger for
+  the terminal first. `--log=DEBUG` (etc.) is now honoured too.
 - **The API played only one song per Start.** `LightshowManager` now loops a
   playlist start song after song (skip moves to the next song) until stop or
   pause, the scheduler stops it, test mode becomes active, or three runs in a

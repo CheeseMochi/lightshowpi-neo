@@ -268,3 +268,56 @@ class TestEndToEnd:
         client.receive_and_process()  # used to TypeError on None[0]
         for c in client.channels:
             c.set_action.assert_not_called()
+
+
+class TestOverridesEndToEnd:
+    """Server set_custom_overrides -> control plane -> client channels (bench crash 2026-11-19)."""
+
+    def _cm(self, monkeypatch, gpio_len):
+        cm = SimpleNamespace(
+            hardware=SimpleNamespace(gpio_len=gpio_len, physical_gpio_len=gpio_len,
+                                     gpio_pins=list(range(gpio_len))),
+            lightshow=SimpleNamespace(always_off_channels=[], always_on_channels=[],
+                                      invert_channels=[]))
+        monkeypatch.setattr(hardware_controller, "cm", cm)
+
+    def _hardware(self, net, n, server):
+        hw = hardware_controller.Hardware.__new__(hardware_controller.Hardware)
+        hw.network = net
+        hw.server = server
+        hw.broadcast = net.broadcast
+        hw.channels = [Mock() for _ in range(n)]
+        hw.outputs = []
+        return hw
+
+    def _send_and_receive(self, monkeypatch, get_overrides):
+        self._cm(monkeypatch, 7)
+        server_net = make_sacn(monkeypatch, "sacn_server", address="10.0.0.2")
+        server = self._hardware(server_net, 7, server=True)
+        server.set_custom_overrides(always_off=[2], always_on=[3], inverted=[4])
+
+        client_net = make_sacn(monkeypatch, "sacn_client")
+        client_net.get_overrides = get_overrides
+        client_net.network_stream = FakeRecvSocket([])
+        client_net.control_stream = FakeRecvSocket(
+            [data for data, _ in server_net.control_stream.sent])
+        client = self._hardware(client_net, 7, server=False)
+        client.receive_and_process()  # used to raise AttributeError: get_overrides
+        return client
+
+    def test_client_reads_get_overrides_from_config(self, monkeypatch):
+        assert make_sacn(monkeypatch, "sacn_client").get_overrides is True
+
+    def test_overrides_applied_on_client(self, monkeypatch):
+        client = self._send_and_receive(monkeypatch, get_overrides=True)
+        # Channel numbers in overrides are 1-based
+        assert client.channels[1].set_always_off.call_args_list[-1].args == (True,)
+        assert client.channels[2].set_always_on.call_args_list[-1].args == (True,)
+        assert client.channels[3].set_inverted.call_args_list[-1].args == (True,)
+        assert client.channels[0].set_always_off.call_args_list[-1].args == (False,)
+
+    def test_overrides_ignored_when_get_overrides_false(self, monkeypatch):
+        client = self._send_and_receive(monkeypatch, get_overrides=False)
+        # Only the client's own config overrides (set_overrides: all False) are applied
+        for channel in client.channels:
+            assert all(c.args == (False,) for c in channel.set_always_off.call_args_list)
