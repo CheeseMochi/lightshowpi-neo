@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `tools/sacn_monitor.py`: watches sACN packets arriving on a Pi (packets/s,
+  sequence gaps, sender, levels) with a pass/fail mode, and
+  `docs/bench/SACN_BENCH.md`, the Pi-to-Pi sACN bench procedure for the D9 go/no-go.
 - **Nanoleaf output** (`py/outputs/nanoleaf.py`): streams per-LED colour to
   Nanoleaf Essentials (tested: NL73K3 Permanent Outdoor Lights, 60 LEDs) over
   UDP extControl v2. Configure with an `[output:<name>]` section
