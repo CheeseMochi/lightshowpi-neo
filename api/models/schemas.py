@@ -75,6 +75,12 @@ class UserLogin(BaseModel):
     password: str
 
 
+class PasswordChange(BaseModel):
+    """Request model for changing the logged-in user's password."""
+    current_password: str
+    new_password: str = Field(..., min_length=8, max_length=256)
+
+
 class UserResponse(BaseModel):
     """Response model for user data."""
     id: int

@@ -12,6 +12,8 @@ Group=pi
 # Environment
 Environment="SYNCHRONIZED_LIGHTS_HOME=/home/pi/lightshowpi"
 Environment="PATH=/home/pi/miniconda3/envs/lightshowpi-neo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# JWT_SECRET_KEY (required) and ADMIN_PASSWORD (first run); see systemd/README.md
+EnvironmentFile=/etc/lightshowpi/api.env
 
 # Working directory
 WorkingDirectory=/home/pi/lightshowpi

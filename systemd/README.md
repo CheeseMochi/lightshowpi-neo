@@ -27,6 +27,18 @@ Systemd service unit files for auto-starting LightShowPi Neo components on boot.
    source ~/.bashrc
    ```
 
+4. **Create the API secrets file** (the API refuses to start without `JWT_SECRET_KEY`;
+   `ADMIN_PASSWORD` creates the first `admin` user and is only read on an empty database):
+   ```bash
+   sudo mkdir -p /etc/lightshowpi
+   sudo tee /etc/lightshowpi/api.env > /dev/null <<EOF
+   JWT_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
+   ADMIN_PASSWORD="choose-a-real-password"
+   EOF
+   sudo chmod 600 /etc/lightshowpi/api.env
+   ```
+   Pis provisioned with Ansible (`make provision`) already have this file.
+
 ### Install Services
 
 1. **Copy service files to systemd directory:**
@@ -169,9 +181,9 @@ On success the log shows `Button manager mode: API`:
 sudo journalctl -u lightshowpi-buttons.service -n 20 | grep "mode:"
 ```
 
-If the API restarts (tokens are invalidated unless `JWT_SECRET_KEY` is set for
-the API) or the 24h token expires, the button manager logs in again
-automatically on the next button press.
+If the 24h token expires, or `JWT_SECRET_KEY` changes, the button manager logs
+in again automatically on the next button press. If you change the API user's
+password, update `/etc/lightshowpi/buttons.env` to match.
 
 ## Customization
 

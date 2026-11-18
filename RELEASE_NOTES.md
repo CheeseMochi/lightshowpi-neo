@@ -16,8 +16,16 @@ Draft. See the [Unreleased] section of [CHANGELOG.md](CHANGELOG.md).
 - `light_delay` keeps its old timing by default. To use true seconds, set
   `light_delay_legacy_math = False` under `[lightshow]` in `overrides.cfg` and
   re-tune `light_delay` (expect roughly 4x the old value for stereo files).
-- `sacn_server` / `sacn_client` networking is not wired up; use
-  `server` / `client`. The show now logs an error if sACN networking is set.
+- `sacn_server` / `sacn_client` networking now works (Pi-to-Pi over E1.31);
+  the default GPIO `universe_start` is 100.
+- **The API needs `JWT_SECRET_KEY`** (32+ characters) and, on a fresh database,
+  `ADMIN_PASSWORD`; there is no `admin123` default any more. Ansible-provisioned
+  Pis already have both in `/etc/lightshowpi/api.env`. Manual installs: see
+  `systemd/README.md`. Development: `LSP_DEV=1`.
+- `/api/lightshow/status` now needs a login. Anything that polled it without a
+  token must log in first (the web UI and the button manager already do).
+- Changing the admin password breaks the button manager's API login until
+  `/etc/lightshowpi/buttons.env` is updated too.
 - Ambient mode and `set_array` scripts now light LED strips as well as GPIO.
 
 ## Version 0.9.1 - Beta 2 (September 2026)

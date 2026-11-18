@@ -37,6 +37,12 @@ function clearAuthToken() {
 }
 
 /**
+ * Fired when the server rejects our token (expired, or the API's JWT key
+ * changed). App.jsx listens and returns to the login screen.
+ */
+export const AUTH_EXPIRED_EVENT = 'lsp:auth-expired';
+
+/**
  * Make authenticated API request
  */
 async function apiRequest(endpoint, options = {}) {
@@ -60,6 +66,11 @@ async function apiRequest(endpoint, options = {}) {
     const response = await fetch(`${API_BASE}${endpoint}`, config);
 
     // Handle non-2xx responses
+    if (response.status === 401 && !options.skipAuth) {
+      clearAuthToken();
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+    }
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
       throw new ApiError(
@@ -104,6 +115,16 @@ export const auth = {
 
   logout() {
     clearAuthToken();
+  },
+
+  async changePassword(currentPassword, newPassword) {
+    return apiRequest('/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword
+      })
+    });
   },
 
   isAuthenticated() {

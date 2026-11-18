@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
-import { auth } from './services/api';
+import { auth, AUTH_EXPIRED_EVENT } from './services/api';
 import './App.css';
 
 export default function App() {
@@ -12,6 +12,11 @@ export default function App() {
     // Check if user is already authenticated
     setAuthenticated(auth.isAuthenticated());
     setLoading(false);
+
+    // Any 401 from the API (expired or revoked token) returns to the login screen
+    const onExpired = () => setAuthenticated(false);
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
   }, []);
 
   const handleLogin = () => {

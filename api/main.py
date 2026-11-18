@@ -12,7 +12,9 @@ import os
 import sys
 import time
 import logging
-from fastapi import FastAPI, Depends, HTTPException, status
+from typing import List
+
+from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
@@ -22,9 +24,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'py'))
 
 from api.core.database import init_database
 from api.core.config import APIConfig, get_api_config
-from api.core.auth import AuthManager
+from api.core.auth import (
+    AuthManager, configure_secret_key, dev_mode, ensure_admin_user, get_current_user,
+    password_problem,
+)
+from api.core.rate_limit import RateLimiter, client_ip
 from api.models.schemas import (
-    UserLogin, Token, SystemHealth, LightshowState
+    UserLogin, PasswordChange, Token, SystemHealth, LightshowState
 )
 from api.routers import lightshow, schedules, buttons, test_mode
 from api.services.lightshow_manager import LightshowManager
@@ -51,6 +57,13 @@ test_mode_manager = None
 # API version
 API_VERSION = "0.9.1"
 
+# Failed logins (and wrong current passwords) allowed per client IP per minute
+LOGIN_FAILURES_PER_MINUTE = 5
+login_limiter = RateLimiter(max_events=LOGIN_FAILURES_PER_MINUTE, window_s=60.0)
+
+# Vite dev server origins, allowed only with LSP_DEV=1
+DEV_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -66,6 +79,9 @@ async def lifespan(app: FastAPI):
     log.info("Starting LightShowPi Neo API...")
     app.state.start_time = time.time()
 
+    # Refuse to start without a persistent JWT key (LSP_DEV=1 allows a random one)
+    configure_secret_key()
+
     # Load configuration
     api_config = get_api_config()
 
@@ -77,18 +93,8 @@ async def lifespan(app: FastAPI):
     db = init_database(api_config.db_path if api_config.db_path else None)
     auth_manager = AuthManager(db)
 
-    # Check if we need to create a default admin user
-    with db.get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM users")
-        user_count = cursor.fetchone()[0]
-
-        if user_count == 0:
-            # Create default admin user
-            default_password = os.getenv("ADMIN_PASSWORD", "admin123")
-            auth_manager.create_user("admin", default_password)
-            log.warning(f"Created default admin user with password '{default_password}'")
-            log.warning("PLEASE CHANGE THIS PASSWORD IMMEDIATELY!")
+    # First run: create admin from $ADMIN_PASSWORD (there is no default password)
+    ensure_admin_user(auth_manager, db)
 
     # Initialize lightshow manager
     lightshow_manager = LightshowManager(api_config)
@@ -155,14 +161,36 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure this in production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def load_cors_origins() -> List[str]:
+    """
+    Origins allowed to call the API from another site ([api] cors_origins).
+
+    The web UI is served from the same origin as the API (or proxied to it by
+    Vite), so it needs no CORS at all; the default is an empty list. LSP_DEV=1
+    adds the Vite dev server origins. Auth is a bearer token, not a cookie, so
+    credentials are never allowed cross-origin.
+    """
+    origins: List[str] = []
+    try:
+        origins = APIConfig().cors_origins
+    except Exception as e:
+        log.warning(f"Could not read [api] cors_origins, allowing none: {e}")
+    if dev_mode():
+        origins = origins + [o for o in DEV_ORIGINS if o not in origins]
+    return origins
+
+
+# CORS is read at import: Starlette builds the middleware stack before the
+# lifespan runs, so it can't come from the config loaded at startup.
+cors_origins = load_cors_origins()
+if cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
 # Include routers
 app.include_router(lightshow.router)
@@ -193,9 +221,20 @@ def get_auth_manager(database = Depends(get_db)):
 # Authentication Endpoints
 # ============================================================================
 
+def _too_many_attempts(ip: str) -> HTTPException:
+    retry = int(login_limiter.retry_after(ip)) + 1
+    log.warning(f"Too many failed login attempts from {ip}; retry in {retry}s")
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many failed attempts. Try again later.",
+        headers={"Retry-After": str(retry)},
+    )
+
+
 @app.post("/api/auth/login", response_model=Token, tags=["Authentication"])
 async def login(
     credentials: UserLogin,
+    request: Request,
     auth_mgr: AuthManager = Depends(get_auth_manager)
 ):
     """
@@ -205,13 +244,20 @@ async def login(
     - Passwords are hashed with bcrypt
     - JWT tokens expire after 24 hours
     - Optional IP whitelisting per user
+    - 5 failed attempts per minute per client IP, then 429 until the window passes
     """
+    ip = client_ip(request)
+    if login_limiter.is_limited(ip):
+        raise _too_many_attempts(ip)
+
     user = auth_mgr.authenticate_user(
         credentials.username,
-        credentials.password
+        credentials.password,
+        client_ip=ip,
     )
 
     if not user:
+        login_limiter.record(ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -224,6 +270,41 @@ async def login(
     )
 
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.post("/api/auth/password", status_code=status.HTTP_204_NO_CONTENT,
+          tags=["Authentication"])
+async def change_password(
+    body: PasswordChange,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    auth_mgr: AuthManager = Depends(get_auth_manager)
+):
+    """
+    Change the logged-in user's password.
+
+    Requires the current password. Existing tokens stay valid until they expire
+    (24 hours). If the button manager logs in with this account, update
+    /etc/lightshowpi/buttons.env too.
+    """
+    ip = client_ip(request)
+    if login_limiter.is_limited(ip):
+        raise _too_many_attempts(ip)
+
+    username = current_user["username"]
+    if not auth_mgr.authenticate_user(username, body.current_password, client_ip=ip):
+        login_limiter.record(ip)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Current password is incorrect")
+
+    problem = password_problem(body.new_password)
+    if problem is None and body.new_password == body.current_password:
+        problem = "New password must differ from the current one"
+    if problem:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=problem)
+
+    if not auth_mgr.set_password(username, body.new_password):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
 
 # ============================================================================
@@ -306,6 +387,6 @@ if __name__ == "__main__":
         "api.main:app",
         host=config.host,
         port=config.port,
-        reload=True,  # Remove in production
+        reload=dev_mode(),  # auto-reload on code changes only with LSP_DEV=1
         log_level="info"
     )

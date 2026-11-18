@@ -9,7 +9,7 @@ import os
 import secrets
 import logging
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 import json
 
@@ -21,12 +21,62 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 log = logging.getLogger(__name__)
 
-# JWT configuration
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_urlsafe(32))
+# JWT configuration. SECRET_KEY is replaced by configure_secret_key() when the
+# API starts; the import-time value only keeps imports (and tests) working.
+SECRET_KEY = os.getenv("JWT_SECRET_KEY") or secrets.token_urlsafe(32)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+MIN_SECRET_LENGTH = 32
+MIN_PASSWORD_LENGTH = 8
+# Passwords that were published as defaults and must never be accepted
+FORBIDDEN_PASSWORDS = {"admin123"}
 
-security = HTTPBearer()
+# auto_error=False so a missing token is a 401 (not FastAPI's version-dependent
+# 403); the frontend and the button manager both treat 401 as "log in again".
+security = HTTPBearer(auto_error=False)
+
+
+def dev_mode() -> bool:
+    """True when LSP_DEV=1: development conveniences (reload, Vite CORS, throwaway JWT key)."""
+    return os.getenv("LSP_DEV", "").strip().lower() in ("1", "true", "yes")
+
+
+def configure_secret_key() -> str:
+    """
+    Load the JWT signing key from $JWT_SECRET_KEY, called once at API startup.
+
+    The key must be set (at least 32 characters) so that tokens survive a
+    restart and can't be forged. Ansible writes it to /etc/lightshowpi/api.env.
+    With LSP_DEV=1 a missing key is replaced by a random one, with a warning.
+
+    Raises:
+        RuntimeError: If the key is missing or too short outside dev mode
+    """
+    global SECRET_KEY
+    key = os.getenv("JWT_SECRET_KEY", "").strip()
+    if len(key) >= MIN_SECRET_LENGTH:
+        SECRET_KEY = key
+        return SECRET_KEY
+    if dev_mode():
+        log.warning("JWT_SECRET_KEY is not set (or shorter than %d characters); "
+                    "LSP_DEV=1, so using a random key. Logins end when the API restarts.",
+                    MIN_SECRET_LENGTH)
+        SECRET_KEY = secrets.token_urlsafe(48)
+        return SECRET_KEY
+    raise RuntimeError(
+        f"JWT_SECRET_KEY must be set to at least {MIN_SECRET_LENGTH} characters "
+        "(e.g. in /etc/lightshowpi/api.env; generate one with "
+        "`python -c 'import secrets; print(secrets.token_urlsafe(48))'`). "
+        "For local development set LSP_DEV=1 instead.")
+
+
+def password_problem(password: str) -> Optional[str]:
+    """Return why ``password`` is unacceptable, or None if it is fine."""
+    if not password or len(password) < MIN_PASSWORD_LENGTH:
+        return f"Password must be at least {MIN_PASSWORD_LENGTH} characters"
+    if password.lower() in FORBIDDEN_PASSWORDS:
+        return "That password is a published default; choose another"
+    return None
 
 
 class AuthManager:
@@ -104,6 +154,32 @@ class AuthManager:
             except sqlite3.IntegrityError:
                 raise ValueError(f"Username '{username}' already exists")
 
+    def set_password(self, username: str, new_password: str) -> bool:
+        """
+        Replace a user's password (no check of the old one: callers do that).
+
+        Args:
+            username: Existing username
+            new_password: New plain text password (will be hashed)
+
+        Returns:
+            bool: True if the user existed and was updated
+
+        Raises:
+            ValueError: If the new password fails password_problem()
+        """
+        problem = password_problem(new_password)
+        if problem:
+            raise ValueError(problem)
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET password_hash = ? WHERE username = ?",
+                           (self.hash_password(new_password), username))
+            updated = cursor.rowcount > 0
+        if updated:
+            log.info(f"Password changed for user: {username}")
+        return updated
+
     def authenticate_user(self, username: str, password: str, client_ip: Optional[str] = None) -> Optional[dict]:
         """
         Authenticate a user.
@@ -161,9 +237,9 @@ class AuthManager:
         """
         to_encode = data.copy()
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = datetime.now(timezone.utc) + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+            expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
         to_encode.update({"exp": expire})
         encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -217,8 +293,40 @@ class AuthManager:
         return secrets.token_urlsafe(32)
 
 
+def ensure_admin_user(auth_manager: "AuthManager", db) -> Optional[str]:
+    """
+    Create the first user (``admin``) on a fresh database.
+
+    The password comes from $ADMIN_PASSWORD and is never logged. There is no
+    built-in fallback: with no (or an unacceptable) ADMIN_PASSWORD no user is
+    created and an error explains how to set one, so the API never runs with a
+    published default password.
+
+    Returns:
+        str: "created", "exists" or "missing" (no user could be created)
+    """
+    with db.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users")
+        if cursor.fetchone()[0] > 0:
+            return "exists"
+
+    password = os.getenv("ADMIN_PASSWORD", "")
+    problem = password_problem(password) if password else "ADMIN_PASSWORD is not set"
+    if problem:
+        log.error("No API users exist and no admin was created: %s. Set ADMIN_PASSWORD "
+                  "(e.g. in /etc/lightshowpi/api.env) and restart, or run "
+                  "`python -m api.manage set-password admin`.", problem)
+        return "missing"
+
+    auth_manager.create_user("admin", password)
+    log.warning("Created the admin user from ADMIN_PASSWORD "
+                "(it is only read when the database has no users)")
+    return "created"
+
+
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Security(security)
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(security)
 ) -> dict:
     """
     Dependency for getting the current authenticated user.
@@ -232,6 +340,12 @@ async def get_current_user(
     Raises:
         HTTPException: If authentication fails
     """
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     token = credentials.credentials
     payload = AuthManager.decode_token(token)  # Use static method
     username = payload.get("sub")

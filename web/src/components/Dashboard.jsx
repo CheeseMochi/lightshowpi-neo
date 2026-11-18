@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { lightshow, schedules as schedulesApi, buttons } from '../services/api';
 import ScheduleManager from './ScheduleManager';
+import ChangePassword from './ChangePassword';
 import '../styles/Dashboard.css';
 
 export default function Dashboard({ onLogout }) {
@@ -9,6 +10,7 @@ export default function Dashboard({ onLogout }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showSchedules, setShowSchedules] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [buttonStatus, setButtonStatus] = useState(null);
   const [buttonHealth, setButtonHealth] = useState(null);
   const [selectedMode, setSelectedMode] = useState('playlist');
@@ -145,10 +147,20 @@ export default function Dashboard({ onLogout }) {
     <div className="dashboard">
       <header className="dashboard-header">
         <h1>🎄 LightShowPi Neo</h1>
-        <button onClick={onLogout} className="btn btn-secondary">
-          Logout
-        </button>
+        <div className="header-actions">
+          <button
+            onClick={() => setShowPassword((v) => !v)}
+            className="btn btn-secondary"
+          >
+            Password
+          </button>
+          <button onClick={onLogout} className="btn btn-secondary">
+            Logout
+          </button>
+        </div>
       </header>
+
+      {showPassword && <ChangePassword onDone={() => setShowPassword(false)} />}
 
       {error && <div className="error-banner">{error}</div>}
       {buttonHealth && !buttonHealth.healthy && (

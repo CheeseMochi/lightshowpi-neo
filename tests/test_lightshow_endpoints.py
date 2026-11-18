@@ -9,7 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.core.auth import require_admin
+from api.core.auth import get_current_user, require_admin
 from api.core.database import Database
 from api.models.schemas import LightshowState
 from api.routers import lightshow
@@ -73,6 +73,7 @@ def app(manager, scheduler, database):
     app.dependency_overrides[get_optional_scheduler] = lambda: scheduler
     app.dependency_overrides[lightshow.get_optional_database] = lambda: database
     app.dependency_overrides[require_admin] = lambda: {"username": "tester", "id": 1}
+    app.dependency_overrides[get_current_user] = lambda: {"username": "tester", "id": 1}
     return app
 
 
