@@ -60,22 +60,33 @@ rsync -av --exclude .cache research/out/ piserver-neo.local:lightshowpi/research
 ssh piserver-neo.local
 cd ~/lightshowpi && source ~/miniforge3/bin/activate lightshowpi-neo
 export SYNCHRONIZED_LIGHTS_HOME=$PWD
-python -c "import sys; sys.path.insert(0, 'py'); import configuration_manager as c; print('gpio_len =', c.Configuration().hardware.gpio_len)"
+python -c "
+import sys, importlib.util as u; sys.path.insert(0, 'py'); import configuration_manager as c
+m = c.Configuration(); led = u.find_spec('bibliopixel') is not None
+for lc in (m.configs.led or []) if led else []: m.set_led(config_file=lc)
+print('gpio_len =', m.hardware.gpio_len, '| LED configs loaded:', led)"
 
 # 3. Stop the show, then play one file at a time (each returns to the prompt;
 #    wait for the song to end or run bin/stop_music_and_lights)
+sudo -v                          # cache sudo first: the script runs sudo in the background
 bin/stop_music_and_lights
 bin/start_music_and_lights --file=$PWD/research/out/evilwezil_carol-of-the-bells-alternate/evilwezil_carol-of-the-bells.mp3
 bin/start_music_and_lights --file=$PWD/music/sample/evilwezil_carol-of-the-bells.mp3            # FFT today
 bin/start_music_and_lights --file=$PWD/research/out/evilwezil_carol-of-the-bells-beat_chase/evilwezil_carol-of-the-bells.mp3
 ```
 
+After each song, your `postshow_script` (the random twinkle, up to 30 min) starts. That's
+expected: the next `start_music_and_lights` stops it, and `bin/stop_music_and_lights` ends
+it when you're done.
+
 **Step 0 (`alternate`) passes** when odd and even channels swap steadily every 0.5 s and stay
 in time with the music to the end. The music must also play without dropouts, since a CSV song
 reads a row every 25 ms. Then compare the FFT and `beat_chase` runs by eye.
 
 `light_delay` still applies to CSV songs: 150 ms with your settings, against 139 ms for FFT
-songs. The preview doesn't apply it.
+songs. The preview doesn't apply it. If `beat_chase` looks consistently early or late on the
+Pi while `alternate` looks fine, suspect the decoders: the Mac decodes with soundfile, the Pi
+with audioread/ffmpeg. Tell Claude, and the CSV can be shifted.
 
 ## Tests
 

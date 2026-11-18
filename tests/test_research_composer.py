@@ -158,6 +158,17 @@ class TestBeatChase:
         assert (accent[:, active].sum(axis=1) == 6).any()
         assert not (no_accent[:, active].sum(axis=1) == 6).any()
 
+    def test_gaps_in_the_beat_grid_dont_hold_lights(self):
+        """librosa drops beats in fade-outs and breaks; no 10 s hold at the end."""
+        seconds = 30
+        rows = timing.row_count(int(seconds * SR), SR)
+        beats = beat_grid(120, 15)                     # no beats in the last 15 s
+        levels = strategies.beat_chase(beats, np.linspace(0, seconds, 300), np.full(300, -10.0),
+                                       rows, SR, strategies.Layout(7, dead=[1]))
+        period = timing.row_period(SR)
+        longest = max((e - s) * period for c in range(7) for s, e in safety.runs(levels[:, c] > 0.5))
+        assert longest <= 1.5 * 0.5 + 0.05
+
     def test_bounce_positions(self):
         assert strategies.chase_positions(8, 4, True).tolist() == [0, 1, 2, 3, 2, 1, 0, 1]
         assert strategies.chase_positions(5, 4, False).tolist() == [0, 1, 2, 3, 0]
@@ -187,7 +198,7 @@ def test_preview_embeds_valid_data(tmp_path):
     data = json.loads(re.search(r"const D = (.*);\n", page).group(1))
     assert len(data["channels"]) == 7 and data["channels"][1]["dead"] is True
     assert data["metrics"]["mean_channel_correlation"] == "n/a"
-    assert 'src="song with &#x27;quote&#x27;.mp3"' in page
+    assert 'src="song%20with%20%27quote%27.mp3"' in page
 
 
 # ---------------------------------------------------------------------------

@@ -106,6 +106,9 @@ def beat_chase(beat_times, energy_times, energy_db, rows: int, sample_rate: int,
     db_at = np.interp(steps, energy_times, energy_db) if energy_db.size else \
         np.full_like(steps, loud_db)
 
+    # Cap each step at 1.5 median steps: librosa drops weak beats (intros,
+    # fade-outs, breaks), and the last step would otherwise hold to the end
+    median_step = float(np.median(np.diff(steps))) if steps.size > 1 else 0.5
     heads = chase_positions(steps.size, group, opts.bounce)
     beat_index = np.searchsorted(np.asarray(beat_times, dtype=float), steps)
     ends = np.append(steps[1:], times[-1] + (times[1] - times[0] if rows > 1 else 0.025))
@@ -113,7 +116,7 @@ def beat_chase(beat_times, energy_times, energy_db, rows: int, sample_rate: int,
     for i, (start, end) in enumerate(zip(steps, ends)):
         if db_at[i] < loud_db - opts.quiet_db:
             continue  # quiet = dark
-        step_len = end - start
+        step_len = min(end - start, 1.5 * median_step)
         on_len = max(opts.min_on, step_len * (1 - opts.gap_fraction))
         r0 = int(np.searchsorted(times, start - 1e-9))
         r1 = min(rows, r0 + seconds_to_rows(on_len, sample_rate, timing_ms))

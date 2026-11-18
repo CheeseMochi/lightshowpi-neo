@@ -8,6 +8,7 @@ Pi's light_delay is not applied: the preview shows the CSV as written.
 
 import html
 import json
+from urllib.parse import quote
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -106,7 +107,7 @@ def write_preview(path: str, levels: np.ndarray, sample_rate: int, audio_name: s
     }
     page = (PAGE.replace("__TITLE__", html.escape(title))
                 .replace("__SUBTITLE__", html.escape(subtitle))
-                .replace("__AUDIO__", html.escape(audio_name, quote=True))
+                .replace("__AUDIO__", html.escape(quote(audio_name), quote=True))
                 .replace("__DATA__", json.dumps(data, allow_nan=False, default=float)
                          .replace("</", "<\\/")))
     with open(path, "w") as f:
