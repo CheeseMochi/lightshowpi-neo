@@ -134,3 +134,7 @@ data/*.db-journal
 
 # Per-host deployment files (converted configs etc.); never commit
 deploy/local/
+
+# Research composer (research/): generated sequences + song copies, and its venv
+research/out/
+.venv-research/

@@ -69,6 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tools/sacn_monitor.py`: watches sACN packets arriving on a Pi (packets/s,
   sequence gaps, sender, levels) with a pass/fail mode, and
   `docs/bench/SACN_BENCH.md`, the Pi-to-Pi sACN bench procedure for the D9 go/no-go.
+- **Offline composer (research)**: `research/compose.py` analyses a song on the
+  Mac (librosa beat tracking and loudness) and writes the headerless `song.csv`
+  the Pi already plays, so it needs no show-code changes. `beat_chase` puts every
+  relay edge on a beat with minimum on/off times for mechanical relays, and goes
+  dark in quiet passages. Each run also scores today's FFT show on the same song
+  and writes an HTML preview (song plus lamps). See `research/README.md`.
 
 ### Changed
 - Test patterns in `hardware_controller.py` moved into a `Patterns` class so the
