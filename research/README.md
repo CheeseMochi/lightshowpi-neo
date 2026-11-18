@@ -1,92 +1,104 @@
-# Offline composer (research)
+# Offline composer and test bed (research)
 
-`research/compose.py` analyses a song on the Mac and writes a `song.csv` that the Pi
-already knows how to play. A CSV beside an mp3 replaces that song's FFT show. **No show
-code changes**, so it's safe to try during the freeze. Background and design:
+The Mac analyses a song and writes `song.csv` sequences that the Pi already knows how to
+play. A CSV beside an audio file replaces that song's FFT show. **No show code changes**,
+so it's safe to try during the freeze. Background and design:
 [docs/research/ALGORITHMS.md](../docs/research/ALGORITHMS.md).
 
-| Strategy | What it does |
-|---|---|
-| `beat_chase` | Each beat, a group of adjacent channels lights and the group moves one place along (bouncing at the ends). Louder passages light more channels, and quiet passages go dark. Beats faster than `--min-step` (0.4 s) skip every other beat. ON edges land on beats, and every pulse respects `--min-on` and `--min-off` (0.20 s and 0.15 s, for mechanical relays). |
-| `alternate` | Step-0 test pattern: odd and even channels swap every 0.5 s. It proves the CSV path and A/V sync on the Pi. |
+1. **Mac:** `research/bundle.py` builds one folder per song with every show variant, as the
+   full song and as a 30 s clip, plus a browser preview.
+2. **Copy** `research/out/` to the Pi.
+3. **Pi, over ssh:** `research/testbed.py` plays the variants on the real lights through the
+   normal show engine. You choose one at a time from a menu, or play them all back to back.
 
-Every run also scores the FFT show you have today on the same song, using the Pi's own
-`py/fft.py` with production `chunk_size = 2048` and `custom_channel_mapping`, so you can
-compare them:
+## Variants
 
-| Sample song | | On beat (±50 ms) | Toggles per channel per min | Relay min-time violations |
-|---|---|---|---|---|
-| Carol of the Bells | `beat_chase` | 100% | 144 | 0 |
-| | FFT today | 34% | 315 | 4,212 |
-| Deck the Halls | `beat_chase` | 100% | 160 | 0 |
-| | FFT today | 38% | 301 | 1,892 |
+| # | Name | What you'll see |
+|---|---|---|
+| 1 | `fft` | **Today's show**: one frequency band per channel, ON above a 0.5 threshold. It's simulated with the Pi's own `fft.py` and your `chunk_size = 2048` and channel mapping. |
+| 2 | `fft_safe` | The same levels with hysteresis and minimum on/off times. The same look with far less flicker. |
+| 3 | `beat_chase` | A group of adjacent channels steps along on every beat and bounces at the ends. Louder means a bigger group; quiet passages go dark. |
+| 4 | `beat_chase_calm` | The chase on every other beat with at most 3 channels lit. |
+| 5 | `vu_meter` | A bar graph from channel 1 up, refreshed on each beat. |
+| 6 | `beat_ab` | Odd and even channels swap on every beat. |
+| 7 | `onset_bands` | One band per channel like today, but channels fire on *hits* (drums, note attacks), not loudness. Hits near a beat snap to it. |
+| 8 | `sections` | A different look per song section (sparse → A/B → chase → all-pulse, by loudness), and the same look when a section repeats. A short blackout and a flash lead into louder sections. |
+| 9 | `test_alternate` | Odd/even swap every 0.5 s whatever the music does. It checks the CSV path and audio/light sync. |
 
-These numbers say it's relay-safe and on the beat. They don't say it looks good. Judge
-that from the preview and the lights.
+Every relay variant keeps each pulse at least 0.20 s on and at least 0.15 s off, for
+mechanical relays (`--min-on` and `--min-off`). The beat variants put every switch-on on a
+beat.
 
-## On the Mac
+## 1. Mac: build the bundles
 
 ```bash
 python -m venv .venv-research
 .venv-research/bin/pip install -r research/requirements-research.txt
 # (inside a Claude Code sandbox, add --use-deprecated=legacy-certs)
 
-.venv-research/bin/python research/compose.py music/sample/evilwezil_carol-of-the-bells.mp3 \
-    --channels 7 --dead 2
-open research/out/evilwezil_carol-of-the-bells-beat_chase/preview.html
+.venv-research/bin/python research/bundle.py music/sample/evilwezil_carol-of-the-bells.mp3 \
+    music/sample/ovenrake_deck-the-halls.mp3 --channels 7
+open research/out/evilwezil_carol-of-the-bells/preview.html     # every variant in the browser
 ```
 
-- `--channels` **must equal the Pi's `gpio_len`**, or that song stops with "Number of
-  channels in sequence does not match". Print it on the Pi (below).
-- `--dead 2` keeps channel 2 dark, with 1-based numbers like `always_off_channels`. The chase
-  then skips it.
-- Useful knobs:
-  - `--tempo-scale 0.5` or `2`: fix a half- or double-tempo beat track. It also calms a busy song.
-  - `--max-lit 3`
-  - `--beats-per-bar 4` (`3` for waltzes): full flashes on loud downbeats.
-  - `--no-bounce`
-- Output goes to `research/out/<song>-<strategy>/`. That folder holds a copy of the song, the CSV
-  beside it, `preview.html` and `metrics.json`. Nothing is written next to your playlist songs.
-  `research/out/` is git-ignored.
+- `--channels` must equal the Pi's `gpio_len` (7 on `piserver-neo`). The test bed checks it and
+  refuses a mismatched bundle.
+- `--dead 2` keeps channels dark (1-based, like `always_off_channels`). The patterns then skip them.
+- The clip is the loudest 30 s by default. Use `--clip-start 62` (seconds) to choose your own, and
+  `--clip-seconds` to change its length.
+- To pick variants: `--variants fft,beat_chase,sections`. Use `--tempo-scale 0.5` or `2` if the
+  beat tracker got a song's tempo half or double.
+- The audio is decoded on the Mac and saved as WAV. The Pi plays exactly the samples the CSVs were
+  timed against, so there's no decoder offset between them.
 
-## On the Pi (piserver-neo, before the 17:30 cron start)
+## 2. Copy to the Pi
 
 ```bash
-# 1. Mac: copy the composed folders over
 ssh piserver-neo.local mkdir -p lightshowpi/research/out
 rsync -av --exclude .cache research/out/ piserver-neo.local:lightshowpi/research/out/
-
-# 2. Pi: set up the shell, and check the column count (must match --channels)
-ssh piserver-neo.local
-cd ~/lightshowpi && source ~/miniforge3/bin/activate lightshowpi-neo
-export SYNCHRONIZED_LIGHTS_HOME=$PWD
-python -c "
-import sys, importlib.util as u; sys.path.insert(0, 'py'); import configuration_manager as c
-m = c.Configuration(); led = u.find_spec('bibliopixel') is not None
-for lc in (m.configs.led or []) if led else []: m.set_led(config_file=lc)
-print('gpio_len =', m.hardware.gpio_len, '| LED configs loaded:', led)"
-
-# 3. Stop the show, then play one file at a time (each returns to the prompt;
-#    wait for the song to end or run bin/stop_music_and_lights)
-sudo -v                          # cache sudo first: the script runs sudo in the background
-bin/stop_music_and_lights
-bin/start_music_and_lights --file=$PWD/research/out/evilwezil_carol-of-the-bells-alternate/evilwezil_carol-of-the-bells.mp3
-bin/start_music_and_lights --file=$PWD/music/sample/evilwezil_carol-of-the-bells.mp3            # FFT today
-bin/start_music_and_lights --file=$PWD/research/out/evilwezil_carol-of-the-bells-beat_chase/evilwezil_carol-of-the-bells.mp3
 ```
 
-After each song, your `postshow_script` (the random twinkle, up to 30 min) starts. That's
-expected: the next `start_music_and_lights` stops it, and `bin/stop_music_and_lights` ends
-it when you're done.
+The test bed is part of the repo (`research/testbed.py`). Merge this branch and run
+`make deploy HOST=piserver-neo`, or `rsync -av research/ piserver-neo.local:lightshowpi/research/`.
 
-**Step 0 (`alternate`) passes** when odd and even channels swap steadily every 0.5 s and stay
-in time with the music to the end. The music must also play without dropouts, since a CSV song
-reads a row every 25 ms. Then compare the FFT and `beat_chase` runs by eye.
+## 3. Pi: run the test bed
 
-`light_delay` still applies to CSV songs: 150 ms with your settings, against 139 ms for FFT
-songs. The preview doesn't apply it. If `beat_chase` looks consistently early or late on the
-Pi while `alternate` looks fine, suspect the decoders: the Mac decodes with soundfile, the Pi
-with audioread/ffmpeg. Tell Claude, and the CSV can be shifted.
+```bash
+ssh piserver-neo.local
+cd ~/lightshowpi && source ~/miniforge3/bin/activate lightshowpi-neo
+python research/testbed.py
+```
+
+It asks for your sudo password once, stops the running show, and shows a menu:
+
+```
+━━ evilwezil_carol-of-the-bells  ·  7 channels  ·  123 BPM  ·  mode: 30 s clip (14-44 s)
+   1. Today's show (FFT)           What plays now: one frequency band per channel...
+   2. Today's show, relay-safe     ...
+   ...
+  number = play it   a = all back to back   l = loop all until Ctrl-C
+  m = switch clip/full   i N = details of variant N   s = pick another song   q = quit
+```
+
+- **Compare the same 30 s back to back:** press `a`. Each variant's title prints as it starts.
+- `l` loops all variants until **Ctrl-C**. Ctrl-C always stops the current variant and turns the
+  lights off.
+- **Without the menu:**
+  `python research/testbed.py run evilwezil_carol-of-the-bells --variants fft,beat_chase,sections --repeat 3`
+- Each variant runs `py/synchronized_lights.py --file=…` with a generated `config/testbed.cfg`.
+  That file is your `overrides.cfg` with the pre-show and postshow off. So `light_delay`, channel
+  overrides, Nanoleaf (`[output:nanoleaf]`) and network clients all behave as in the real show.
+  The show's own output goes to `logs/testbed.log`.
+- **When done:** the show stays stopped. Run `bin/start_music_and_lights`, or let cron start it.
+  The test bed prints cron's start time when it can read the crontab.
+
+**Step 0:** play `test_alternate` first. It passes when odd and even channels swap steadily every
+0.5 s and stay in time with the music, with no audio dropouts.
+
+## Single-strategy tool
+
+`research/compose.py` writes one strategy's CSV and a preview, for quick experiments. It's
+superseded by `bundle.py` for testing on the lights.
 
 ## Tests
 
@@ -94,4 +106,4 @@ with audioread/ffmpeg. Tell Claude, and the CSV can be shifted.
 SYNCHRONIZED_LIGHTS_HOME=$(pwd) .venv-research/bin/python -m pytest -q -p no:cacheprovider tests/test_research_composer.py
 ```
 
-The CI and dev env run the same file. The librosa test skips there.
+CI and the dev env run the same file; the librosa tests skip there.
