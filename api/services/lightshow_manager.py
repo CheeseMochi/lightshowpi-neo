@@ -12,7 +12,7 @@ import subprocess
 import logging
 import time
 from typing import Optional, Dict, Any
-from threading import Thread, Lock
+from threading import Event, Thread, Lock
 
 # Add py directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..', 'py'))
@@ -76,6 +76,17 @@ class LightshowManager:
         self.lock = Lock()
         self.output_thread: Optional[Thread] = None
         self.error_message: Optional[str] = None
+
+        # Playlist loop: synchronized_lights.py plays one song per run, so a
+        # supervisor thread starts the next run until a stop condition.
+        self._cmd: Optional[list] = None
+        self._stop_event = Event()
+        self._supervisor: Optional[Thread] = None
+        self._spawned_at: Optional[float] = None
+        self.min_run_seconds = 5.0        # a run shorter than this counts as a failure
+        self.max_fast_failures = 3        # consecutive short runs before giving up
+        self.fast_failure_pause = 5.0     # pause after a short run
+        self.startup_check_seconds = 1.0  # how long start() waits before checking the process
 
         # Get paths
         self.home = os.getenv("SYNCHRONIZED_LIGHTS_HOME")
@@ -206,21 +217,11 @@ class LightshowManager:
 
                 log.info(f"Starting lightshow: {' '.join(cmd)}")
 
-                # Start subprocess
-                self.process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    cwd=self.home,
-                    env=os.environ.copy()
-                )
-
-                # Start output reader thread
-                self.output_thread = Thread(target=self._read_output, daemon=True)
-                self.output_thread.start()
+                self._stop_event.clear()
+                self._spawn(cmd)
 
                 # Give it a moment to start
-                time.sleep(1)
+                time.sleep(self.startup_check_seconds)
 
                 # Check if process is still running
                 if self.process.poll() is not None:
@@ -231,6 +232,13 @@ class LightshowManager:
 
                 self.state = LightshowState.PLAYING
                 log.info("Lightshow started successfully")
+
+                # Playlists: keep playing song after song until stopped
+                if self.current_playlist and (not mode or mode == "playlist"):
+                    self._cmd = cmd
+                    self._supervisor = Thread(target=self._supervise, daemon=True,
+                                              name="lightshow-playlist-loop")
+                    self._supervisor.start()
                 return True
 
             except Exception as e:
@@ -239,9 +247,80 @@ class LightshowManager:
                 self.error_message = str(e)
                 return False
 
+    def _spawn(self, cmd: list) -> None:
+        """Start one synchronized_lights.py run and its output reader."""
+        self.process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=self.home,
+            env=os.environ.copy()
+        )
+        self._spawned_at = time.monotonic()
+        self.output_thread = Thread(target=self._read_output, daemon=True)
+        self.output_thread.start()
+
+    def _supervise(self) -> None:
+        """Start the next song each time a run ends, until a stop condition.
+
+        Stops on: stop()/pause (the stop event), test mode becoming active, or
+        max_fast_failures consecutive runs shorter than min_run_seconds (a
+        crash or bad config; state becomes ERROR rather than spinning).
+        """
+        fast_failures = 0
+        while True:
+            proc = self.process
+            if proc is None:
+                return
+            proc.wait()
+            if self._stop_event.is_set():
+                return
+            ran = time.monotonic() - (self._spawned_at or 0)
+            if ran < self.min_run_seconds:
+                fast_failures += 1
+                log.warning(f"Lightshow run ended after {ran:.1f}s "
+                            f"({fast_failures}/{self.max_fast_failures})")
+                if fast_failures >= self.max_fast_failures:
+                    with self.lock:
+                        if self._stop_event.is_set():
+                            return
+                        self.process = None
+                        self.state = LightshowState.ERROR
+                        self.error_message = (f"Show exited {fast_failures} times in a row "
+                                              f"within {self.min_run_seconds:.0f}s; stopped")
+                    log.error(self.error_message)
+                    return
+                if self._stop_event.wait(self.fast_failure_pause):
+                    return
+            else:
+                fast_failures = 0
+
+            with self.lock:
+                if self._stop_event.is_set():
+                    return
+                if self.is_test_mode_active():
+                    log.info("Test mode is active - not starting the next song")
+                    self.process = None
+                    self.state = LightshowState.IDLE
+                    return
+                try:
+                    self._spawn(self._cmd)
+                    self.state = LightshowState.PLAYING
+                    log.info("Playlist loop: started next song")
+                except Exception as e:
+                    log.error(f"Playlist loop could not start the next song: {e}")
+                    self.process = None
+                    self.state = LightshowState.ERROR
+                    self.error_message = str(e)
+                    return
+
+    def _looping(self) -> bool:
+        return (self._supervisor is not None and self._supervisor.is_alive()
+                and not self._stop_event.is_set())
+
     def stop(self, graceful: bool = True) -> bool:
         """
-        Stop the lightshow.
+        Stop the lightshow (and the playlist loop, so no next song starts).
 
         Args:
             graceful: If True, send SIGTERM; if False, send SIGKILL
@@ -249,6 +328,7 @@ class LightshowManager:
         Returns:
             bool: True if stopped successfully
         """
+        self._stop_event.set()
         with self.lock:
             if not self.process:
                 log.warning("No lightshow process running")
@@ -312,6 +392,10 @@ class LightshowManager:
         Returns:
             bool: True if process is running
         """
+        # Between songs of a looping playlist the show is still running
+        if self._looping():
+            return True
+
         if not self.process:
             return False
 

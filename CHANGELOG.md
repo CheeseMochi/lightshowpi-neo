@@ -84,6 +84,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and an OSV scan of a fresh `requirements-dev.txt` install both report none.
 
 ### Fixed
+- **The API played only one song per Start.** `LightshowManager` now loops a
+  playlist start song after song (skip moves to the next song) until stop or
+  pause, the scheduler stops it, test mode becomes active, or three runs in a
+  row end within 5 s (state ERROR instead of spinning). Single-song and
+  ambient starts are unchanged.
 - **`bin/start_music_and_lights` played only one song.** `synchronized_lights.py`
   plays one song per run; the start script now loops it over the playlist
   until `bin/stop_music_and_lights`, as the original LightShowPi did.
