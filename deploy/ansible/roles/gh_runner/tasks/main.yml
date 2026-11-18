@@ -77,7 +77,18 @@
           --labels {{ gh_runner_extra_labels | join(',') }}
         chdir: "{{ gh_runner_dir }}"
         creates: "{{ gh_runner_dir }}/.runner"
+      register: gh_runner_config
+      failed_when: false
       no_log: true
+
+    # no_log above keeps the token out of the output; show the error without it
+    - name: Show why runner registration failed (token redacted)
+      ansible.builtin.fail:
+        msg: >-
+          config.sh exited {{ gh_runner_config.rc }}:
+          {{ ((gh_runner_config.stdout | default('')) ~ ' ' ~ (gh_runner_config.stderr | default('')))
+             | replace(gh_runner_token, '<token>') | trim }}
+      when: (gh_runner_config.rc | default(0)) != 0
 
 - name: Install runner as a systemd service
   ansible.builtin.command:
