@@ -92,6 +92,8 @@ class SACNNetworking(object):
         # Channel configuration
         self.channels = cm.network.channels
         self.num_channels = cm.hardware.gpio_len
+        # Client: apply per-song overrides sent by the server (same as networking.py)
+        self.get_overrides = bool(getattr(cm.network, 'get_overrides', False))
 
         self.setup()
 
