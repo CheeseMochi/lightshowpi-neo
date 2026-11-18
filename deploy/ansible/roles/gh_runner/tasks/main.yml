@@ -48,13 +48,15 @@
     chdir: "{{ gh_runner_dir }}"
     creates: "{{ gh_runner_dir }}/.deps_installed"
 
+# Newer runner versions move .runner to .runner_migrated; either means registered
 - name: Check runner registration
   ansible.builtin.stat:
-    path: "{{ gh_runner_dir }}/.runner"
+    path: "{{ gh_runner_dir }}/{{ item }}"
+  loop: [.runner, .runner_migrated]
   register: gh_runner_registered
 
 - name: Register runner
-  when: not gh_runner_registered.stat.exists
+  when: not (gh_runner_registered.results | selectattr('stat.exists') | list)
   block:
     - name: Require registration token
       ansible.builtin.assert:
@@ -76,7 +78,6 @@
           --name {{ gh_runner_name }}
           --labels {{ gh_runner_extra_labels | join(',') }}
         chdir: "{{ gh_runner_dir }}"
-        creates: "{{ gh_runner_dir }}/.runner"
       register: gh_runner_config
       failed_when: false
       no_log: true
