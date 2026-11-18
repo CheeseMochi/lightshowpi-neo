@@ -373,6 +373,29 @@ class TestTestbed:
         assert cfg.get("lightshow", "preshow_configuration") == ""
         assert cfg.get("lightshow", "light_delay") == "0.04"
         assert cfg.get("hardware", "gpio_pins") == "0,1,2"
+        assert cfg.get("lightshow", "always_off_channels") == "-1"
+        testbed.write_testbed_config(str(tmp_path), keep_overrides=True)
+        cfg = configparser.RawConfigParser()
+        cfg.read(tmp_path / "config" / name)
+        assert not cfg.has_option("lightshow", "always_off_channels")
+
+    def test_early_exit_with_code_0_is_a_failure(self, tmp_path, capsys):
+        class Proc:
+            def wait(self, timeout=None):
+                return 0
+
+        times = iter([0.0, 0.4])
+        result = testbed.play("a.wav", "A", runner=lambda cmd, **kw: Proc(),
+                              log_path=str(tmp_path / "t.log"), expected_s=30,
+                              clock=lambda: next(times))
+        assert result == "failed"
+        assert "ended after 0.4 s" in capsys.readouterr().out
+
+    def test_menu_refuses_a_bundle_that_doesnt_fit(self, out_dir, capsys):
+        played = []
+        testbed.menu(out_dir, testbed.find_bundles(out_dir), (8, 25, 255),
+                     input_fn=lambda prompt: "q", play_fn=lambda *a: played.append(a))
+        assert played == [] and "--channels 8" in capsys.readouterr().out
 
     def test_show_command(self):
         cmd = testbed.show_command("/x/clip.wav", python="/py", repo="/r", sudo=True)
@@ -408,12 +431,12 @@ class TestTestbed:
         monkeypatch.setattr(testbed.time, "sleep", lambda s: None)
         played = []
         result = testbed.play_sequence(out_dir, "song", MANIFEST, "clip", ["fft", "beat_chase"],
-                                       repeat=2, play_fn=lambda p, t: played.append(p) or "done")
+                                       repeat=2, play_fn=lambda p, t, e: played.append(p) or "done")
         assert result == "done" and len(played) == 4
         assert played[1].endswith(os.path.join("song", "clip", "beat_chase", "clip.wav"))
         played.clear()
         result = testbed.play_sequence(out_dir, "song", MANIFEST, "full", ["fft", "beat_chase"],
-                                       play_fn=lambda p, t: played.append(p) or "stopped")
+                                       play_fn=lambda p, t, e: played.append(p) or "stopped")
         assert result == "stopped" and len(played) == 1
 
     def test_menu_script(self, out_dir, monkeypatch):
@@ -422,7 +445,7 @@ class TestTestbed:
         played = []
         testbed.menu(out_dir, testbed.find_bundles(out_dir), (7, 25, 255),
                      input_fn=lambda prompt: next(answers),
-                     play_fn=lambda p, t: played.append(p) or "done")
+                     play_fn=lambda p, t, e: played.append(p) or "done")
         assert [os.path.relpath(p, out_dir) for p in played] == [
             os.path.join("song", "clip", "beat_chase", "clip.wav"),
             os.path.join("song", "full", "fft", "full.wav"),

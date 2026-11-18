@@ -58,8 +58,9 @@ ssh piserver-neo.local mkdir -p lightshowpi/research/out
 rsync -av --exclude .cache research/out/ piserver-neo.local:lightshowpi/research/out/
 ```
 
-The test bed is part of the repo (`research/testbed.py`). Merge this branch and run
-`make deploy HOST=piserver-neo`, or `rsync -av research/ piserver-neo.local:lightshowpi/research/`.
+The test bed itself is in the repo (`research/testbed.py`). Merge the `research-composer` PR
+and run `make deploy HOST=piserver-neo`. Don't rsync `research/` code into the Pi's checkout:
+the deploy's `git` step won't overwrite untracked files, and the next deploy would fail.
 
 ## 3. Pi: run the test bed
 
@@ -86,11 +87,17 @@ It asks for your sudo password once, stops the running show, and shows a menu:
 - **Without the menu:**
   `python research/testbed.py run evilwezil_carol-of-the-bells --variants fft,beat_chase,sections --repeat 3`
 - Each variant runs `py/synchronized_lights.py --file=…` with a generated `config/testbed.cfg`.
-  That file is your `overrides.cfg` with the pre-show and postshow off. So `light_delay`, channel
-  overrides, Nanoleaf (`[output:nanoleaf]`) and network clients all behave as in the real show.
+  That file is your `overrides.cfg` with the pre-show and postshow off, and with
+  `always_on`/`always_off`/`invert_channels` reset, so every relay shows every pattern.
+  `--keep-overrides` keeps those three. `light_delay`, Nanoleaf (`[output:nanoleaf]`) and network
+  clients behave as in the real show.
   The show's own output goes to `logs/testbed.log`.
 - **When done:** the show stays stopped. Run `bin/start_music_and_lights`, or let cron start it.
   The test bed prints cron's start time when it can read the crontab.
+
+Each variant starts a fresh show process, so expect a few seconds of dark between them. A run
+that stops early (for example a column mismatch) is reported with the end of the log. Judge
+`sections` in full-song mode (`m`), because a 30 s clip usually sits inside one section.
 
 **Step 0:** play `test_alternate` first. It passes when odd and even channels swap steadily every
 0.5 s and stay in time with the music, with no audio dropouts.

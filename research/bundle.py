@@ -149,7 +149,7 @@ def bundle_one(song, args):
         "channels": args.channels, "dead_1based": [d + 1 for d in layout.dead],
         "timing_ms": args.timing_ms, "brightness_range": args.brightness_range,
         "clip_start_s": round(k * n / sr, 3), "clip_seconds": round(clip_rows * n / sr, 3),
-        "tempo_bpm": round(feats.tempo, 1),
+        "tempo_bpm": round(feats.tempo, 1), "duration_s": round(rows * n / sr, 3),
         "variants": [{k2: s[k2] for k2 in ("name", "title", "description")} |
                      {"metrics": s["metrics"]["full"]} for s in summary],
     }
