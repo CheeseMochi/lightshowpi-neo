@@ -60,6 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Pis no longer run the API, whose scheduler could start a second show there.
   `show_schedule` also runs on clients and accepts `special_time` (e.g. a
   client that starts at boot).
+- `tools/sacn_monitor.py`: watches sACN packets arriving on a Pi (packets/s,
+  sequence gaps, sender, levels) with a pass/fail mode, and
+  `docs/bench/SACN_BENCH.md`, the Pi-to-Pi sACN bench procedure for the D9 go/no-go.
 
 ### Changed
 - Test patterns in `hardware_controller.py` moved into a `Patterns` class so the
