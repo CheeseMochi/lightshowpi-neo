@@ -79,6 +79,7 @@
           --labels {{ gh_runner_extra_labels | join(',') }}
         chdir: "{{ gh_runner_dir }}"
       register: gh_runner_config
+      changed_when: gh_runner_config.rc == 0
       failed_when: false
       no_log: true
 
