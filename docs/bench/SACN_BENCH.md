@@ -36,10 +36,12 @@ sudo modprobe snd-aloop                       # loopback sound card (until reboo
 echo snd-aloop | sudo tee /etc/modules-load.d/snd-aloop.conf   # optional: keep it after reboot
 hostname -I                                    # note the server IP
 sudo -iu ghrunner
-cd ~/lightshowpi && export SYNCHRONIZED_LIGHTS_HOME=$PWD
+cd ~/lightshowpi && git log --oneline -1       # must show the merged sacn-bench commit
+export SYNCHRONIZED_LIGHTS_HOME=$PWD
 source ~/miniforge3/bin/activate lightshowpi-neo
 aplay -L | grep -i '^plughw:CARD=Loopback,DEV=0'   # must print one line
 cp config/overrides.cfg config/overrides.cfg.before-sacn
+mkdir -p logs && mv -f logs/music_and_lights.play.dbg logs/music_and_lights.play.dbg.old 2>/dev/null; true
 ```
 
 Get the client IP (`ssh pibench-client.local hostname -I`), then append this to
@@ -63,9 +65,11 @@ sacn_address = <CLIENT_IP>
 ```bash
 ssh pibench-client.local
 sudo -iu ghrunner
-cd ~/lightshowpi && export SYNCHRONIZED_LIGHTS_HOME=$PWD
+cd ~/lightshowpi && git log --oneline -1       # same commit as the server
+export SYNCHRONIZED_LIGHTS_HOME=$PWD
 source ~/miniforge3/bin/activate lightshowpi-neo
 cp config/overrides.cfg config/overrides.cfg.before-sacn
+mkdir -p logs && mv -f logs/music_and_lights.play.dbg logs/music_and_lights.play.dbg.old 2>/dev/null; true
 ```
 
 Append this to `config/overrides.cfg` (the same mapping as the production client):
@@ -89,13 +93,16 @@ for i in $(seq 20); do python py/synchronized_lights.py --playlist=music/sample/
 Client terminal:
 
 ```bash
-python3 tools/sacn_monitor.py --seconds 60 --universe 100 --min-fps 15
+python3 tools/sacn_monitor.py --seconds 60 --universe 100 --min-fps 8
 ```
+
+The server sends one frame per audio chunk, about 10.8 per second with the default
+`chunk_size = 4096` (production's 2048 gives about 21.5). Seconds with no packets while the server
+moves to the next song count as idle, not as failures.
 
 **Pass when:**
 - each line shows `universe   100` from the server IP, and the levels change with the music
-- the output ends with `PASS`
-- the `Total` line shows fewer than 1% missed packets
+- the output ends with `PASS` (at least 10 seconds with packets, median at least 8 per second, under 1% missed)
 
 Stop the monitor before step 4. It and the client both listen on port 5568, and unicast packets go
 to only one of them.
@@ -129,16 +136,17 @@ sudo systemd-run --unit=wifidrop sh -c 'ip link set wlan0 down; sleep 30; ip lin
 
 **Pass when:**
 - the server keeps playing: songs change on time and its log has no `Traceback`
-  (a few `sACN send to <CLIENT_IP> failed` errors during the drop are fine)
+  (`sACN send to <CLIENT_IP> failed` errors during the drop are fine; note how many)
 - after Wi-Fi returns, `pgrep -af synchronized_lights` on the client still shows the client process
   and its log has no `Traceback`
-- then stop the client (Ctrl-C), run `python3 tools/sacn_monitor.py --seconds 30 --min-fps 15`, and
+- then stop the client (Ctrl-C), run `python3 tools/sacn_monitor.py --seconds 30 --min-fps 8`, and
   it ends with `PASS`
 
 ## 6. Optional: 1-hour soak
 
 Server looping the playlist (step 3's command; use `$(seq 100)` for a longer run), client running
-as in step 4. After an hour:
+as in step 4. First set the logs aside on both Pis so step 5's expected send errors don't count:
+`mv logs/music_and_lights.play.dbg logs/music_and_lights.play.dbg.step5`. After an hour:
 
 ```bash
 grep -cE 'Traceback|ERROR' ~/lightshowpi/logs/music_and_lights.play.dbg   # both Pis: expect 0

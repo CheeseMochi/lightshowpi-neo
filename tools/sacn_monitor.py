@@ -8,22 +8,34 @@ out-of-order packets), the sender and the first channel levels (0-255).
 Standard library only, so it runs with any python3.
 
     python3 tools/sacn_monitor.py                       # until Ctrl-C
-    python3 tools/sacn_monitor.py --seconds 30 --universe 100 --min-fps 15
+    python3 tools/sacn_monitor.py --seconds 60 --universe 100 --min-fps 8
 
-With --seconds it exits 0 if every second had at least --min-fps packets on
---universe (default 100, the GPIO default), otherwise 1. Don't run it while the
-lightshow client is listening on the same port: unicast packets go to only one
-of the two sockets.
+The server sends one frame per audio chunk: sample rate / chunk_size, so about
+10.8 fps with the default chunk_size 4096 at 44.1 kHz (21.5 fps at 2048).
+
+With --seconds and --min-fps it exits 0 (PASS) when, on --universe (default
+100, the GPIO default): at least 10 seconds had packets, the median packets
+per active second is >= --min-fps, and under 1% of packets were missed.
+Seconds with no packets (between songs, while the server starts the next one)
+are reported as idle, not failures, and a new song's sequence restart isn't
+counted as loss. Don't run it while the lightshow client is listening on the
+same port: unicast packets go to only one of the two sockets.
 """
 
 import argparse
 import socket
+import statistics
 import struct
 import sys
 import time
 from collections import defaultdict
 
 ACN_ID = b"ASC-E1.17\x00\x00\x00"
+# Silence longer than this starts a new stream: the next song's process
+# restarts the sequence at 0, which must not count as lost packets.
+RESYNC_SECONDS = 1.0
+MIN_ACTIVE_SECONDS = 10
+MAX_LOSS = 0.01
 
 
 def parse_packet(data: bytes):
@@ -51,13 +63,19 @@ class Stats:
         self.count = defaultdict(int)
         self.gaps = defaultdict(int)
         self.last_seq = {}
+        self.last_time = {}
         self.last_levels = {}
         self.sender = {}
         self.total = defaultdict(int)
         self.total_gaps = defaultdict(int)
 
-    def add(self, universe, seq, levels, sender):
-        gap = seq_gap(self.last_seq.get(universe), seq)
+    def add(self, universe, seq, levels, sender, now=None):
+        now = time.monotonic() if now is None else now
+        prev = self.last_seq.get(universe)
+        if now - self.last_time.get(universe, now) > RESYNC_SECONDS or \
+                self.sender.get(universe, sender) != sender:
+            prev = None
+        gap = seq_gap(prev, seq)
         if gap > 128:  # a late, out-of-order packet rather than ~200 lost ones
             gap = 0
         self.count[universe] += 1
@@ -65,6 +83,7 @@ class Stats:
         self.gaps[universe] += gap
         self.total_gaps[universe] += gap
         self.last_seq[universe] = seq
+        self.last_time[universe] = now
         self.last_levels[universe] = levels
         self.sender[universe] = sender
 
@@ -87,7 +106,8 @@ def main(argv=None):
     parser.add_argument("--seconds", type=float, default=0, help="stop after this long (0 = Ctrl-C)")
     parser.add_argument("--universe", type=int, default=100, help="universe checked by --min-fps")
     parser.add_argument("--min-fps", type=float, default=0,
-                        help="with --seconds: fail if any second had fewer packets on --universe")
+                        help="with --seconds: fail if the median packets per active second "
+                             "on --universe is lower (default chunk_size 4096: use 8)")
     parser.add_argument("--channels", type=int, default=8, help="levels to show per line")
     args = parser.parse_args(argv)
 
@@ -128,12 +148,29 @@ def main(argv=None):
         print("  no sACN packets received")
 
     if args.seconds and args.min_fps:
-        worst = min(per_second) if per_second else 0
-        ok = worst >= args.min_fps
-        print(f"{'PASS' if ok else 'FAIL'}: slowest second on universe {args.universe} "
-              f"had {worst} packets (need >= {args.min_fps:g})")
+        ok, message = verdict(per_second, stats.total[args.universe],
+                              stats.total_gaps[args.universe], args.min_fps)
+        print(f"{'PASS' if ok else 'FAIL'}: universe {args.universe}: {message}")
         return 0 if ok else 1
     return 0
+
+
+def verdict(per_second, received, missed, min_fps):
+    """(ok, message) for one universe from its packets-per-second samples."""
+    active = [n for n in per_second if n > 0]
+    idle = len(per_second) - len(active)
+    median = statistics.median(active) if active else 0
+    loss = missed / (received + missed) if received + missed else 0.0
+    problems = []
+    if len(active) < MIN_ACTIVE_SECONDS:
+        problems.append(f"only {len(active)} s with packets (need {MIN_ACTIVE_SECONDS})")
+    if median < min_fps:
+        problems.append(f"median {median:g} pkt/s < {min_fps:g}")
+    if loss >= MAX_LOSS:
+        problems.append(f"{loss:.1%} missed (limit {MAX_LOSS:.0%})")
+    summary = (f"{len(active)} active s, {idle} idle s, median {median:g} pkt/s, "
+               f"{missed} missed of {received + missed} ({loss:.2%})")
+    return not problems, summary + ("; " + "; ".join(problems) if problems else "")
 
 
 if __name__ == "__main__":
