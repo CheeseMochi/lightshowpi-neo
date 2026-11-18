@@ -48,13 +48,15 @@
     chdir: "{{ gh_runner_dir }}"
     creates: "{{ gh_runner_dir }}/.deps_installed"
 
+# Newer runner versions move .runner to .runner_migrated; either means registered
 - name: Check runner registration
   ansible.builtin.stat:
-    path: "{{ gh_runner_dir }}/.runner"
+    path: "{{ gh_runner_dir }}/{{ item }}"
+  loop: [.runner, .runner_migrated]
   register: gh_runner_registered
 
 - name: Register runner
-  when: not gh_runner_registered.stat.exists
+  when: not (gh_runner_registered.results | selectattr('stat.exists') | list)
   block:
     - name: Require registration token
       ansible.builtin.assert:
@@ -76,8 +78,19 @@
           --name {{ gh_runner_name }}
           --labels {{ gh_runner_extra_labels | join(',') }}
         chdir: "{{ gh_runner_dir }}"
-        creates: "{{ gh_runner_dir }}/.runner"
+      register: gh_runner_config
+      changed_when: gh_runner_config.rc == 0
+      failed_when: false
       no_log: true
+
+    # no_log above keeps the token out of the output; show the error without it
+    - name: Show why runner registration failed (token redacted)
+      ansible.builtin.fail:
+        msg: >-
+          config.sh exited {{ gh_runner_config.rc }}:
+          {{ ((gh_runner_config.stdout | default('')) ~ ' ' ~ (gh_runner_config.stderr | default('')))
+             | replace(gh_runner_token, '<token>') | trim }}
+      when: (gh_runner_config.rc | default(0)) != 0
 
 - name: Install runner as a systemd service
   ansible.builtin.command:
