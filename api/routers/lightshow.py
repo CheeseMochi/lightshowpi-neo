@@ -8,7 +8,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Optional, List, Dict
 
-from api.core.auth import require_admin
+from api.core.auth import get_current_user, require_admin
 from api.core.database import Database
 from api.services.lightshow_manager import (
     get_lightshow_manager,
@@ -264,12 +264,14 @@ async def skip_song(
 async def get_status(
     manager: LightshowManager = Depends(get_manager),
     scheduler: Optional[SchedulerService] = Depends(get_optional_scheduler),
-    database: Optional[Database] = Depends(get_optional_database)
+    database: Optional[Database] = Depends(get_optional_database),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Get current lightshow status.
 
-    **Does not require authentication** - allows public status checks
+    **Requires authentication.** It lists client IPs and file paths; the
+    public, read-only view is `/api/public/now-playing`.
 
     **Returns:**
     - Current state (idle, starting, playing, ...) and mode

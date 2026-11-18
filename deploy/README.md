@@ -73,8 +73,8 @@ What runs where:
 ## Notes and gotchas
 
 - **The admin password is used only once.** `ADMIN_PASSWORD` creates the `admin` user only while the
-  user database is empty. Changing it later in `secrets.yml` does nothing; change it in the web UI.
-  Also note that the API currently logs that initial password to the journal.
+  user database is empty. Changing it later in `secrets.yml` does nothing; change it in the web UI
+  (**Password**) or on the Pi with `python -m api.manage set-password admin`.
 - **Python version:** the conda env is pinned to the Pi's system `python3` major.minor, so the apt
   `python3-lgpio` C extension can be symlinked in. The play stops with instructions if they differ.
   The env also uses `conda-forge` only, not the `defaults` channel listed in `environment.yml`.

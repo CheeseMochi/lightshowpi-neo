@@ -22,5 +22,8 @@ if ! conda env list | grep -q lightshowpi-neo; then
     exit 1
 fi
 
-# Run with sudo while preserving conda environment
-sudo bash -c "source $HOME/miniconda3/bin/activate lightshowpi-neo && cd $PROJECT_DIR && python -m api.main"
+# The API needs JWT_SECRET_KEY (and ADMIN_PASSWORD on a fresh database). Ansible
+# writes both to /etc/lightshowpi/api.env; sudo drops our environment, so load
+# that file inside the sudo shell. LSP_DEV=1 (passed through) allows a throwaway
+# key and turns on auto-reload for development.
+sudo LSP_DEV="${LSP_DEV:-}" bash -c "set -a; [ -r /etc/lightshowpi/api.env ] && . /etc/lightshowpi/api.env; set +a; source $HOME/miniconda3/bin/activate lightshowpi-neo && cd $PROJECT_DIR && python -m api.main"

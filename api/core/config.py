@@ -42,6 +42,8 @@ class APIConfig:
         self.cloud_url = self._get_str('api', 'cloud_url', '')
         self.cloud_key = self._get_str('api', 'cloud_key', '')
         self.db_path = self._get_str('api', 'db_path', '')
+        self.cors_origins = [o.strip().rstrip('/') for o in
+                             self._get_str('api', 'cors_origins', '').split(',') if o.strip()]
         self.test_mode_timeout_minutes = self._get_float('api', 'test_mode_timeout_minutes', 10.0)
         if self.test_mode_timeout_minutes <= 0:
             self.test_mode_timeout_minutes = 10.0

@@ -196,11 +196,18 @@ host = 0.0.0.0
 port = 8000
 ```
 
-2. **Set admin password** (optional):
+2. **Set the JWT key and the first admin password** (required). On a Pi
+   provisioned with Ansible both are already in `/etc/lightshowpi/api.env`.
 
 ```bash
-export ADMIN_PASSWORD="your_secure_password_here"
+export JWT_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+export ADMIN_PASSWORD="your_secure_password_here"   # 8+ characters, read only on a fresh database
 ```
+
+   The API refuses to start without a `JWT_SECRET_KEY` of at least 32 characters,
+   unless `LSP_DEV=1` (development: a random key, so logins end on restart). There
+   is no default password: without `ADMIN_PASSWORD` no user is created, and
+   `python -m api.manage set-password admin` creates or resets one.
 
 3. **Initialize database**:
 
@@ -210,10 +217,10 @@ python -m api.core.database
 
 ### Running the API
 
-**Development mode:**
+**Development mode** (auto-reload, Vite CORS, throwaway JWT key):
 
 ```bash
-python -m api.main
+LSP_DEV=1 python -m api.main
 ```
 
 **Production mode** (with systemd, see [systemd/README.md](../systemd/README.md)):
@@ -251,6 +258,28 @@ curl -X GET http://localhost:8000/api/lightshow/status \
   -H "Authorization: Bearer eyJ0eXAiOiJKV1..."
 ```
 
+### Public, read-only endpoints (no login)
+
+For the public show page; the tunnel's public hostname routes only `/api/public/*`
+(plus the page's static files) to the API. They return no IPs, paths or controls,
+are cached for 3 s and allow 60 requests per minute per client IP (then `429`).
+
+```bash
+curl http://localhost:8000/api/public/now-playing
+# {"state": "playing", "title": "Carol of the Bells", "elapsed_s": 50.0, "duration_s": 200.0}
+# state is "playing", "ambient" or "off"; title is null for audio-in/stream-in
+
+curl http://localhost:8000/api/public/schedule
+# {"note": "Nightly 5:30-10:30 PM",
+#  "tonight": {"days": ["Sun", ...], "start": "17:30", "stop": "22:30"},
+#  "shows": [...]}
+```
+
+`now-playing` reads `config/state.cfg`, so it works however the show was started
+(cron, CLI, buttons or the API). `schedule` lists enabled schedules made in the web
+UI; a show run from cron isn't visible to the API, so set `[api] public_schedule`
+(free text) for the page to show its times.
+
 ### Health Check
 
 ```bash
@@ -278,17 +307,37 @@ GET /api/health
 - 24-hour expiration
 - Includes user ID and username
 
+- Signing key from `JWT_SECRET_KEY` (required, 32+ characters); changing it logs everyone out
+- Any request without a valid token gets `401`; only `/api/health`, `/api/auth/login`,
+  `/api/public/*` and the docs are open (a test walks every route to enforce this)
+
+### Login protection
+- 5 failed logins (or wrong current passwords) per minute per client IP, then `429`
+  with `Retry-After`. Successful logins are not counted.
+- Behind Cloudflare Tunnel the client IP comes from `CF-Connecting-IP`, trusted only
+  when the connection is from loopback (cloudflared on the Pi).
+
+### Passwords
+- No default password. The first `admin` comes from `ADMIN_PASSWORD`; `admin123` is rejected.
+- Change it in the web UI (**Password** button) or `POST /api/auth/password`
+  with `{"current_password", "new_password"}`. Existing tokens stay valid until they expire.
+- Reset from the Pi: `python -m api.manage set-password admin` (as the API's user, not sudo).
+- If the button manager logs in with that account, update `/etc/lightshowpi/buttons.env` too.
+
+### CORS
+- Off by default: the UI is same-origin (served by the API or proxied by Vite).
+- `[api] cors_origins` lists any other allowed origins; `LSP_DEV=1` adds `http://localhost:3000`.
+
 ### IP Whitelisting (Optional)
 - Per-user IP whitelist
 - Configured in database
-- Checked on authentication
+- Checked on login against the client IP
 
 ### Recommendations
-1. Change default admin password immediately
-2. Use HTTPS in production (reverse proxy)
-3. Enable IP whitelisting for admin users
-4. Rotate JWT secret key periodically
-5. Use strong passwords (12+ characters)
+1. Use HTTPS in production (Cloudflare Tunnel or a reverse proxy)
+2. Enable IP whitelisting for admin users
+3. Rotate the JWT secret key periodically
+4. Use strong passwords (12+ characters)
 
 ## 🧪 Testing
 
@@ -391,8 +440,12 @@ python -m api.core.database
 ### Authentication fails
 
 **Reset admin password:**
-A password reset script is planned. Until then, set `ADMIN_PASSWORD` and reset
-the database (see above) to recreate the default admin user.
+```bash
+python -m api.manage set-password admin
+```
+
+**API won't start, "JWT_SECRET_KEY must be set":** set it in
+`/etc/lightshowpi/api.env` (Ansible does this), or use `LSP_DEV=1` on a dev machine.
 
 ## 📚 Resources
 

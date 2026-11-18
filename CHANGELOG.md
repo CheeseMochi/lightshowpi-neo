@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Public read-only API** for the public show page: `GET /api/public/now-playing`
+  (on/off, song title, progress) and `GET /api/public/schedule` (tonight's show
+  window, enabled schedules, and the free-text `[api] public_schedule` note for
+  cron-run shows). No login; no IPs, paths or controls; cached 3 s; 60 requests
+  per minute per client IP. Now-playing reads `state.cfg`, so it works for shows
+  started by cron, CLI or buttons, and treats state left behind by a crash as off.
 - **Nanoleaf output** (`py/outputs/nanoleaf.py`): streams per-LED colour to
   Nanoleaf Essentials (tested: NL73K3 Permanent Outdoor Lights, 60 LEDs) over
   UDP extControl v2. Configure with an `[output:<name>]` section
@@ -77,6 +83,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   second) instead of on every audio chunk.
 
 ### Security
+- **API auth hardening.** The API refuses to start without `JWT_SECRET_KEY`
+  (32+ characters; Ansible writes it to `/etc/lightshowpi/api.env`), so tokens
+  survive restarts and can't be forged. `LSP_DEV=1` allows a throwaway key for
+  development and is now the only way to get uvicorn auto-reload.
+- No default password: the `admin123` fallback and the log line that printed the
+  first password are gone. The first `admin` comes from `ADMIN_PASSWORD`
+  (8+ characters, `admin123` rejected); `python -m api.manage set-password <user>`
+  creates or resets a user from the Pi.
+- Password change: `POST /api/auth/password` and a **Password** button in the web UI.
+- Login rate limit: 5 failed logins (or wrong current passwords) per minute per
+  client IP, then `429` with `Retry-After`. Behind Cloudflare Tunnel the IP comes
+  from `CF-Connecting-IP`, trusted only from loopback. The per-user IP whitelist
+  is now checked against that IP. (In-process limiter, no new dependency.)
+- `/api/lightshow/status` requires a token (it lists client IPs and file paths).
+  Missing tokens get `401` on every protected route, and a test walks every route
+  to make sure only health, login, docs and `/api/public/*` are open.
+- CORS is off by default (the UI is same-origin); `[api] cors_origins` lists any
+  other allowed origins, credentials are never allowed cross-origin.
+- Web UI: any `401` returns to the login screen; the "admin / admin123" hint is gone.
 - Removed the unused `python-jose` dependency (unfixed critical advisory; it also
   pulled in `ecdsa`, `rsa` and `pyasn1`, which had open advisories). Auth uses PyJWT.
 - Raised minimum versions to releases with known advisories fixed: Pillow 13.0,

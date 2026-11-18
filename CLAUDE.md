@@ -25,6 +25,7 @@ The workflow from AGENTS.md applies:
 | `py/outputs/` | `Output` interface for frame destinations: `LedOutput` wraps `led_module.Led`, `ThreadedOutput` runs slow/network outputs off the audio loop. `Hardware.outputs` / `write_outputs()` drive them. |
 | `py/audio_timing.py` | Chunk-timing maths for `light_delay` (frames vs bytes per audio source). |
 | `api/` | FastAPI backend (optional). `core/` holds config, auth (JWT + bcrypt) and SQLite; `routers/` holds the endpoints; `services/` holds the managers. |
+| `api/routers/public.py` | `/api/public/*`: unauthenticated, read-only, rate-limited data for the public show page. Responses use `extra="forbid"` models; never add IPs, paths or controls. |
 | `api/services/lightshow_manager.py` | Runs `synchronized_lights.py` as a **subprocess**, which it starts, stops and monitors. |
 | `api/services/scheduler.py` | APScheduler start/stop jobs with suspend/resume, persisted in SQLite. |
 | `web/` | React 18 + Vite frontend. The dev server runs on :3000 and proxies `/api` to :8000. |
@@ -39,7 +40,7 @@ The workflow from AGENTS.md applies:
 - **The API controls the show from outside.** `LightshowManager` launches `synchronized_lights.py` as a subprocess and reads its output. Show and API state are shared through `config/state.cfg`. Earlier commits fixed lost updates on that file, so keep writes to it atomic.
 - **Imports:** pytest sets `pythonpath = py`, and `api/core/config.py` adds `py/` to `sys.path`. Import `py/` modules by bare name, never as `py.module`.
 - **Config:** to add a setting, document the key in `config/defaults.cfg` and read it with an `APIConfig._get_*` getter that has a sane fallback. Never require users to edit `defaults.cfg`.
-- **Auth:** the first API start creates `admin` with the password from `$ADMIN_PASSWORD`, falling back to `admin123`. The button manager reads its API credentials from `/etc/lightshowpi/buttons.env`.
+- **Auth:** the API refuses to start without `JWT_SECRET_KEY` (32+ chars) unless `LSP_DEV=1`. The first start creates `admin` from `$ADMIN_PASSWORD` only (no default; `admin123` is rejected); `python -m api.manage set-password <user>` resets one. Every route except health, login, docs and `/api/public/*` needs a token (`tests/test_auth_hardening.py` audits this, so new routes must depend on `get_current_user`/`require_admin`). The button manager reads its API credentials from `/etc/lightshowpi/buttons.env`.
 - **Frontend serving:** `web/` currently runs only through the Vite dev server (`bin/start_frontend.sh`). FastAPI imports `StaticFiles` but does not mount a built `web/dist`.
 - **Pins:** configs use BCM numbering. Legacy WiringPi numbers are translated in `wiring_pi.py`.
 
@@ -65,7 +66,7 @@ SYNCHRONIZED_LIGHTS_HOME=$(pwd) conda run -n lightshowpi-neo-dev pytest -q
 The following commands have not been run in a Claude session. Treat them as unverified.
 
 ```bash
-python -m api.main                         # API on :8000, docs at /docs
+LSP_DEV=1 python -m api.main               # API on :8000, docs at /docs (dev: reload, throwaway JWT key)
 cd web && npm install && npm run dev       # frontend on :3000
 cd web && npm run build                    # production bundle to web/dist
 black py/ api/ && flake8 py/ api/          # formatting and lint (in requirements-dev)
@@ -106,4 +107,4 @@ sudo $(which python) py/hardware_controller.py --state flash
 - Doc claims can be stale. "76+ tests" undercounts: the suite now has 200+. README version strings may lag the latest release commit.
 - `config/overrides.cfg`, `api/data/*.db`, `music/` media and `.env` are gitignored and per-device. Never commit them.
 - The systemd units hardcode `/home/pi/...` paths and the `pi` user. Check them against the target Pi before deploying.
-- The API listens on `0.0.0.0` with CORS `*`. Treat it as LAN-only until auth and CORS are hardened.
+- The API listens on `0.0.0.0`. CORS is off unless `[api] cors_origins` is set. Failed logins are limited per IP; `CF-Connecting-IP` is trusted only from loopback (cloudflared).
