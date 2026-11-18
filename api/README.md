@@ -258,6 +258,28 @@ curl -X GET http://localhost:8000/api/lightshow/status \
   -H "Authorization: Bearer eyJ0eXAiOiJKV1..."
 ```
 
+### Public, read-only endpoints (no login)
+
+For the public show page; the tunnel's public hostname routes only `/api/public/*`
+(plus the page's static files) to the API. They return no IPs, paths or controls,
+are cached for 3 s and allow 60 requests per minute per client IP (then `429`).
+
+```bash
+curl http://localhost:8000/api/public/now-playing
+# {"state": "playing", "title": "Carol of the Bells", "elapsed_s": 50.0, "duration_s": 200.0}
+# state is "playing", "ambient" or "off"; title is null for audio-in/stream-in
+
+curl http://localhost:8000/api/public/schedule
+# {"note": "Nightly 5:30-10:30 PM",
+#  "tonight": {"days": ["Sun", ...], "start": "17:30", "stop": "22:30"},
+#  "shows": [...]}
+```
+
+`now-playing` reads `config/state.cfg`, so it works however the show was started
+(cron, CLI, buttons or the API). `schedule` lists enabled schedules made in the web
+UI; a show run from cron isn't visible to the API, so set `[api] public_schedule`
+(free text) for the page to show its times.
+
 ### Health Check
 
 ```bash

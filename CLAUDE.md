@@ -25,6 +25,7 @@ The workflow from AGENTS.md applies:
 | `py/outputs/` | `Output` interface for frame destinations: `LedOutput` wraps `led_module.Led`, `ThreadedOutput` runs slow/network outputs off the audio loop. `Hardware.outputs` / `write_outputs()` drive them. |
 | `py/audio_timing.py` | Chunk-timing maths for `light_delay` (frames vs bytes per audio source). |
 | `api/` | FastAPI backend (optional). `core/` holds config, auth (JWT + bcrypt) and SQLite; `routers/` holds the endpoints; `services/` holds the managers. |
+| `api/routers/public.py` | `/api/public/*`: unauthenticated, read-only, rate-limited data for the public show page. Responses use `extra="forbid"` models; never add IPs, paths or controls. |
 | `api/services/lightshow_manager.py` | Runs `synchronized_lights.py` as a **subprocess**, which it starts, stops and monitors. |
 | `api/services/scheduler.py` | APScheduler start/stop jobs with suspend/resume, persisted in SQLite. |
 | `web/` | React 18 + Vite frontend. The dev server runs on :3000 and proxies `/api` to :8000. |

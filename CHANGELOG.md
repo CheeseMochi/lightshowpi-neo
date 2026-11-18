@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Public read-only API** for the public show page: `GET /api/public/now-playing`
+  (on/off, song title, progress) and `GET /api/public/schedule` (tonight's show
+  window, enabled schedules, and the free-text `[api] public_schedule` note for
+  cron-run shows). No login; no IPs, paths or controls; cached 3 s; 60 requests
+  per minute per client IP. Now-playing reads `state.cfg`, so it works for shows
+  started by cron, CLI or buttons, and treats state left behind by a crash as off.
 - **Nanoleaf output** (`py/outputs/nanoleaf.py`): streams per-LED colour to
   Nanoleaf Essentials (tested: NL73K3 Permanent Outdoor Lights, 60 LEDs) over
   UDP extControl v2. Configure with an `[output:<name>]` section
