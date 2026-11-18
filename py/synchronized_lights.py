@@ -237,6 +237,7 @@ cache_group.add_argument('--createcache', action="store_true",
 
 # Module-level imports
 import hardware_controller
+import show_logging
 
 # These will be initialized in main when running as script
 args = None
@@ -1213,10 +1214,8 @@ if __name__ == "__main__":
     # Parse args again with updated defaults
     args = parser.parse_args()
 
-    # Setup log file
-    log.basicConfig(filename=LOG_DIR + '/music_and_lights.play.dbg',
-                    format='[%(asctime)s] %(levelname)s {%(pathname)s:%(lineno)d} - %(message)s',
-                    level=log.INFO)
+    # Setup log file (replaces any stderr handler an import-time warning created)
+    show_logging.configure_show_logging(LOG_DIR, args.log)
 
     # Initialize hardware controller
     hc = hardware_controller.Hardware(param_config=args.config)
