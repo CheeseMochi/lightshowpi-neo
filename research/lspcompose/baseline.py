@@ -59,3 +59,14 @@ def on_csv_grid(levels: np.ndarray, sample_rate: int, chunk_size: int, rows: int
     for c in dead:
         out[:, c] = 0.0
     return out
+
+
+def levels_on_csv_grid(levels: np.ndarray, sample_rate: int, chunk_size: int, rows: int,
+                       timing_ms: int = 25, dead: Sequence[int] = ()) -> np.ndarray:
+    """Continuous FFT brightness (0..1) sampled at each CSV row; dead columns off."""
+    chunk_idx = np.minimum((row_times(rows, sample_rate, timing_ms) * sample_rate // chunk_size)
+                           .astype(int), len(levels) - 1)
+    out = np.array(levels[chunk_idx], dtype=float)
+    for c in dead:
+        out[:, c] = 0.0
+    return out

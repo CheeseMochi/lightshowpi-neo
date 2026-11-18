@@ -75,6 +75,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   relay edge on a beat with minimum on/off times for mechanical relays, and goes
   dark in quiet passages. Each run also scores today's FFT show on the same song
   and writes an HTML preview (song plus lamps). See `research/README.md`.
+- **Show test bed (research)**: `research/bundle.py` builds every show variant
+  (today's FFT, relay-safe FFT, beat chase, calm chase, VU meter, A/B, hits per
+  band, sections, test pattern) for a song, full length and as a row-aligned
+  30 s clip. `research/testbed.py` runs on the show Pi over ssh with a menu
+  (play one, all back to back, or loop) and plays each variant through the
+  normal show engine with the pre-show and postshow off.
 
 ### Changed
 - Test patterns in `hardware_controller.py` moved into a `Patterns` class so the

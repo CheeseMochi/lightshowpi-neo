@@ -253,3 +253,218 @@ def test_librosa_finds_the_tempo_of_a_click_track():
     feats = audio_mod.analyze(audio_mod.Audio(y, sr, y.size, "test"))
     assert feats.tempo == pytest.approx(bpm, rel=0.05)
     assert np.median(np.diff(feats.beat_times)) == pytest.approx(0.5, abs=0.03)
+
+
+# ---------------------------------------------------------------------------
+# More strategies (numpy only)
+# ---------------------------------------------------------------------------
+
+class TestMoreStrategies:
+
+    def layout(self):
+        return strategies.Layout(7, dead=[1])
+
+    @pytest.mark.parametrize("pattern", sorted(strategies.PATTERNS))
+    def test_every_pattern_is_relay_safe_and_on_beat(self, pattern):
+        levels, beats, et, edb = chase(pattern=pattern)
+        m = metrics.summarize(levels, SR, beats, et, edb)
+        assert m["short_on_violations"] == m["short_off_violations"] == 0
+        assert m["on_beat_fraction"] == 1.0
+        assert levels[:, 1].max() == 0
+
+    def test_vu_is_a_bar_from_the_first_channel(self):
+        levels, *_ = chase(pattern="vu")
+        active = [0, 2, 3, 4, 5, 6]
+        for row in levels[levels.sum(axis=1) > 0][:200]:
+            lit = [c for c in active if row[c]]
+            assert lit == active[:len(lit)]
+
+    def test_hysteresis_ignores_small_wobbles(self):
+        x = np.array([[0.55], [0.45], [0.65], [0.55], [0.45], [0.35], [0.5]])
+        assert strategies.hysteresis(x)[:, 0].tolist() == [0, 0, 1, 1, 1, 0, 0]
+
+    def test_fft_safe_removes_flicker(self):
+        rows = timing.row_count(SR * 10, SR)
+        flicker = (np.arange(rows)[:, None] % 2).astype(float) * np.ones((1, 3))  # 40 Hz
+        safe = strategies.fft_safe(flicker, SR)
+        for c in range(3):
+            assert safety.check(flicker[:, c] > 0.5, safe[:, c] > 0.5,
+                                timing.seconds_to_rows(0.2, SR), timing.seconds_to_rows(0.15, SR)) == []
+
+    def test_band_flux_groups_low_to_high(self):
+        mel = np.zeros((64, 10))
+        mel[60:, 5] = 10.0                     # a hit in the top band only
+        flux = strategies.band_flux(mel, 4)
+        assert flux.shape == (4, 10) and flux[3, 5] > 0 and flux[:3].sum() == 0
+
+    def test_onset_bands_fires_the_right_channel_on_hits(self):
+        seconds = 20
+        rows = timing.row_count(SR * seconds, SR)
+        hop = 512 / SR
+        mel_t = np.arange(int(seconds / hop)) * hop
+        mel = np.random.default_rng(0).normal(-60, 0.5, (64, mel_t.size))
+        beats = beat_grid(120, seconds)
+        for b in beats:                        # kick-like hits in the lowest band on each beat
+            mel[:10, int(b / hop)] += 30
+        levels = strategies.onset_bands(mel_t, mel, beats, np.linspace(0, seconds, 100),
+                                        np.full(100, -10.0), rows, SR, self.layout())
+        assert levels[:, 0].sum() > 0          # lowest active channel fires
+        assert levels[:, 1].max() == 0         # dead
+        m = metrics.summarize(levels, SR, beats, np.linspace(0, seconds, 100), np.full(100, -10.0))
+        assert m["on_beat_fraction"] > 0.9
+
+    def test_sections_repeat_the_same_look(self):
+        seconds = 60
+        rows = timing.row_count(SR * seconds, SR)
+        beats = beat_grid(120, seconds)
+        et = np.linspace(0, seconds, 600)
+        edb = np.where((et // 15) % 2 == 0, -30.0, -8.0)   # quiet, loud, quiet, loud
+        seg_t = np.array([0.0, 15.0, 30.0, 45.0])
+        seg_l = np.array([0, 1, 0, 1])                       # A B A B
+        levels = strategies.sections(seg_t, seg_l, beats, et, edb, rows, SR, self.layout())
+        t = timing.row_times(rows, SR)
+        a1 = levels[(t >= 2) & (t < 13)]
+        a2 = levels[(t >= 32) & (t < 43)]
+        assert np.array_equal(a1.mean(axis=0) > 0, a2.mean(axis=0) > 0)
+        assert levels[(t >= 15) & (t < 28)].mean() > levels[(t >= 2) & (t < 13)].mean()
+
+
+# ---------------------------------------------------------------------------
+# Test bed (runs on the Pi; tested here with fakes)
+# ---------------------------------------------------------------------------
+
+import testbed  # noqa: E402
+
+MANIFEST = {"channels": 7, "timing_ms": 25, "brightness_range": 255, "clip_start_s": 14.0,
+            "clip_seconds": 30.0, "tempo_bpm": 120,
+            "variants": [{"name": "fft", "title": "Today", "description": "d"},
+                         {"name": "beat_chase", "title": "Chase", "description": "d"}]}
+
+
+@pytest.fixture
+def out_dir(tmp_path):
+    d = tmp_path / "out" / "song"
+    d.mkdir(parents=True)
+    (d / "manifest.json").write_text(json.dumps(MANIFEST))
+    (tmp_path / "out" / ".cache").mkdir()
+    return str(tmp_path / "out")
+
+
+class TestTestbed:
+
+    def test_find_bundles(self, out_dir):
+        assert [b[0] for b in testbed.find_bundles(out_dir)] == ["song"]
+
+    def test_layout_problems(self):
+        assert testbed.layout_problems(MANIFEST, (7, 25, 255)) == []
+        problems = testbed.layout_problems(MANIFEST, (8, 50, 255))
+        assert any("--channels 8" in p for p in problems) and len(problems) == 2
+
+    def test_testbed_config_turns_off_pre_and_postshow(self, tmp_path):
+        (tmp_path / "config").mkdir()
+        (tmp_path / "config" / "overrides.cfg").write_text(
+            "[hardware]\ngpio_pins = 0,1,2\n[lightshow]\nlight_delay = 0.04\n"
+            "postshow_script = $SYNCHRONIZED_LIGHTS_HOME/py/examples/random_pattern_ci.py\n")
+        name = testbed.write_testbed_config(str(tmp_path))
+        import configparser
+        cfg = configparser.RawConfigParser()
+        cfg.read(tmp_path / "config" / name)
+        assert cfg.get("lightshow", "postshow_script") == ""
+        assert cfg.get("lightshow", "preshow_configuration") == ""
+        assert cfg.get("lightshow", "light_delay") == "0.04"
+        assert cfg.get("hardware", "gpio_pins") == "0,1,2"
+
+    def test_show_command(self):
+        cmd = testbed.show_command("/x/clip.wav", python="/py", repo="/r", sudo=True)
+        assert cmd == ["sudo", "-E", "/py", "/r/py/synchronized_lights.py", "--file=/x/clip.wav",
+                       "--config=testbed.cfg"]
+
+    def test_play_success_and_failure(self, tmp_path):
+        class Proc:
+            def __init__(self, code, **_):
+                self.code = code
+
+            def wait(self, timeout=None):
+                return self.code
+
+        log = str(tmp_path / "logs" / "t.log")
+        assert testbed.play("a.wav", "A", runner=lambda cmd, **kw: Proc(0), log_path=log) == "done"
+        assert testbed.play("a.wav", "A", runner=lambda cmd, **kw: Proc(2), log_path=log) == "failed"
+
+    def test_play_ctrl_c_stops(self, tmp_path):
+        class Proc:
+            calls = 0
+
+            def wait(self, timeout=None):
+                Proc.calls += 1
+                if Proc.calls == 1:
+                    raise KeyboardInterrupt
+                return 0
+
+        assert testbed.play("a.wav", "A", runner=lambda cmd, **kw: Proc(),
+                            log_path=str(tmp_path / "t.log")) == "stopped"
+
+    def test_sequence_order_paths_and_stop(self, out_dir, monkeypatch):
+        monkeypatch.setattr(testbed.time, "sleep", lambda s: None)
+        played = []
+        result = testbed.play_sequence(out_dir, "song", MANIFEST, "clip", ["fft", "beat_chase"],
+                                       repeat=2, play_fn=lambda p, t: played.append(p) or "done")
+        assert result == "done" and len(played) == 4
+        assert played[1].endswith(os.path.join("song", "clip", "beat_chase", "clip.wav"))
+        played.clear()
+        result = testbed.play_sequence(out_dir, "song", MANIFEST, "full", ["fft", "beat_chase"],
+                                       play_fn=lambda p, t: played.append(p) or "stopped")
+        assert result == "stopped" and len(played) == 1
+
+    def test_menu_script(self, out_dir, monkeypatch):
+        monkeypatch.setattr(testbed.time, "sleep", lambda s: None)
+        answers = iter(["2", "m", "1", "a", "i 2", "zzz", "q"])
+        played = []
+        testbed.menu(out_dir, testbed.find_bundles(out_dir), (7, 25, 255),
+                     input_fn=lambda prompt: next(answers),
+                     play_fn=lambda p, t: played.append(p) or "done")
+        assert [os.path.relpath(p, out_dir) for p in played] == [
+            os.path.join("song", "clip", "beat_chase", "clip.wav"),
+            os.path.join("song", "full", "fft", "full.wav"),
+            os.path.join("song", "full", "fft", "full.wav"),
+            os.path.join("song", "full", "beat_chase", "full.wav")]
+
+
+# ---------------------------------------------------------------------------
+# Bundle end to end (librosa)
+# ---------------------------------------------------------------------------
+
+def test_bundle_end_to_end(tmp_path):
+    pytest.importorskip("librosa")
+    import bundle
+    sr, seconds, bpm = SR, 40, 120
+    t = np.arange(sr * seconds) / sr
+    y = 0.05 * np.sin(2 * np.pi * 220 * t)
+    for b in np.arange(0, seconds, 60 / bpm):
+        i = int(b * sr)
+        y[i:i + 600] += 0.6 * np.hanning(600)
+    pcm = (np.clip(y, -1, 1) * 32767).astype("<i2")
+    song = str(tmp_path / "click.wav")
+    with wave.open(song, "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(np.repeat(pcm, 2).tobytes())
+    out = str(tmp_path / "out")
+    assert bundle.main([song, "--channels", "7", "--dead", "2", "--clip-seconds", "10",
+                        "--out-dir", out]) == 0
+    man = json.load(open(os.path.join(out, "click", "manifest.json")))
+    assert [v["name"] for v in man["variants"]] == [v.name for v in __import__(
+        "lspcompose.variants", fromlist=["VARIANTS"]).VARIANTS]
+    full_rows = timing.row_count(sr * seconds, sr)
+    for v in man["variants"]:
+        full = csvio.read_csv(os.path.join(out, "click", "full", v["name"], "full.csv"), channels=7)
+        clip = csvio.read_csv(os.path.join(out, "click", "clip", v["name"], "clip.csv"), channels=7)
+        assert full.shape[0] == full_rows
+        k = int(round(man["clip_start_s"] / timing.row_period(sr)))
+        assert np.array_equal(clip, full[k:k + clip.shape[0]])      # clip rows == full rows
+        assert os.path.islink(os.path.join(out, "click", "clip", v["name"], "clip.wav"))
+    with wave.open(os.path.join(out, "click", "audio", "clip.wav")) as w:
+        frames = w.getnframes()
+    assert frames == clip.shape[0] * timing.frames_per_row(sr)
+    assert testbed.find_bundles(out)[0][0] == "click"

@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-ANALYSIS_VERSION = 1
+ANALYSIS_VERSION = 2
 
 
 @dataclass
@@ -59,6 +59,10 @@ class Features:
     energy_times: np.ndarray   # seconds
     energy_db: np.ndarray      # RMS in dB, smoothed
     onset_times: np.ndarray    # seconds (for metrics / later strategies)
+    mel_times: np.ndarray = None   # seconds, one per spectrogram frame
+    mel_db: np.ndarray = None      # [n_mels, frames] log-mel spectrogram, low to high
+    seg_times: np.ndarray = None   # section start times (first is 0)
+    seg_labels: np.ndarray = None  # repeat label per section (same label = similar music)
 
 
 def _file_key(path: str) -> str:
@@ -96,7 +100,49 @@ def analyze(audio: Audio, tempo_scale: float = 1.0, smooth_s: float = 1.0) -> Fe
     energy_times = librosa.frames_to_time(np.arange(rms.size), sr=sr, hop_length=hop)
     onsets = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, hop_length=hop,
                                         units="time")
-    return Features(tempo, beats, energy_times, energy_db, np.asarray(onsets, dtype=float))
+
+    mel = librosa.feature.melspectrogram(y=y, sr=sr, hop_length=hop, n_mels=64, fmax=min(15000, sr / 2))
+    mel_db = librosa.power_to_db(mel, ref=np.max).astype(np.float32)
+    mel_times = librosa.frames_to_time(np.arange(mel_db.shape[1]), sr=sr, hop_length=hop)
+
+    seg_times, seg_labels = _sections(y, sr, hop, beats, audio.duration)
+    return Features(tempo, beats, energy_times, energy_db, np.asarray(onsets, dtype=float),
+                    mel_times, mel_db, seg_times, seg_labels)
+
+
+def _sections(y, sr, hop, beats, duration):
+    """
+    Section boundaries and repeat labels.
+
+    Agglomerative segmentation of beat-synchronous chroma + MFCC (librosa),
+    about one section per 15-20 s, then sections are grouped by k-means on
+    their mean features so a repeated chorus gets the same label.
+    """
+    import librosa
+    from scipy.cluster.vq import kmeans2
+
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop)
+    mfcc = librosa.feature.mfcc(y=y, sr=sr, hop_length=hop, n_mfcc=13)
+    beat_frames = librosa.time_to_frames(beats, sr=sr, hop_length=hop)
+    if beat_frames.size < 16:
+        return np.array([0.0]), np.array([0])
+    feats = np.vstack([librosa.util.normalize(chroma, axis=0),
+                       (mfcc - mfcc.mean(axis=1, keepdims=True)) / (mfcc.std(axis=1, keepdims=True) + 1e-6)])
+    sync = librosa.util.sync(feats, beat_frames, aggregate=np.median)
+    k = int(np.clip(round(duration / 18), 3, 12))
+    k = min(k, sync.shape[1] - 1)
+    bounds = librosa.segment.agglomerative(sync, k)          # beat-sync column indices
+    starts = np.concatenate([[0.0], beats[np.clip(bounds[1:] - 1, 0, beats.size - 1)]])
+    starts = np.unique(np.round(starts, 3))
+    seg_feats = []
+    edges = list(bounds) + [sync.shape[1]]
+    for a, b in zip(edges[:-1], edges[1:]):
+        seg_feats.append(sync[:, a:max(b, a + 1)].mean(axis=1))
+    seg_feats = np.array(seg_feats)[: starts.size]
+    n_labels = int(min(max(2, round(starts.size / 2)), starts.size))
+    rng = np.random.default_rng(0)
+    _, labels = kmeans2(seg_feats, n_labels, minit="++", seed=rng)
+    return starts, labels.astype(int)
 
 
 def analyze_cached(path: str, audio: Audio, cache_dir: str, tempo_scale: float = 1.0) -> Features:
@@ -107,9 +153,11 @@ def analyze_cached(path: str, audio: Audio, cache_dir: str, tempo_scale: float =
     if os.path.exists(cache):
         d = np.load(cache)
         return Features(float(d["tempo"]), d["beat_times"], d["energy_times"], d["energy_db"],
-                        d["onset_times"])
+                        d["onset_times"], d["mel_times"], d["mel_db"], d["seg_times"],
+                        d["seg_labels"])
     feats = analyze(audio, tempo_scale=tempo_scale)
     np.savez(cache, tempo=feats.tempo, beat_times=feats.beat_times,
              energy_times=feats.energy_times, energy_db=feats.energy_db,
-             onset_times=feats.onset_times)
+             onset_times=feats.onset_times, mel_times=feats.mel_times, mel_db=feats.mel_db,
+             seg_times=feats.seg_times, seg_labels=feats.seg_labels)
     return feats
