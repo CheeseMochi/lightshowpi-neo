@@ -158,7 +158,8 @@ const lamps = document.getElementById('lamps');
 const bulbs = D.dead.map((dead, i) => {
   const el = document.createElement('div'); el.className = 'lamp';
   const b = document.createElement('div'); b.className = 'bulb' + (dead ? ' dead' : '');
-  el.appendChild(b); el.appendChild(document.createTextNode('ch ' + (i + 1) + (dead ? ' (off)' : '')));
+  const lab = document.createElement('div'); lab.textContent = 'ch ' + (i + 1) + (dead ? ' (off)' : '');
+  el.appendChild(b); el.appendChild(lab); el.label = lab;
   lamps.appendChild(el); return b;
 });
 const vrow = document.getElementById('variants');
@@ -177,6 +178,9 @@ function select(i, restart) {
   current = i;
   buttons.forEach((b, j) => b.classList.toggle('sel', j === i));
   document.getElementById('desc').textContent = D.variants[i].description;
+  const labels = D.variants[i].labels;
+  bulbs.forEach((b, j) => { b.parentNode.label.textContent = 'ch ' + (j + 1) +
+    (labels ? ' ' + labels[j] : (D.dead[j] ? ' (off)' : '')); });
   if (restart) { audio.currentTime = 0; audio.play(); }
 }
 function setMode(m) {

@@ -475,10 +475,10 @@ def test_bundle_end_to_end(tmp_path):
         w.writeframes(np.repeat(pcm, 2).tobytes())
     out = str(tmp_path / "out")
     assert bundle.main([song, "--channels", "7", "--dead", "2", "--clip-seconds", "10",
-                        "--out-dir", out]) == 0
+                        "--no-stems", "--out-dir", out]) == 0
     man = json.load(open(os.path.join(out, "click", "manifest.json")))
-    assert [v["name"] for v in man["variants"]] == [v.name for v in __import__(
-        "lspcompose.variants", fromlist=["VARIANTS"]).VARIANTS]
+    from lspcompose.variants import VARIANTS
+    assert [v["name"] for v in man["variants"]] == [v.name for v in VARIANTS if not v.needs_stems]
     full_rows = timing.row_count(sr * seconds, sr)
     for v in man["variants"]:
         full = csvio.read_csv(os.path.join(out, "click", "full", v["name"], "full.csv"), channels=7)
@@ -491,3 +491,149 @@ def test_bundle_end_to_end(tmp_path):
         frames = w.getnframes()
     assert frames == clip.shape[0] * timing.frames_per_row(sr)
     assert testbed.find_bundles(out)[0][0] == "click"
+
+
+# ---------------------------------------------------------------------------
+# Drop cut and dynamic onset_bands
+# ---------------------------------------------------------------------------
+
+class TestDrops:
+
+    def test_drop_mask_marks_sustained_drops_from_their_start(self):
+        hop = 0.01
+        env = np.full(1000, -10.0)
+        env[500:] = -30.0                      # sudden 20 dB drop at 5.00 s
+        env[200:205] = -30.0                   # a 50 ms dip: not sustained
+        mask = strategies.drop_mask(env, hop, drop_db=10, sustain_s=0.15, window_s=3.0)
+        assert mask[500] and mask[650]         # dark from the very first frame of the drop
+        assert not mask[499] and not mask[202]
+
+    def test_drop_mask_ends_when_the_quiet_part_becomes_the_new_normal(self):
+        hop = 0.01
+        env = np.full(1000, -10.0)
+        env[300:] = -30.0
+        mask = strategies.drop_mask(env, hop, 10, 0.15, window_s=2.0)
+        assert mask[300:499].all() and not mask[600:].any()
+
+    def test_cut_never_leaves_short_pulses(self):
+        levels = np.zeros((100, 1))
+        levels[10:40, 0] = 1                   # 30-row pulse
+        dark = np.zeros(100, bool)
+        dark[13:] = True                       # cut after 3 rows
+        out = strategies.cut(levels, dark, min_on_rows=8)
+        assert out.sum() == 0                  # the 3-row stub is removed, not kept
+        dark[:] = False
+        dark[30:] = True
+        out = strategies.cut(levels, dark, min_on_rows=8)
+        assert safety.runs(out[:, 0] > 0.5) == [(10, 30)]
+
+    def _song(self, drop_at=None, seconds=30):
+        rows = timing.row_count(SR * seconds, SR)
+        hop = 512 / SR
+        mel_t = np.arange(int(seconds / hop)) * hop
+        rng = np.random.default_rng(1)
+        mel = rng.normal(-40, 0.5, (64, mel_t.size))
+        beats = beat_grid(120, seconds)
+        for b in beats:
+            for band in range(0, 64, 11):      # hits in every band on each beat
+                mel[band:band + 8, int(b / hop)] += 25
+        if drop_at is not None:
+            mel[:, mel_t >= drop_at] -= 25     # sustained 25 dB drop
+        et = np.linspace(0, seconds, 300)
+        edb = np.where(et >= (drop_at or 1e9), -35.0, -10.0)
+        return mel_t, mel, beats, et, edb, rows
+
+    def test_dynamic_onset_goes_dark_the_moment_the_music_drops(self):
+        mel_t, mel, beats, et, edb, rows = self._song(drop_at=15.0)
+        opts = strategies.OnsetOptions(dynamic=True, drop_db=10.0)
+        levels = strategies.onset_bands(mel_t, mel, beats, et, edb, rows, SR,
+                                        strategies.Layout(7), opts=opts)
+        t = timing.row_times(rows, SR)
+        assert levels[(t < 14.5)].sum() > 0
+        assert levels[(t >= 15.05) & (t < 17.0)].sum() == 0   # dark within ~50 ms, stays dark
+
+    def test_without_drop_cut_lights_linger_after_the_drop(self):
+        mel_t, mel, beats, et, edb, rows = self._song(drop_at=15.0)
+        levels = strategies.onset_bands(mel_t, mel, beats, et, edb, rows, SR, strategies.Layout(7))
+        t = timing.row_times(rows, SR)
+        assert levels[(t >= 15.0) & (t < 15.4)].sum() > 0     # the last pulse rings on
+
+    def test_dynamic_density_follows_loudness(self):
+        mel_t, mel, beats, et, _, rows = self._song()
+        edb = np.where(et < 15, -30.0, -5.0)                  # quiet half, loud half
+        opts = strategies.OnsetOptions(dynamic=True)
+        levels = strategies.onset_bands(mel_t, mel, beats, et, edb, rows, SR,
+                                        strategies.Layout(7), opts=opts)
+        t = timing.row_times(rows, SR)
+        assert levels[t >= 16].sum() > 2 * levels[(t > 1) & (t < 14)].sum()
+
+    def test_every_onset_variant_is_relay_safe(self):
+        mel_t, mel, beats, et, edb, rows = self._song(drop_at=20.0)
+        for kw in ({}, {"dynamic": True, "drop_db": 10.0}, {"hold_beats": 1.0, "drop_db": 6.0},
+                   {"threshold": 2.0, "floor": 0.08, "dynamic": True, "drop_db": 6.0}):
+            levels = strategies.onset_bands(mel_t, mel, beats, et, edb, rows, SR,
+                                            strategies.Layout(7), opts=strategies.OnsetOptions(**kw))
+            m = metrics.summarize(levels, SR, beats, et, edb)
+            assert m["short_on_violations"] == m["short_off_violations"] == 0, kw
+
+
+# ---------------------------------------------------------------------------
+# Stems (synthetic stem features; no Demucs needed)
+# ---------------------------------------------------------------------------
+
+def _stem_features(seconds=20, silent=("piano",)):
+    from lspcompose import stems
+    hop = 512 / SR
+    times = np.arange(int(seconds / hop)) * hop
+    freqs = np.geomspace(30, 15000, stems.N_MELS)
+    rng = np.random.default_rng(2)
+    mel = {}
+    beats = beat_grid(120, seconds)
+    for name in ("drums", "bass", "other", "vocals", "guitar", "piano"):
+        m = rng.normal(-70, 0.5, (stems.N_MELS, times.size))
+        if name not in silent:
+            if name == "drums":
+                for b in beats:                                 # kick on beats, hats off-beat
+                    m[freqs < 150, int(b / hop)] += 40
+                    m[freqs > 2000, int((b + 0.25) / hop)] += 40
+            else:
+                for b in beats[::2]:                            # a note every 2 beats, held 0.6 s
+                    m[(freqs > 100) & (freqs < 2000), int(b / hop):int((b + 0.6) / hop)] += 40
+        mel[name] = m
+    return stems.StemFeatures(times, freqs, mel), beats, times
+
+
+class TestStems:
+
+    def test_absent_instruments_are_skipped_and_spares_split(self):
+        from lspcompose import stems
+        feats, *_ = _stem_features()
+        present = stems.present_voices(feats)
+        assert "piano" not in present and "kick" in present and "snare_hats" in present
+        assign = stems.assign_voices(feats, strategies.Layout(9))
+        assert len(assign) == 9
+        assert any("@" in v for v in assign.values())          # spare lights split a voice
+        labels = [stems.voice_spec(v)[4] for v in assign.values()]
+        assert "kick drum" in labels and any(x.endswith(" low") for x in labels)
+
+    def test_each_light_follows_its_instrument(self):
+        from lspcompose import stems
+        feats, beats, _ = _stem_features()
+        rows = timing.row_count(SR * 20, SR)
+        layout = strategies.Layout(7)
+        levels, assign = stems.stems_show(feats, np.zeros((64, 2)), np.array([0.0]), beats, rows,
+                                          SR, layout, drop_db=None)
+        t = timing.row_times(rows, SR)
+        kick = [c for c, v in assign.items() if v == "kick"][0]
+        on_edges = [t[s] for s, _ in safety.runs(levels[:, kick] > 0.5)]
+        assert len(on_edges) > 20
+        assert all(np.min(np.abs(beats - e)) < 0.05 for e in on_edges)   # kick light on the kicks
+        tone = [c for c, v in assign.items() if stems.voice_spec(v)[3] == "tone"][0]
+        assert levels[:, tone].sum() > 0
+        m = metrics.summarize(levels, SR, beats, np.array([0, 20.0]), np.array([-10.0, -10.0]))
+        assert m["short_on_violations"] == m["short_off_violations"] == 0
+
+    def test_voice_spec_for_split_names(self):
+        from lspcompose import stems
+        assert stems.voice_spec("guitar@0-420") == ("guitar", 0.0, 420.0, "tone", "guitar low")
+        assert stems.voice_spec("kick")[4] == "kick drum"

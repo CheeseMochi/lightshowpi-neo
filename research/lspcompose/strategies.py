@@ -191,6 +191,91 @@ class OnsetOptions:
     snap: float = 0.05                 # move a hit onto a beat within this many seconds
     max_per_beat: Optional[int] = None  # most channels starting in one beat (default half)
     quiet_db: float = 35.0
+    hold_beats: float = 0.5            # pulse length, in beats (clamped to min_on .. 1 beat)
+    dynamic: bool = False              # channels per beat follow loudness (1 when quiet .. all)
+    drop_db: Optional[float] = None    # cut to dark when loudness falls this far below its recent peak
+    drop_sustain: float = 0.15         # ...and stays down this long (s)
+    drop_window: float = 3.0           # "recent peak" = loudest point in this many seconds (s)
+
+
+def fast_energy_db(mel_db: np.ndarray, mel_times: np.ndarray, smooth_s: float = 0.05) -> np.ndarray:
+    """Loudness in dB per spectrogram frame, ~50 ms smoothing (the 1 s curve is too slow)."""
+    power = np.sum(10 ** (np.asarray(mel_db, dtype=float) / 10), axis=0)
+    hop = float(np.median(np.diff(mel_times))) if len(mel_times) > 1 else 0.0116
+    width = max(1, int(round(smooth_s / hop)))
+    power = np.convolve(power, np.ones(width) / width, mode="same")
+    return 10 * np.log10(np.maximum(power, 1e-12))
+
+
+def drop_mask(env_db: np.ndarray, frame_s: float, drop_db: float, sustain_s: float,
+              window_s: float) -> np.ndarray:
+    """
+    True where the music has dropped: ``env_db`` is more than ``drop_db`` below
+    its maximum over the previous ``window_s`` for at least ``sustain_s``. The
+    whole run is marked from its first frame, so lights go dark the moment the
+    drop starts (we know the future offline).
+    """
+    env_db = np.asarray(env_db, dtype=float)
+    n = env_db.size
+    if n == 0:
+        return np.zeros(0, dtype=bool)
+    w = max(1, int(round(window_s / frame_s)))
+    padded = np.concatenate([np.full(w - 1, env_db[0]), env_db])
+    recent_peak = np.lib.stride_tricks.sliding_window_view(padded, w).max(axis=1)
+    below = env_db < recent_peak - drop_db
+    out = np.zeros(n, dtype=bool)
+    need = max(1, int(round(sustain_s / frame_s)))
+    for start, end in safety.runs(below):
+        if end - start >= need:
+            out[start:end] = True
+    return out
+
+
+def dark_frames(mel_db: np.ndarray, mel_times: np.ndarray, drop_db: float,
+                sustain_s: float = 0.15, window_s: float = 3.0, quiet_db: float = 35.0,
+                momentary_s: float = 0.3) -> np.ndarray:
+    """
+    Frames where the lights should be dark: near-silence, or a sustained drop.
+
+    Drops are judged on a "momentary loudness" curve (centred window of at
+    least one beat), not the 50 ms envelope: between drum hits the fast
+    envelope dips 10+ dB on every beat, which would read as a drop. The centred
+    window means a real drop is marked from about when it starts (up to half a
+    window early, never late).
+    """
+    momentary = fast_energy_db(mel_db, mel_times, smooth_s=momentary_s)
+    hop = float(np.median(np.diff(mel_times)))
+    quiet = momentary < np.percentile(momentary, 95) - quiet_db
+    drops = drop_mask(momentary, hop, drop_db, sustain_s, window_s)
+    # The centred average crosses the threshold up to ~half a window after the
+    # music actually drops; move each drop's start back to the steepest fall of
+    # the 50 ms envelope inside that window (the real cliff).
+    fast = fast_energy_db(mel_db, mel_times)
+    lag = max(1, int(round(0.05 / hop)))
+    fall = np.full(fast.size, 0.0)
+    fall[lag:] = fast[lag:] - fast[:-lag]           # dB change over the last 50 ms
+    back = int(round(momentary_s / hop))
+    for start, end in safety.runs(drops):
+        lo = max(0, start - back)
+        if start > lo:
+            cliff = lo + int(np.argmin(fall[lo:start + 1])) - lag // 2
+            drops[max(0, cliff):start] = True
+    return quiet | drops
+
+
+def cut(levels: np.ndarray, dark: np.ndarray, min_on_rows: int) -> np.ndarray:
+    """
+    Force rows in ``dark`` off after the relay-safety pass, then drop any ON
+    fragment the cut left shorter than ``min_on_rows``. Removing ON time only
+    lengthens OFF gaps, so the min on/off guarantees still hold.
+    """
+    out = np.array(levels, dtype=float)
+    out[np.asarray(dark, dtype=bool)] = 0.0
+    for c in range(out.shape[1]):
+        for start, end in safety.runs(out[:, c] > 0.5):
+            if end - start < min_on_rows and end != out.shape[0]:
+                out[start:end, c] = 0.0
+    return out
 
 
 def _moving_median(x: np.ndarray, width: int) -> np.ndarray:
@@ -226,7 +311,7 @@ def onset_bands(mel_times, mel_db, beat_times, energy_times, energy_db, rows: in
         return out
     beats = np.asarray(beat_times, dtype=float)
     beat_period = float(np.median(np.diff(beats))) if beats.size > 1 else 0.5
-    hold = float(np.clip(0.5 * beat_period, opts.min_on, max(opts.min_on, beat_period)))
+    hold = float(np.clip(opts.hold_beats * beat_period, opts.min_on, max(opts.min_on, beat_period)))
     hop = float(np.median(np.diff(mel_times)))
     width = int(round(opts.window / hop))
     min_gap = max(1, int(round((hold + opts.min_off) / hop)))
@@ -234,6 +319,7 @@ def onset_bands(mel_times, mel_db, beat_times, energy_times, energy_db, rows: in
 
     energy_db = np.asarray(energy_db, dtype=float)
     loud_db = float(np.percentile(energy_db, 95)) if energy_db.size else 0.0
+    rank = loudness_rank(energy_db) if energy_db.size else None
 
     hits = []   # (time, strength, channel)
     flux = band_flux(mel_db, len(active))
@@ -263,7 +349,11 @@ def onset_bands(mel_times, mel_db, beat_times, energy_times, energy_db, rows: in
         keep = []
         for s_idx in np.unique(slot):
             group = sorted((h for h, sl in zip(hits, slot) if sl == s_idx), key=lambda h: -h[1])
-            keep.extend(group[:max_per_beat])
+            cap = max_per_beat
+            if opts.dynamic and rank is not None:
+                level = float(np.interp(group[0][0], energy_times, rank))
+                cap = 1 + int(round(level * (len(active) - 1)))
+            keep.extend(group[:cap])
         hits = keep
 
     hold_rows = seconds_to_rows(hold, sample_rate, timing_ms)
@@ -272,7 +362,14 @@ def onset_bands(mel_times, mel_db, beat_times, energy_times, energy_db, rows: in
             continue
         r0 = int(np.searchsorted(times, t - 1e-9))
         out[r0:r0 + hold_rows, channel] = 1.0
-    return relay_safe(out, sample_rate, timing_ms, opts.min_on, opts.min_off)
+    out = relay_safe(out, sample_rate, timing_ms, opts.min_on, opts.min_off)
+    if opts.drop_db is None:
+        return out
+    # Track drops immediately: near-silence and sudden sustained drops go dark
+    dark = dark_frames(mel_db, mel_times, opts.drop_db, opts.drop_sustain, opts.drop_window,
+                       opts.quiet_db, momentary_s=max(0.3, beat_period))
+    dark_rows = np.interp(times, mel_times, dark.astype(float)) > 0.5
+    return cut(out, dark_rows, seconds_to_rows(opts.min_on, sample_rate, timing_ms))
 
 
 # ---------------------------------------------------------------------------

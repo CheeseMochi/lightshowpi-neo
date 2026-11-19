@@ -302,12 +302,16 @@ def menu(out_dir, bundles, layout, input_fn=input, play_fn=play):
                 v = manifest["variants"][n - 1]
                 m = v.get("metrics", {})
                 print(f"\n  {v['title']} ({v['name']})\n  {v['description']}")
+                if v.get("labels"):
+                    print("  " + "   ".join(f"ch{i + 1}: {x}" for i, x in enumerate(v["labels"])))
                 if m:
                     print(f"  on beat {m.get('on_beat_fraction', 0):.0%}, "
                           f"{m.get('toggles_per_channel_min_median', 0):.0f} toggles/channel/min, "
                           f"duty {m.get('duty_mean', 0):.0%}")
         elif answer.isdigit() and 1 <= int(answer) <= len(names):
             v = manifest["variants"][int(answer) - 1]
+            if v.get("labels"):
+                print("  " + "   ".join(f"ch{i + 1}: {x}" for i, x in enumerate(v["labels"])))
             play_fn(variant_audio(out_dir, bundle, mode, v["name"]), v["title"],
                     expected_seconds(manifest, mode))
         else:

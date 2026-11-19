@@ -14,7 +14,8 @@ Writes research/out/<song>/:
     preview.html                         every variant in the browser (open it on the Mac)
 
 The clip starts on a CSV row boundary, so its rows line up exactly with the
-full song's. By default it is the loudest 30 s of the song (usually a chorus).
+full song's. By default it is 20 s before to 10 s after the song's biggest
+sudden drop in loudness (to show the drop cut); with no drop, the loudest 30 s.
 """
 
 import argparse
@@ -29,7 +30,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from lspcompose import audio as audio_mod  # noqa: E402
-from lspcompose import baseline, csvio, metrics, preview, strategies  # noqa: E402
+from lspcompose import baseline, csvio, metrics, preview, stems, strategies  # noqa: E402
 from lspcompose.preview import spans_by_channel  # noqa: E402
 from lspcompose.timing import frames_per_row, row_count, row_period  # noqa: E402
 from lspcompose.variants import BY_NAME, VARIANTS, Context  # noqa: E402
@@ -59,6 +60,8 @@ def build_parser():
     p.add_argument("--fft-chunk", type=int, default=2048, help="the Pi's chunk_size (production 2048)")
     p.add_argument("--fft-mapping", default="1,2,2,3,4,5,4",
                    help="the Pi's custom_channel_mapping ('' for none)")
+    p.add_argument("--no-stems", action="store_true",
+                   help="skip Demucs instrument separation (the 'stems' variant)")
     p.add_argument("--out-dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "out"))
     return p
 
@@ -71,6 +74,18 @@ def loudest_window(energy_times, energy_db, seconds, duration):
     power = 10 ** (np.asarray(energy_db) / 10)
     means = [power[(energy_times >= s) & (energy_times < s + seconds)].mean() for s in starts]
     return float(starts[int(np.argmax(means))])
+
+
+def biggest_drop(feats, duration, margin=5.0):
+    """Start time (s) of the longest sustained 10 dB drop away from the song's ends, or None."""
+    from lspcompose.safety import runs
+    beat_period = float(np.median(np.diff(feats.beat_times))) if len(feats.beat_times) > 1 else 0.5
+    dark = strategies.dark_frames(feats.mel_db, feats.mel_times, 10.0,
+                                  momentary_s=max(0.3, beat_period))
+    t = feats.mel_times
+    spans = [(t[a], t[min(b, len(t) - 1)] - t[a]) for a, b in runs(dark)
+             if margin < t[a] < duration - margin]
+    return max(spans, key=lambda x: x[1])[0] if spans else None
 
 
 def write_wav(path, pcm, sample_rate, fade_s=0.01):
@@ -118,19 +133,40 @@ def bundle_one(song, args):
     fft_chunks, _ = baseline.fft_levels(song, args.channels, args.fft_chunk, mapping)
     fft_grid = baseline.levels_on_csv_grid(fft_chunks, sr, args.fft_chunk, rows, args.timing_ms,
                                            layout.dead)
-    ctx = Context(feats, rows, sr, layout, args.timing_ms, args.min_on, args.min_off, fft_grid)
+    stem_feats = None
+    if not args.no_stems and stems.available():
+        print(f"  separating instruments with Demucs ({stems.MODEL}, cached after the first run)...",
+              flush=True)
+        stem_feats = stems.features_cached(song, pcm, sr, os.path.join(args.out_dir, ".cache"))
+    ctx = Context(feats, rows, sr, layout, args.timing_ms, args.min_on, args.min_off, fft_grid,
+                  stem_feats)
 
     # Clip: row-aligned, so clip row i == full row (k + i)
-    clip_start = args.clip_start if args.clip_start is not None else loudest_window(
-        feats.energy_times, feats.energy_db, args.clip_seconds, audio.duration)
+    # Default clip: around the biggest drop (to show the drop cut), else the loudest part
+    if args.clip_start is not None:
+        clip_start = args.clip_start
+    else:
+        drop = biggest_drop(feats, audio.duration)
+        if drop is not None:
+            clip_start = float(np.clip(drop - 2 / 3 * args.clip_seconds, 0,
+                                       max(0.0, audio.duration - args.clip_seconds)))
+        else:
+            clip_start = loudest_window(feats.energy_times, feats.energy_db, args.clip_seconds,
+                                        audio.duration)
     k = int(round(clip_start / row_period(sr, args.timing_ms)))
     clip_rows = min(int(round(args.clip_seconds / row_period(sr, args.timing_ms))), rows - k)
     write_wav(os.path.join(out, "audio", "full.wav"), pcm, sr, fade_s=0)
     write_wav(os.path.join(out, "audio", "clip.wav"), pcm[k * n:(k + clip_rows) * n], sr)
 
     chosen = VARIANTS if args.variants == "all" else [BY_NAME[v.strip()] for v in args.variants.split(",")]
+    skipped = [v.name for v in chosen if v.needs_stems and stem_feats is None]
+    if skipped:
+        print(f"  skipping {', '.join(skipped)}: install demucs in .venv-research "
+              "(see research/README.md) or drop --no-stems")
     summary = []
     for v in chosen:
+        if v.name in skipped:
+            continue
         levels = v.build(ctx)
         parts = {"full": levels, "clip": levels[k:k + clip_rows]}
         for part, lv in parts.items():
@@ -141,7 +177,7 @@ def bundle_one(song, args):
         m = metrics.summarize(levels, sr, feats.beat_times, feats.energy_times, feats.energy_db,
                               args.timing_ms, args.min_on, args.min_off)
         summary.append({"name": v.name, "title": v.title, "description": v.description,
-                        "metrics": {"full": m},
+                        "labels": ctx.labels.get(v.name), "metrics": {"full": m},
                         "spans": {p: spans_by_channel(lv, sr, args.timing_ms) for p, lv in parts.items()}})
 
     manifest = {
@@ -150,7 +186,7 @@ def bundle_one(song, args):
         "timing_ms": args.timing_ms, "brightness_range": args.brightness_range,
         "clip_start_s": round(k * n / sr, 3), "clip_seconds": round(clip_rows * n / sr, 3),
         "tempo_bpm": round(feats.tempo, 1), "duration_s": round(rows * n / sr, 3),
-        "variants": [{k2: s[k2] for k2 in ("name", "title", "description")} |
+        "variants": [{k2: s[k2] for k2 in ("name", "title", "description", "labels")} |
                      {"metrics": s["metrics"]["full"]} for s in summary],
     }
     with open(os.path.join(out, "manifest.json"), "w") as f:

@@ -81,6 +81,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   30 s clip. `research/testbed.py` runs on the show Pi over ssh with a menu
   (play one, all back to back, or loop) and plays each variant through the
   normal show engine with the pre-show and postshow off.
+- **Composer: dynamic "hits per band" and instrument-per-light (research)**:
+  `onset_dynamic`/`onset_smooth`/`onset_sensitive` scale how many channels fire
+  with loudness and cut to dark the instant the music drops (a sustained 10 dB
+  or 6 dB fall, located on the loudness cliff); `stems` uses Demucs
+  (htdemucs_6s) to give each light one instrument (kick, snare/hats, bass,
+  low/high voice, guitar, piano, other). The test-bed menu and preview label
+  each light with its instrument. Clips default to the song's biggest drop.
 
 ### Changed
 - Test patterns in `hardware_controller.py` moved into a `Patterns` class so the

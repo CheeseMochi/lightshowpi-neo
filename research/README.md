@@ -17,13 +17,17 @@ so it's safe to try during the freeze. Background and design:
 |---|---|---|
 | 1 | `fft` | **Today's show**: one frequency band per channel, ON above a 0.5 threshold. It's simulated with the Pi's own `fft.py` and your `chunk_size = 2048` and channel mapping. |
 | 2 | `fft_safe` | The same levels with hysteresis and minimum on/off times. The same look with far less flicker. |
-| 3 | `beat_chase` | A group of adjacent channels steps along on every beat and bounces at the ends. Louder means a bigger group; quiet passages go dark. |
-| 4 | `beat_chase_calm` | The chase on every other beat with at most 3 channels lit. |
-| 5 | `vu_meter` | A bar graph from channel 1 up, refreshed on each beat. |
-| 6 | `beat_ab` | Odd and even channels swap on every beat. |
-| 7 | `onset_bands` | One band per channel like today, but channels fire on *hits* (drums, note attacks), not loudness. Hits near a beat snap to it. |
-| 8 | `sections` | A different look per song section (sparse → A/B → chase → all-pulse, by loudness), and the same look when a section repeats. A short blackout and a flash lead into louder sections. |
-| 9 | `test_alternate` | Odd/even swap every 0.5 s whatever the music does. It checks the CSV path and audio/light sync. |
+| 3 | `onset_bands` | **Steve's pick.** One band per channel like today, but channels fire on *hits* (drums, note attacks), not loudness. Hits near a beat snap to it. |
+| 4 | `onset_dynamic` | Hits per band, plus: how many channels may fire per beat follows loudness (sparse when quiet, full in big moments), and **everything cuts to dark the instant the music drops ≥ 10 dB and stays down**. |
+| 5 | `onset_smooth` | The dynamic version with each hit held a full beat: calmer. |
+| 6 | `onset_sensitive` | The dynamic version that catches softer hits and cuts on smaller (6 dB) drops, for gentle songs. |
+| 7 | `stems` | **Instrument per light.** Demucs separates the song; each light follows one instrument: kick drum, snare/hats, bass, low voice, high voice, guitar, piano, other, whichever are present. Spare lights split the loudest instrument into low/high. Drums blink on hits; pitched parts light per note while they sound. The menu and preview label each light. |
+| 8 | `beat_chase` | A group of adjacent channels steps along on every beat and bounces at the ends. Louder means a bigger group; quiet passages go dark. |
+| 9 | `beat_chase_calm` | The chase on every other beat with at most 3 channels lit. |
+| 10 | `vu_meter` | A bar graph from channel 1 up, refreshed on each beat. |
+| 11 | `beat_ab` | Odd and even channels swap on every beat. |
+| 12 | `sections` | A different look per song section (sparse → A/B → chase → all-pulse, by loudness), and the same look when a section repeats. A short blackout and a flash lead into louder sections. |
+| 13 | `test_alternate` | Odd/even swap every 0.5 s whatever the music does. It checks the CSV path and audio/light sync. |
 
 Every relay variant keeps each pulse at least 0.20 s on and at least 0.15 s off, for
 mechanical relays (`--min-on` and `--min-off`). The beat variants put every switch-on on a
@@ -34,6 +38,7 @@ beat.
 ```bash
 python -m venv .venv-research
 .venv-research/bin/pip install -r research/requirements-research.txt
+.venv-research/bin/pip install demucs        # optional, for the 'stems' variant (pulls in torch)
 # (inside a Claude Code sandbox, add --use-deprecated=legacy-certs)
 
 .venv-research/bin/python research/bundle.py music/sample/evilwezil_carol-of-the-bells.mp3 \
@@ -44,7 +49,10 @@ open research/out/evilwezil_carol-of-the-bells/preview.html     # every variant 
 - `--channels` must equal the Pi's `gpio_len` (7 on `piserver-neo`). The test bed checks it and
   refuses a mismatched bundle.
 - `--dead 2` keeps channels dark (1-based, like `always_off_channels`). The patterns then skip them.
-- The clip is the loudest 30 s by default. Use `--clip-start 62` (seconds) to choose your own, and
+- Instrument separation (`stems`) takes ~20 s per minute of audio on the Mac CPU the first time
+  and is cached in `research/out/.cache` (also its ~50 MB model). `--no-stems` skips it.
+- The clip defaults to 20 s before to 10 s after the song's biggest sudden drop, so you can see the
+  drop cut; with no drop, it's the loudest 30 s. Use `--clip-start 62` (seconds) to choose your own, and
   `--clip-seconds` to change its length.
 - To pick variants: `--variants fft,beat_chase,sections`. Use `--tempo-scale 0.5` or `2` if the
   beat tracker got a song's tempo half or double.
