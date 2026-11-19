@@ -29,6 +29,12 @@ so it's safe to try during the freeze. Background and design:
 | 12 | `sections` | A different look per song section (sparse → A/B → chase → all-pulse, by loudness), and the same look when a section repeats. A short blackout and a flash lead into louder sections. |
 | 13 | `test_alternate` | Odd/even swap every 0.5 s whatever the music does. It checks the CSV path and audio/light sync. |
 
+**The drop cut** (onset 4–6 and `stems`): the cut lands on the loudness cliff itself (on Deck
+the Halls at 44.8 s it switches off within one 25 ms row of the drop). The lights stay dark until
+the music is back within 10 dB (6 dB for "sensitive") of where it was, or for at most 3 s. After
+that they relight at the new, quieter level. Near-silence (35 dB below the song's loud level) is
+always dark.
+
 Every relay variant keeps each pulse at least 0.20 s on and at least 0.15 s off, for
 mechanical relays (`--min-on` and `--min-off`). The beat variants put every switch-on on a
 beat.

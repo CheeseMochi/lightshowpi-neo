@@ -105,7 +105,12 @@ def separate_features(pcm: np.ndarray, sample_rate: int) -> StemFeatures:
 
 def features_cached(song_path: str, pcm: np.ndarray, sample_rate: int,
                     cache_dir: str) -> StemFeatures:
-    """separate_features() with an .npz cache keyed by file hash and version."""
+    """separate_features() with an .npz cache keyed by file hash and version.
+
+    The Demucs model (~50 MB, downloaded once) is cached in <cache_dir>/torch
+    unless TORCH_HOME is already set.
+    """
+    os.environ.setdefault("TORCH_HOME", os.path.join(os.path.abspath(cache_dir), "torch"))
     h = hashlib.sha1()
     with open(song_path, "rb") as f:
         for block in iter(lambda: f.read(1 << 20), b""):
@@ -230,12 +235,18 @@ def render_voice(mel: np.ndarray, kind: str, mel_times: np.ndarray, times: np.nd
     flux = np.maximum(0.0, np.diff(mel, axis=1, prepend=mel[:, :1])).sum(axis=0)
     env = fast_energy_db(mel, mel_times)
     loud = float(np.percentile(env, 95))
-    active = env > loud - 12.0
+    # Gate: drums within 20 dB of their loud level (kicks vary a lot), pitched parts within 12.
+    # Judged on the hit's peak in the next ~70 ms, not the first frame of the attack.
+    gate_db = 20.0 if kind == "hit" else 12.0
+    active = env > loud - gate_db
+    ahead = max(1, int(round(0.07 / hop)))
+    peak_env = np.lib.stride_tricks.sliding_window_view(
+        np.concatenate([env, np.full(ahead - 1, env[-1])]), ahead).max(axis=1)
     peaks = _peaks(flux, hop, min_gap_s=max(min_on + min_off, 0.25))
     out = np.zeros(times.size, dtype=bool)
     hit_hold = max(min_on, 0.5 * beat_period)
     for i, p in enumerate(peaks):
-        if not active[p]:
+        if peak_env[p] <= loud - gate_db:
             continue
         start = mel_times[p]
         if kind == "hit":
@@ -270,7 +281,8 @@ def stems_show(feats: StemFeatures, mix_mel_db: np.ndarray, mix_mel_times: np.nd
     if drop_db is not None and len(mix_mel_times) > 1:
         dark = dark_frames(mix_mel_db, mix_mel_times, drop_db, momentary_s=max(0.3, beat_period))
         dark_rows = np.interp(times, mix_mel_times, dark.astype(float)) > 0.5
-        out = cut(out, dark_rows, seconds_to_rows(min_on, sample_rate, timing_ms))
+        out = cut(out, dark_rows, seconds_to_rows(min_on, sample_rate, timing_ms),
+                  seconds_to_rows(min_off, sample_rate, timing_ms))
     return out, assignment
 
 

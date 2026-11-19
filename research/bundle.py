@@ -137,7 +137,10 @@ def bundle_one(song, args):
     if not args.no_stems and stems.available():
         print(f"  separating instruments with Demucs ({stems.MODEL}, cached after the first run)...",
               flush=True)
-        stem_feats = stems.features_cached(song, pcm, sr, os.path.join(args.out_dir, ".cache"))
+        try:
+            stem_feats = stems.features_cached(song, pcm, sr, os.path.join(args.out_dir, ".cache"))
+        except Exception as e:   # model download or torch failure: skip stems, keep the rest
+            print(f"  ! instrument separation failed ({type(e).__name__}: {e}); skipping 'stems'")
     ctx = Context(feats, rows, sr, layout, args.timing_ms, args.min_on, args.min_off, fft_grid,
                   stem_feats)
 

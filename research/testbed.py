@@ -224,9 +224,12 @@ def expected_seconds(manifest, mode):
 def play_sequence(out_dir, bundle, manifest, mode, names, repeat=1, gap=2.0, play_fn=play):
     """Play variants back to back; Ctrl-C (a "stopped" result) ends the whole run."""
     titles = {v["name"]: v["title"] for v in manifest["variants"]}
+    labels = {v["name"]: v.get("labels") for v in manifest["variants"]}
     for round_ in range(repeat):
         for i, name in enumerate(names, 1):
             label = f"[{i}/{len(names)}{'' if repeat == 1 else f', round {round_ + 1}'}] {titles[name]}"
+            if labels.get(name):
+                label += "\n    " + "   ".join(f"ch{j + 1}: {x}" for j, x in enumerate(labels[name]))
             result = play_fn(variant_audio(out_dir, bundle, mode, name), label,
                              expected_seconds(manifest, mode))
             if result in ("stopped", "failed"):

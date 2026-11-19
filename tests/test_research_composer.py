@@ -527,6 +527,26 @@ class TestDrops:
         out = strategies.cut(levels, dark, min_on_rows=8)
         assert safety.runs(out[:, 0] > 0.5) == [(10, 30)]
 
+    def test_cut_inside_a_long_pulse_keeps_min_off(self):
+        levels = np.zeros((100, 1))
+        levels[10:60, 0] = 1                   # one long pulse
+        dark = np.zeros(100, bool)
+        dark[30:33] = True                     # a 3-row dark span inside it
+        out = strategies.cut(levels, dark, min_on_rows=8, min_off_rows=6)
+        assert safety.runs(out[:, 0] > 0.5) == [(10, 30)]   # the rest stays dark, no 3-row gap
+        assert safety.check(levels[:, 0] > 0.5, out[:, 0] > 0.5, 8, 6) == []
+
+    @pytest.mark.parametrize("seed", range(20))
+    def test_cut_keeps_relay_limits_on_random_input(self, seed):
+        rng = np.random.default_rng(seed)
+        on = safety.relay_safety(rng.random(400) < 0.5, 8, 6)
+        dark = rng.random(400) < 0.05
+        out = strategies.cut(on[:, None].astype(float), dark, 8, 6)[:, 0] > 0.5
+        for i, (start, end) in enumerate(safety.runs(out)):
+            assert end - start >= 8 or end == 400
+            if i:
+                assert start - safety.runs(out)[i - 1][1] >= 6
+
     def _song(self, drop_at=None, seconds=30):
         rows = timing.row_count(SR * seconds, SR)
         hop = 512 / SR
@@ -550,6 +570,7 @@ class TestDrops:
                                         strategies.Layout(7), opts=opts)
         t = timing.row_times(rows, SR)
         assert levels[(t < 14.5)].sum() > 0
+        assert levels[(t >= 14.55) & (t < 14.75)].sum() > 0   # not early: the last beat before plays
         assert levels[(t >= 15.05) & (t < 17.0)].sum() == 0   # dark within ~50 ms, stays dark
 
     def test_without_drop_cut_lights_linger_after_the_drop(self):

@@ -263,18 +263,28 @@ def dark_frames(mel_db: np.ndarray, mel_times: np.ndarray, drop_db: float,
     return quiet | drops
 
 
-def cut(levels: np.ndarray, dark: np.ndarray, min_on_rows: int) -> np.ndarray:
+def cut(levels: np.ndarray, dark: np.ndarray, min_on_rows: int,
+        min_off_rows: int = 0) -> np.ndarray:
     """
-    Force rows in ``dark`` off after the relay-safety pass, then drop any ON
-    fragment the cut left shorter than ``min_on_rows``. Removing ON time only
-    lengthens OFF gaps, so the min on/off guarantees still hold.
+    Force rows in ``dark`` off after the relay-safety pass, then repair the
+    relay limits by removing ON time only (never adding it):
+
+    - an ON fragment shorter than ``min_on_rows`` is removed;
+    - an ON run that follows an OFF gap shorter than ``min_off_rows`` (a short
+      dark span inside a long pulse) is removed, so the light stays dark.
     """
     out = np.array(levels, dtype=float)
     out[np.asarray(dark, dtype=bool)] = 0.0
+    total = out.shape[0]
     for c in range(out.shape[1]):
+        prev_end = None
         for start, end in safety.runs(out[:, c] > 0.5):
-            if end - start < min_on_rows and end != out.shape[0]:
+            short_on = end - start < min_on_rows and end != total
+            short_gap = prev_end is not None and start - prev_end < min_off_rows
+            if short_on or short_gap:
                 out[start:end, c] = 0.0
+            else:
+                prev_end = end
     return out
 
 
@@ -351,7 +361,13 @@ def onset_bands(mel_times, mel_db, beat_times, energy_times, energy_db, rows: in
             group = sorted((h for h, sl in zip(hits, slot) if sl == s_idx), key=lambda h: -h[1])
             cap = max_per_beat
             if opts.dynamic and rank is not None:
-                level = float(np.interp(group[0][0], energy_times, rank))
+                # Half where this moment ranks in the song, half how close it is to the
+                # song's loud level in dB: a uniformly loud (compressed) song stays full
+                # instead of having contrast invented by the ranking.
+                t0 = group[0][0]
+                db_level = np.clip((np.interp(t0, energy_times, energy_db) - (loud_db - 12.0))
+                                   / 12.0, 0.0, 1.0)
+                level = 0.5 * float(np.interp(t0, energy_times, rank)) + 0.5 * float(db_level)
                 cap = 1 + int(round(level * (len(active) - 1)))
             keep.extend(group[:cap])
         hits = keep
@@ -369,7 +385,8 @@ def onset_bands(mel_times, mel_db, beat_times, energy_times, energy_db, rows: in
     dark = dark_frames(mel_db, mel_times, opts.drop_db, opts.drop_sustain, opts.drop_window,
                        opts.quiet_db, momentary_s=max(0.3, beat_period))
     dark_rows = np.interp(times, mel_times, dark.astype(float)) > 0.5
-    return cut(out, dark_rows, seconds_to_rows(opts.min_on, sample_rate, timing_ms))
+    return cut(out, dark_rows, seconds_to_rows(opts.min_on, sample_rate, timing_ms),
+               seconds_to_rows(opts.min_off, sample_rate, timing_ms))
 
 
 # ---------------------------------------------------------------------------
