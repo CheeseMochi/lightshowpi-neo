@@ -112,6 +112,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and an OSV scan of a fresh `requirements-dev.txt` install both report none.
 
 ### Fixed
+- **LED strips over sACN work again without BiblioPixel.** BiblioPixel can't be
+  installed on Neo's Python, so `led_connection = SACN` with
+  `led_configuration = STRIP` (e.g. an ESPixelStick) was silently disabled. It
+  now runs natively (`py/led_module.py`, `py/led_colors.py`,
+  `py/driver_sacn.SacnSender`), with the same patterns, colour maps, hue table
+  and brightness maths as before. A network error on an LED send is now logged
+  (at most every 30 s) and retried on the next frame instead of raising. A
+  universe that's an exact multiple of `universe_boundary` no longer sends an
+  extra empty universe, and a `universe_boundary` that isn't a multiple of 3
+  logs a warning (use 510). MATRIX, SPI and SERIAL configs still need
+  BiblioPixel (`py/led_bibliopixel.py`). They now log a clear error and are
+  skipped instead of disabling every LED config. The plan is to move the LED
+  sender onto the maintained `sacn` library after the season (see ROADMAP.md).
 - sACN clients crashed on the first per-song override message from the server
   (`'SACNNetworking' object has no attribute 'get_overrides'`); they now honour
   `[network] get_overrides` like legacy clients. Found on the Pi bench.
