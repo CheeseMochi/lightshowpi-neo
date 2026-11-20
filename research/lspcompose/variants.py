@@ -90,7 +90,7 @@ VARIANTS: List[Variant] = [
     Variant("onset_bands", "Hits per band",
             "Like today's one-band-per-channel idea, but channels fire on hits (drum, note "
             "attacks) in their band instead of loudness; hits snap to beats. (Your pick.)",
-            lambda c: _onset(c)),
+            lambda c: _onset(c, scheduler="first")),
     Variant("onset_dynamic", "Hits per band, dynamic",
             "Hits per band, but how many channels may fire per beat follows loudness (sparse "
             "when quiet, full in big moments), and everything cuts to dark the instant the "

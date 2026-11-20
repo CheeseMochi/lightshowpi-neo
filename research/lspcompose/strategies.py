@@ -6,7 +6,7 @@ without librosa. Every relay strategy ends with safety.apply().
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -196,6 +196,99 @@ class OnsetOptions:
     drop_db: Optional[float] = None    # cut to dark when loudness falls this far below its recent peak
     drop_sustain: float = 0.15         # ...and stays down this long (s)
     drop_window: float = 3.0           # "recent peak" = loudest point in this many seconds (s)
+    scheduler: str = "smart"           # "smart": shorten/overflow/strongest-wins; "first": first hit wins
+    overflow: int = 1                  # smart: try neighbour lights up to this many places away
+
+
+RELAY_PRESETS = {
+    # (min_on, min_off) seconds
+    "mechanical": (0.20, 0.15),   # contacts wear: few, well-spaced switches
+    "ssr": (0.05, 0.05),          # solid-state relays: as fast as the 25 ms rows allow, with a floor
+}
+
+
+@dataclass
+class Hit:
+    time: float
+    strength: float
+    channel: int
+    end: Optional[float] = None   # preferred end (tone voices); default start + hold
+
+
+def schedule_hits(hits: List[Hit], rows: int, times: np.ndarray, channels: int, hold_s: float,
+                  min_on_s: float, min_off_s: float, sample_rate: int, timing_ms: int = 25,
+                  neighbours: Optional[Dict[int, List[int]]] = None) -> np.ndarray:
+    """
+    Place hits as relay pulses without losing close-together (often syncopated) hits.
+
+    Hits are taken in time order. A hit whose light is still busy:
+      1. shortens that light's current pulse (it ends ``min_off`` before the new
+         hit) when the current pulse can stay at least ``min_on`` long;
+      2. otherwise overflows to the first free light in ``neighbours[channel]``
+         (close hits spread across neighbouring lights);
+      3. otherwise replaces the current pulse if it is stronger (strongest wins),
+         else is dropped.
+    Every pulse is >= min_on and gaps are >= min_off, so no safety pass is needed.
+    """
+    out = np.zeros((rows, channels))
+    if not hits or rows == 0:
+        return out
+    min_on = seconds_to_rows(min_on_s, sample_rate, timing_ms)
+    min_off = seconds_to_rows(min_off_s, sample_rate, timing_ms)
+    hold = max(min_on, seconds_to_rows(hold_s, sample_rate, timing_ms))
+    pulses: Dict[int, List[list]] = {}   # channel -> [[start_row, end_row, strength], ...]
+
+    def free_at(ch, r):
+        ps = pulses.get(ch)
+        return not ps or r >= ps[-1][1] + min_off
+
+    def place(ch, r, hit):
+        if hit.end is not None:
+            end = int(np.searchsorted(times, hit.end - 1e-9))
+            end = max(r + min_on, end)
+        else:
+            end = r + hold
+        pulses.setdefault(ch, []).append([r, min(rows, end), hit.strength])
+
+    for hit in sorted(hits, key=lambda h: (h.time, -h.strength)):
+        r = max(0, int(np.searchsorted(times, hit.time + 1e-9, side="right")) - 1)  # row containing it
+        if r >= rows:
+            continue
+        c = hit.channel
+        if free_at(c, r):
+            place(c, r, hit)
+            continue
+        last = pulses[c][-1]
+        if r > last[0] and r - min_off - last[0] >= min_on:      # 1. shorten
+            last[1] = r - min_off
+            place(c, r, hit)
+            continue
+        free = [n for n in (neighbours or {}).get(c, []) if free_at(n, r)]
+        if free:                                                  # 2. overflow
+            place(free[0], r, hit)
+            continue
+        if hit.strength > last[2]:                                # 3. strongest wins
+            ps = pulses[c]
+            before = ps[-2] if len(ps) > 1 else None
+            if before is None or r >= before[1] + min_off:
+                ps.pop()
+                place(c, r, hit)
+
+    for ch, ps in pulses.items():
+        for start, end, _ in ps:
+            out[start:end, ch] = 1.0
+    return out
+
+
+def neighbour_map(active: List[int], reach: int) -> Dict[int, List[int]]:
+    """For each light, the lights up to ``reach`` places away in display order, nearest first."""
+    out = {}
+    for i, c in enumerate(active):
+        near = []
+        for d in range(1, reach + 1):
+            near += [active[j] for j in (i - d, i + d) if 0 <= j < len(active)]
+        out[c] = near
+    return out
 
 
 def fast_energy_db(mel_db: np.ndarray, mel_times: np.ndarray, smooth_s: float = 0.05) -> np.ndarray:
@@ -324,7 +417,11 @@ def onset_bands(mel_times, mel_db, beat_times, energy_times, energy_db, rows: in
     hold = float(np.clip(opts.hold_beats * beat_period, opts.min_on, max(opts.min_on, beat_period)))
     hop = float(np.median(np.diff(mel_times)))
     width = int(round(opts.window / hop))
-    min_gap = max(1, int(round((hold + opts.min_off) / hop)))
+    smart = opts.scheduler == "smart"
+    # "first" (the original): one hit per band per hold + gap. "smart": detect
+    # hits as close as the relays allow and let the scheduler resolve clashes.
+    gap_s = (opts.min_on + opts.min_off) if smart else (hold + opts.min_off)
+    min_gap = max(1, int(round(max(gap_s, 0.06) / hop)))
     max_per_beat = opts.max_per_beat or max(1, (len(active) + 1) // 2)
 
     energy_db = np.asarray(energy_db, dtype=float)
@@ -359,6 +456,13 @@ def onset_bands(mel_times, mel_db, beat_times, energy_times, energy_db, rows: in
         keep = []
         for s_idx in np.unique(slot):
             group = sorted((h for h, sl in zip(hits, slot) if sl == s_idx), key=lambda h: -h[1])
+            if smart:
+                # cap distinct lights per beat, keeping every hit of the chosen lights
+                # (a light may fire twice in a beat: that's the syncopation)
+                strongest = {}
+                for h in group:
+                    strongest.setdefault(h[2], h[1])
+                ranked = sorted(strongest, key=lambda ch: -strongest[ch])
             cap = max_per_beat
             if opts.dynamic and rank is not None:
                 # Half where this moment ranks in the song, half how close it is to the
@@ -369,15 +473,24 @@ def onset_bands(mel_times, mel_db, beat_times, energy_times, energy_db, rows: in
                                    / 12.0, 0.0, 1.0)
                 level = 0.5 * float(np.interp(t0, energy_times, rank)) + 0.5 * float(db_level)
                 cap = 1 + int(round(level * (len(active) - 1)))
-            keep.extend(group[:cap])
+            if smart:
+                chosen = set(ranked[:cap])
+                keep.extend(h for h in group if h[2] in chosen)
+            else:
+                keep.extend(group[:cap])
         hits = keep
 
-    hold_rows = seconds_to_rows(hold, sample_rate, timing_ms)
-    for t, _, channel in hits:
-        if energy_db.size and np.interp(t, energy_times, energy_db) < loud_db - opts.quiet_db:
-            continue
-        r0 = int(np.searchsorted(times, t - 1e-9))
-        out[r0:r0 + hold_rows, channel] = 1.0
+    loud_enough = [h for h in hits if not (energy_db.size and np.interp(
+        h[0], energy_times, energy_db) < loud_db - opts.quiet_db)]
+    if smart:
+        out = schedule_hits([Hit(t, st, ch) for t, st, ch in loud_enough], rows, times,
+                            layout.channels, hold, opts.min_on, opts.min_off, sample_rate,
+                            timing_ms, neighbour_map(active, opts.overflow))
+    else:
+        hold_rows = seconds_to_rows(hold, sample_rate, timing_ms)
+        for t, _, channel in loud_enough:
+            r0 = int(np.searchsorted(times, t - 1e-9))
+            out[r0:r0 + hold_rows, channel] = 1.0
     out = relay_safe(out, sample_rate, timing_ms, opts.min_on, opts.min_off)
     if opts.drop_db is None:
         return out

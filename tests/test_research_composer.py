@@ -718,3 +718,68 @@ class TestRuns:
         assert (back.sum(axis=1) == 7).any()                          # start: everything flashes
         m = metrics.summarize(levels, SR, beats, et, edb)
         assert m["short_on_violations"] == m["short_off_violations"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Hit scheduler: close-together (syncopated) hits, relay presets
+# ---------------------------------------------------------------------------
+
+class TestScheduler:
+
+    def sched(self, hits, preset="ssr", channels=3, hold=0.25, neighbours=None, seconds=4):
+        on, off = strategies.RELAY_PRESETS[preset]
+        rows = timing.row_count(SR * seconds, SR)
+        times = timing.row_times(rows, SR)
+        out = strategies.schedule_hits(hits, rows, times, channels, hold, on, off, SR,
+                                       neighbours=neighbours)
+        return out, times
+
+    def starts(self, out, times, ch):
+        return [round(float(times[s]), 2) for s, _ in safety.runs(out[:, ch] > 0.5)]
+
+    def test_close_hit_shortens_the_previous_pulse(self):
+        hits = [strategies.Hit(1.0, 1.0, 0), strategies.Hit(1.25, 1.0, 0)]   # beat + "and"
+        out, t = self.sched(hits)
+        assert self.starts(out, t, 0) == [1.0, 1.25]
+
+    def test_mechanical_relays_keep_the_stronger_hit(self):
+        hits = [strategies.Hit(1.0, 1.0, 0), strategies.Hit(1.25, 3.0, 0)]   # syncopated accent
+        out, t = self.sched(hits, preset="mechanical")
+        assert self.starts(out, t, 0) == [1.25]
+        hits = [strategies.Hit(1.0, 3.0, 0), strategies.Hit(1.25, 1.0, 0)]
+        out, t = self.sched(hits, preset="mechanical")
+        assert self.starts(out, t, 0) == [1.0]
+
+    def test_overflow_to_a_free_neighbour(self):
+        hits = [strategies.Hit(1.0, 1.0, 1), strategies.Hit(1.1, 1.0, 1)]
+        out, t = self.sched(hits, preset="mechanical", neighbours={1: [0, 2]})
+        assert self.starts(out, t, 1) == [1.0] and self.starts(out, t, 0) == [1.1]
+
+    @pytest.mark.parametrize("preset", sorted(strategies.RELAY_PRESETS))
+    @pytest.mark.parametrize("seed", range(10))
+    def test_relay_limits_hold_on_random_hits(self, preset, seed):
+        rng = np.random.default_rng(seed)
+        hits = [strategies.Hit(float(x), float(rng.random()), int(rng.integers(3)))
+                for x in np.sort(rng.uniform(0, 3.5, 60))]
+        out, t = self.sched(hits, preset=preset, neighbours=strategies.neighbour_map([0, 1, 2], 1))
+        on, off = strategies.RELAY_PRESETS[preset]
+        m = metrics.summarize(out, SR, np.array([]), np.array([0, 4.0]), np.array([0.0, 0.0]),
+                              min_on_s=on, min_off_s=off)
+        assert m["short_on_violations"] == m["short_off_violations"] == 0
+
+    def test_syncopated_kick_light_keeps_both_hits_with_ssr(self):
+        from lspcompose import stems
+        hop = 512 / SR
+        mel_t = np.arange(int(10 / hop)) * hop
+        mel = np.random.default_rng(3).normal(-70, 0.5, (8, mel_t.size))
+        beats = beat_grid(120, 10)
+        kicks = np.sort(np.concatenate([beats, beats[::2] + 0.25]))   # "1 and 2 ..." pattern
+        for k in kicks:
+            mel[:, int(k / hop)] += 40
+        rows = timing.row_count(SR * 10, SR)
+        times = timing.row_times(rows, SR)
+        for preset, expect_all in (("ssr", True), ("mechanical", False)):
+            on, off = strategies.RELAY_PRESETS[preset]
+            light = stems.render_voice(mel, "hit", mel_t, times, 0.5, on, off, SR)
+            n = len(safety.runs(light))
+            assert (n >= len(kicks) - 1) if expect_all else (n < len(kicks) - 3)

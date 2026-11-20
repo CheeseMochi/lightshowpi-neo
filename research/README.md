@@ -36,9 +36,24 @@ the music is back within 10 dB (6 dB for "sensitive") of where it was, or for at
 that they relight at the new, quieter level. Near-silence (35 dB below the song's loud level) is
 always dark.
 
-Every relay variant keeps each pulse at least 0.20 s on and at least 0.15 s off, for
-mechanical relays (`--min-on` and `--min-off`). The beat variants put every switch-on on a
-beat.
+**Relay limits: `--relays mechanical|ssr`.** Every variant keeps each pulse at least
+`min_on` long with at least `min_off` between pulses:
+- `mechanical` (the default): 0.20 / 0.15 s, so contacts don't wear.
+- `ssr` (solid-state relays): 0.05 / 0.05 s. That's fast enough for 16th notes and syncopation.
+
+Put `export LSP_RELAYS=ssr` in your shell profile to make `ssr` your default. `--min-on` and
+`--min-off` override either preset, and the setting is recorded in each bundle's
+`manifest.json`.
+
+**Close-together hits (syncopation).** Variants 4–8 place hits with a scheduler instead of
+dropping a hit that arrives while its light is still on:
+1. It shortens the previous pulse when both still fit the relay limits.
+2. Otherwise it moves the hit to a free neighbouring band's light (hits per band only; an
+   instrument never moves to another instrument's light).
+3. Otherwise the stronger hit wins.
+
+Variant 3 keeps the original "first hit wins" placement for comparison. The beat variants put
+every switch-on on a beat.
 
 ## 1. Mac: build the bundles
 

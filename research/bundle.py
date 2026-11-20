@@ -54,8 +54,13 @@ def build_parser():
     p.add_argument("--clip-seconds", type=float, default=30.0)
     p.add_argument("--timing-ms", type=int, default=25)
     p.add_argument("--brightness-range", type=int, default=255)
-    p.add_argument("--min-on", type=float, default=0.20)
-    p.add_argument("--min-off", type=float, default=0.15)
+    p.add_argument("--relays", choices=sorted(strategies.RELAY_PRESETS),
+                   default=os.environ.get("LSP_RELAYS", "mechanical"),
+                   help="what switches the lights: 'mechanical' (min on/off 0.20/0.15 s, the "
+                        "default) or 'ssr' (solid-state, 0.05/0.05 s). Set LSP_RELAYS=ssr to "
+                        "make it your default.")
+    p.add_argument("--min-on", type=float, default=None, help="override the preset (seconds)")
+    p.add_argument("--min-off", type=float, default=None, help="override the preset (seconds)")
     p.add_argument("--tempo-scale", type=float, default=1.0, choices=(0.5, 1.0, 2.0))
     p.add_argument("--fft-chunk", type=int, default=2048, help="the Pi's chunk_size (production 2048)")
     p.add_argument("--fft-mapping", default="1,2,2,3,4,5,4",
@@ -192,6 +197,7 @@ def bundle_one(song, args):
         "channels": args.channels, "dead_1based": [d + 1 for d in layout.dead],
         "timing_ms": args.timing_ms, "brightness_range": args.brightness_range,
         "clip_start_s": round(k * n / sr, 3), "clip_seconds": round(clip_rows * n / sr, 3),
+        "relays": args.relays, "min_on_s": args.min_on, "min_off_s": args.min_off,
         "tempo_bpm": round(feats.tempo, 1), "duration_s": round(rows * n / sr, 3),
         "variants": [{k2: s[k2] for k2 in ("name", "title", "description", "labels")} |
                      {"metrics": s["metrics"]["full"]} for s in summary],
@@ -210,7 +216,14 @@ def bundle_one(song, args):
 
 
 def main(argv=None):
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.relays not in strategies.RELAY_PRESETS:
+        parser.error(f"--relays / LSP_RELAYS must be one of {sorted(strategies.RELAY_PRESETS)}")
+    preset_on, preset_off = strategies.RELAY_PRESETS[args.relays]
+    args.min_on = preset_on if args.min_on is None else args.min_on
+    args.min_off = preset_off if args.min_off is None else args.min_off
+    print(f"Relays: {args.relays} (min on {args.min_on:.2f} s, min off {args.min_off:.2f} s)")
     for song in args.songs:
         out, man = bundle_one(song, args)
         print(f"\n{man['song']}: {len(man['variants'])} variants, {man['channels']} channels, "

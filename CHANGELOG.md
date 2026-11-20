@@ -93,6 +93,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with fast rising/falling scale runs (pitch from a CQT of the harmonic part;
   each light switches once per run) and a full flash on the first hit after
   every stop. `--order` sets the display's physical end-to-end channel order.
+- **Composer: relay presets and syncopation (research)**: `--relays
+  mechanical|ssr` (or `LSP_RELAYS`) sets the minimum on/off times (0.20/0.15 s
+  or 0.05/0.05 s). A hit scheduler keeps close-together hits by shortening the
+  previous pulse, overflowing to a neighbouring band's light, or keeping the
+  stronger hit (on the samples with SSRs, the kick light fires 2.3x as often).
 
 ### Changed
 - Test patterns in `hardware_controller.py` moved into a `Patterns` class so the

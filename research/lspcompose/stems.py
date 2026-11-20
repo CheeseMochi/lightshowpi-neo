@@ -28,8 +28,8 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from . import safety
-from .strategies import (Layout, _moving_median, cut, dark_frames, fast_energy_db,
-                         relay_safe)
+from .strategies import (Hit, Layout, _moving_median, cut, dark_frames, fast_energy_db,
+                         relay_safe, schedule_hits)
 from .timing import row_times, seconds_to_rows
 
 STEMS_VERSION = 1
@@ -222,7 +222,8 @@ def _peaks(flux: np.ndarray, hop: float, threshold: float = 3.0, floor_frac: flo
 
 
 def render_voice(mel: np.ndarray, kind: str, mel_times: np.ndarray, times: np.ndarray,
-                 beat_period: float, min_on: float, min_off: float) -> np.ndarray:
+                 beat_period: float, min_on: float, min_off: float, sample_rate: int = 44100,
+                 timing_ms: int = 25) -> np.ndarray:
     """
     One channel (bool per CSV row) for one voice.
 
@@ -230,6 +231,11 @@ def render_voice(mel: np.ndarray, kind: str, mel_times: np.ndarray, times: np.nd
     tone: on at each note/syllable onset, held while the voice keeps sounding
           (envelope within 12 dB of its loud level) until min_off before the next
           onset, so consecutive notes blink.
+
+    Hits are detected as close together as the relays allow (min_on + min_off)
+    and placed by strategies.schedule_hits: a quick follow-up hit (syncopation)
+    shortens the previous pulse instead of being dropped; if it can't, the
+    stronger hit wins.
     """
     hop = float(np.median(np.diff(mel_times)))
     flux = np.maximum(0.0, np.diff(mel, axis=1, prepend=mel[:, :1])).sum(axis=0)
@@ -242,23 +248,22 @@ def render_voice(mel: np.ndarray, kind: str, mel_times: np.ndarray, times: np.nd
     ahead = max(1, int(round(0.07 / hop)))
     peak_env = np.lib.stride_tricks.sliding_window_view(
         np.concatenate([env, np.full(ahead - 1, env[-1])]), ahead).max(axis=1)
-    peaks = _peaks(flux, hop, min_gap_s=max(min_on + min_off, 0.25))
-    out = np.zeros(times.size, dtype=bool)
+    peaks = _peaks(flux, hop, min_gap_s=max(min_on + min_off, 0.06))
     hit_hold = max(min_on, 0.5 * beat_period)
-    for i, p in enumerate(peaks):
+    hits = []
+    for p in peaks:
         if peak_env[p] <= loud - gate_db:
             continue
-        start = mel_times[p]
-        if kind == "hit":
-            end = start + hit_hold
-        else:
-            nxt = mel_times[peaks[i + 1]] - min_off if i + 1 < len(peaks) else mel_times[-1]
+        end = None
+        if kind == "tone":
             stop = p
-            while stop < active.size and active[stop] and mel_times[stop] < nxt:
+            while stop < active.size and active[stop]:
                 stop += 1
-            end = max(start + min_on, mel_times[min(stop, active.size - 1)])
-        out[(times >= start - 1e-9) & (times < end)] = True
-    return out
+            end = max(mel_times[p] + min_on, mel_times[min(stop, active.size - 1)])
+        hits.append(Hit(float(mel_times[p]), float(flux[p]), 0, end))
+    out = schedule_hits(hits, times.size, times, 1, hit_hold, min_on, min_off, sample_rate,
+                        timing_ms)
+    return out[:, 0] > 0.5
 
 
 def stems_show(feats: StemFeatures, mix_mel_db: np.ndarray, mix_mel_times: np.ndarray,
@@ -276,7 +281,8 @@ def stems_show(feats: StemFeatures, mix_mel_db: np.ndarray, mix_mel_times: np.nd
     beat_period = float(np.median(np.diff(beats))) if beats.size > 1 else 0.5
     for channel, voice in assignment.items():
         out[:, channel] = render_voice(voice_mel(feats, voice), voice_spec(voice)[3],
-                                       feats.mel_times, times, beat_period, min_on, min_off)
+                                       feats.mel_times, times, beat_period, min_on, min_off,
+                                       sample_rate, timing_ms)
     out = relay_safe(out, sample_rate, timing_ms, min_on, min_off)
     if drop_db is not None and len(mix_mel_times) > 1:
         dark = dark_frames(mix_mel_db, mix_mel_times, drop_db, momentary_s=max(0.3, beat_period))
