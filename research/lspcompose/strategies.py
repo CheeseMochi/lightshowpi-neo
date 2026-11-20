@@ -465,3 +465,121 @@ def fft_safe(fft_levels_on_grid: np.ndarray, sample_rate: int, timing_ms: int = 
              min_on: float = 0.20, min_off: float = 0.15) -> np.ndarray:
     """The current FFT look, minus the flicker: hysteresis, then relay limits."""
     return relay_safe(hysteresis(fft_levels_on_grid), sample_rate, timing_ms, min_on, min_off)
+
+
+# ---------------------------------------------------------------------------
+# onset_runs: dynamic hits per band + scale sweeps + dramatic starts and stops
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Run:
+    start: float          # seconds (first note)
+    end: float            # seconds (last note)
+    times: np.ndarray     # note onsets
+    pitch: np.ndarray     # unfolded pitch (MIDI), monotonic-ish
+    direction: int        # +1 up, -1 down
+
+
+def find_runs(note_times, note_pitch, max_gap: float = 0.35, min_moves: int = 4,
+              min_span: float = 7.0, max_repeats: int = 1, max_median_gap: float = 0.25
+              ) -> List["Run"]:
+    """
+    Fast scale/arpeggio runs: chains of notes at most ``max_gap`` apart whose
+    pitch keeps moving one way for ``min_moves``+ pitch changes (5+ distinct
+    notes) and ``min_span``+ semitones, with no more than ``max_repeats``
+    repeated notes in a row and a median note gap of at most ``max_median_gap``
+    (scales are fast). Steps bigger than a tritone are folded by octaves, since
+    the pitch tracker often jumps an octave on the same note.
+    """
+    t = np.asarray(note_times, dtype=float)
+    p = np.asarray(note_pitch, dtype=float)
+    keep = np.isfinite(p)
+    t, p = t[keep], p[keep]
+    runs_out: List[Run] = []
+    i = 0
+    while i < t.size - 1:
+        j, direction, unfolded, moves, repeats = i, 0, [p[i]], 0, 0
+        while j + 1 < t.size and t[j + 1] - t[j] <= max_gap:
+            step = p[j + 1] - p[j]
+            step = ((step + 6) % 12) - 6 if abs(step) > 6 else step
+            sign = int(np.sign(round(step)))
+            if sign and direction and sign != direction:
+                break
+            repeats = repeats + 1 if not sign else 0
+            if repeats > max_repeats:
+                break
+            moves += bool(sign)
+            direction = direction or sign
+            unfolded.append(unfolded[-1] + step)
+            j += 1
+        fast = j > i and float(np.median(np.diff(t[i:j + 1]))) <= max_median_gap
+        if direction and moves >= min_moves and fast and abs(unfolded[-1] - unfolded[0]) >= min_span:
+            runs_out.append(Run(float(t[i]), float(t[j]), t[i:j + 1].copy(),
+                                np.asarray(unfolded), direction))
+            i = j + 1
+        else:
+            i += 1
+    return runs_out
+
+
+def sweep(run: Run, order: List[int], times: np.ndarray, out: np.ndarray, hold: float) -> None:
+    """
+    Fill ``order`` (one end of the display to the other) following the run's
+    pitch: going up, lights come on from order[0] towards order[-1]; going down,
+    from order[-1] back. A light stays on once lit until the run ends + ``hold``,
+    so each relay switches once per run however fast the notes are.
+    """
+    g = len(order)
+    lo, hi = float(np.min(run.pitch)), float(np.max(run.pitch))
+    window = (times >= run.start - 1e-9) & (times < run.end + hold)
+    out[window] = 0.0
+    reached = 0
+    for k, (t0, pitch) in enumerate(zip(run.times, run.pitch)):
+        pos = int(round((pitch - lo) / max(hi - lo, 1e-9) * (g - 1)))
+        reached = max(reached, pos if run.direction > 0 else g - 1 - pos)
+        lit = order[:reached + 1] if run.direction > 0 else order[g - 1 - reached:]
+        on = (times >= t0 - 1e-9) & (times < run.end + hold)
+        out[np.ix_(on, lit)] = 1.0
+
+
+def onset_runs(feats, rows: int, sample_rate: int, layout: Layout, timing_ms: int = 25,
+               opts: Optional[OnsetOptions] = None, order: Optional[List[int]] = None,
+               drop_db: float = 10.0):
+    """
+    Dynamic hits per band, plus:
+    - scale sweeps: fast rising/falling runs fill the display end to end with the notes
+    - starts as dramatic as the stops: after every drop cut, the first hit as the
+      music comes back flashes every light for half a beat (at least min_on)
+    Returns (levels, number of runs found).
+    """
+    opts = opts or OnsetOptions(dynamic=True, drop_db=drop_db)
+    times = row_times(rows, sample_rate, timing_ms)
+    out = onset_bands(feats.mel_times, feats.mel_db, feats.beat_times, feats.energy_times,
+                      feats.energy_db, rows, sample_rate, layout, timing_ms, opts)
+    order = [c for c in (order or layout.active) if c in set(layout.active)]
+    beats = np.asarray(feats.beat_times, dtype=float)
+    beat_period = float(np.median(np.diff(beats))) if beats.size > 1 else 0.5
+    hold = max(opts.min_on, 0.5 * beat_period)
+
+    runs_found = find_runs(feats.note_times, feats.note_pitch) if feats.note_times is not None else []
+    for run in runs_found:
+        sweep(run, order, times, out, hold)
+
+    dark = dark_frames(feats.mel_db, feats.mel_times, drop_db, opts.drop_sustain, opts.drop_window,
+                       opts.quiet_db, momentary_s=max(0.3, beat_period))
+    onsets = np.asarray(feats.onset_times, dtype=float)
+    flash = max(opts.min_on, 0.5 * beat_period)
+    for start, end in safety.runs(dark):
+        if end >= dark.size:
+            continue
+        back = feats.mel_times[end]
+        after = onsets[(onsets >= back - 0.1) & (onsets <= back + 0.4)]
+        if after.size:
+            t0 = float(after[0])
+            out[np.ix_((times >= t0 - 1e-9) & (times < t0 + flash), layout.active)] = 1.0
+
+    out = relay_safe(out, sample_rate, timing_ms, opts.min_on, opts.min_off)
+    dark_rows = np.interp(times, feats.mel_times, dark.astype(float)) > 0.5
+    out = cut(out, dark_rows, seconds_to_rows(opts.min_on, sample_rate, timing_ms),
+              seconds_to_rows(opts.min_off, sample_rate, timing_ms))
+    return out, len(runs_found)

@@ -60,6 +60,9 @@ def build_parser():
     p.add_argument("--fft-chunk", type=int, default=2048, help="the Pi's chunk_size (production 2048)")
     p.add_argument("--fft-mapping", default="1,2,2,3,4,5,4",
                    help="the Pi's custom_channel_mapping ('' for none)")
+    p.add_argument("--order", default="",
+                   help="1-based channels from one end of the display to the other, for scale "
+                        "sweeps (default 1..N)")
     p.add_argument("--no-stems", action="store_true",
                    help="skip Demucs instrument separation (the 'stems' variant)")
     p.add_argument("--out-dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "out"))
@@ -142,7 +145,7 @@ def bundle_one(song, args):
         except Exception as e:   # model download or torch failure: skip stems, keep the rest
             print(f"  ! instrument separation failed ({type(e).__name__}: {e}); skipping 'stems'")
     ctx = Context(feats, rows, sr, layout, args.timing_ms, args.min_on, args.min_off, fft_grid,
-                  stem_feats)
+                  stem_feats, order=parse_channels(args.order) or None)
 
     # Clip: row-aligned, so clip row i == full row (k + i)
     # Default clip: around the biggest drop (to show the drop cut), else the loudest part
@@ -179,6 +182,7 @@ def bundle_one(song, args):
             csvio.write_csv(lv, os.path.join(d, f"{part}.csv"), args.brightness_range)
         m = metrics.summarize(levels, sr, feats.beat_times, feats.energy_times, feats.energy_db,
                               args.timing_ms, args.min_on, args.min_off)
+        m.update(ctx.extra.get(v.name, {}))
         summary.append({"name": v.name, "title": v.title, "description": v.description,
                         "labels": ctx.labels.get(v.name), "metrics": {"full": m},
                         "spans": {p: spans_by_channel(lv, sr, args.timing_ms) for p, lv in parts.items()}})
@@ -215,6 +219,8 @@ def main(argv=None):
         print(f"  {'variant':18s} {'on beat':>8s} {'tog/min':>8s} {'violations':>10s} {'duty':>6s}")
         for v in man["variants"]:
             m = v["metrics"]
+            if "scale_runs" in m:
+                print(f"  ({v['name']}: {m['scale_runs']:.0f} scale runs found)")
             print(f"  {v['name']:18s} {m['on_beat_fraction']:8.2f} "
                   f"{m['toggles_per_channel_min_median']:8.0f} "
                   f"{m['short_on_violations'] + m['short_off_violations']:10.0f} {m['duty_mean']:6.2f}")

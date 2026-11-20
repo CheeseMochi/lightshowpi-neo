@@ -26,6 +26,8 @@ class Context:
     fft_levels: np.ndarray   # today's FFT brightness on the CSV grid (0..1), dead columns off
     stems: Optional[object] = None   # stems.StemFeatures, when Demucs ran
     labels: Dict[str, List[str]] = field(default_factory=dict)  # variant -> label per channel
+    order: Optional[List[int]] = None   # 0-based channels from one end of the display to the other
+    extra: Dict[str, dict] = field(default_factory=dict)        # variant -> extra metrics
 
 
 @dataclass
@@ -62,6 +64,15 @@ def _stems(ctx: Context) -> np.ndarray:
     return levels
 
 
+def _runs(ctx: Context) -> np.ndarray:
+    levels, n = strategies.onset_runs(
+        ctx.feats, ctx.rows, ctx.sample_rate, ctx.layout, ctx.timing_ms,
+        OnsetOptions(min_on=ctx.min_on, min_off=ctx.min_off, dynamic=True, drop_db=10.0),
+        order=ctx.order)
+    ctx.extra["onset_runs"] = {"scale_runs": float(n)}
+    return levels
+
+
 def _half_beats(ctx: Context):
     return ctx.feats.beat_times[::2]
 
@@ -92,6 +103,11 @@ VARIANTS: List[Variant] = [
             "The dynamic version that also catches softer hits (for gentle songs) and cuts "
             "on smaller drops (6 dB).",
             lambda c: _onset(c, dynamic=True, drop_db=6.0, threshold=2.0, floor=0.08)),
+    Variant("onset_runs", "Hits + scale sweeps + starts",
+            "Dynamic hits per band and the drop cut, plus: fast rising or falling scale runs "
+            "light the display from one end to the other with the notes, and when the music "
+            "crashes back in after a stop every light flashes on that hit.",
+            _runs),
     Variant("stems", "Instrument per light",
             "Demucs splits the song into instruments; each light follows one: kick drum, "
             "snare/hats, bass, low voice, high voice, guitar, piano, other (whichever are "

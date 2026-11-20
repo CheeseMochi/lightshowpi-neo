@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-ANALYSIS_VERSION = 2
+ANALYSIS_VERSION = 3
 
 
 @dataclass
@@ -63,6 +63,8 @@ class Features:
     mel_db: np.ndarray = None      # [n_mels, frames] log-mel spectrogram, low to high
     seg_times: np.ndarray = None   # section start times (first is 0)
     seg_labels: np.ndarray = None  # repeat label per section (same label = similar music)
+    note_times: np.ndarray = None  # onsets of the pitched (non-drum) part, seconds
+    note_pitch: np.ndarray = None  # strongest pitch at each of those onsets, MIDI (nan if unclear)
 
 
 def _file_key(path: str) -> str:
@@ -106,8 +108,39 @@ def analyze(audio: Audio, tempo_scale: float = 1.0, smooth_s: float = 1.0) -> Fe
     mel_times = librosa.frames_to_time(np.arange(mel_db.shape[1]), sr=sr, hop_length=hop)
 
     seg_times, seg_labels = _sections(y, sr, hop, beats, audio.duration)
+    note_times, note_pitch = _notes(y, sr, hop)
     return Features(tempo, beats, energy_times, energy_db, np.asarray(onsets, dtype=float),
-                    mel_times, mel_db, seg_times, seg_labels)
+                    mel_times, mel_db, seg_times, seg_labels, note_times, note_pitch)
+
+
+def _notes(y, sr, hop):
+    """
+    Note onsets of the pitched part and the strongest pitch at each.
+
+    HPSS removes most drums, then a CQT (C2..C7, semitone bins) gives the
+    loudest pitch per frame; each onset takes the median pitch over the next
+    ~60 ms. Unclear frames (peak not clearly above the frame's median) are nan.
+    Good enough to see a scale run's direction; not a melody transcriber.
+    """
+    import librosa
+
+    harmonic = librosa.effects.harmonic(y, margin=3.0)
+    fmin = librosa.note_to_hz("C2")
+    cqt = np.abs(librosa.cqt(harmonic, sr=sr, hop_length=hop, fmin=fmin, n_bins=60,
+                             bins_per_octave=12))
+    cqt_db = librosa.amplitude_to_db(cqt, ref=np.max)
+    best = cqt_db.argmax(axis=0)
+    clear = cqt_db.max(axis=0) - np.median(cqt_db, axis=0) > 20.0
+    pitch = np.where(clear, librosa.hz_to_midi(fmin) + best, np.nan)
+    env = librosa.onset.onset_strength(y=harmonic, sr=sr, hop_length=hop)
+    frames = librosa.onset.onset_detect(onset_envelope=env, sr=sr, hop_length=hop, units="frames")
+    span = max(1, int(round(0.06 * sr / hop)))
+    notes = []
+    for f in frames:
+        window = pitch[f:f + span]
+        notes.append(float(np.nanmedian(window)) if np.isfinite(window).any() else np.nan)
+    times = librosa.frames_to_time(frames, sr=sr, hop_length=hop)
+    return np.asarray(times, dtype=float), np.asarray(notes, dtype=float)
 
 
 def _sections(y, sr, hop, beats, duration):
@@ -154,10 +187,11 @@ def analyze_cached(path: str, audio: Audio, cache_dir: str, tempo_scale: float =
         d = np.load(cache)
         return Features(float(d["tempo"]), d["beat_times"], d["energy_times"], d["energy_db"],
                         d["onset_times"], d["mel_times"], d["mel_db"], d["seg_times"],
-                        d["seg_labels"])
+                        d["seg_labels"], d["note_times"], d["note_pitch"])
     feats = analyze(audio, tempo_scale=tempo_scale)
     np.savez(cache, tempo=feats.tempo, beat_times=feats.beat_times,
              energy_times=feats.energy_times, energy_db=feats.energy_db,
              onset_times=feats.onset_times, mel_times=feats.mel_times, mel_db=feats.mel_db,
-             seg_times=feats.seg_times, seg_labels=feats.seg_labels)
+             seg_times=feats.seg_times, seg_labels=feats.seg_labels,
+             note_times=feats.note_times, note_pitch=feats.note_pitch)
     return feats

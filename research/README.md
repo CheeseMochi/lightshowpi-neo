@@ -21,15 +21,16 @@ so it's safe to try during the freeze. Background and design:
 | 4 | `onset_dynamic` | Hits per band, plus: how many channels may fire per beat follows loudness (sparse when quiet, full in big moments), and **everything cuts to dark the instant the music drops ≥ 10 dB and stays down**. |
 | 5 | `onset_smooth` | The dynamic version with each hit held a full beat: calmer. |
 | 6 | `onset_sensitive` | The dynamic version that catches softer hits and cuts on smaller (6 dB) drops, for gentle songs. |
-| 7 | `stems` | **Instrument per light.** Demucs separates the song; each light follows one instrument: kick drum, snare/hats, bass, low voice, high voice, guitar, piano, other, whichever are present. Spare lights split the loudest instrument into low/high. Drums blink on hits; pitched parts light per note while they sound. The menu and preview label each light. |
-| 8 | `beat_chase` | A group of adjacent channels steps along on every beat and bounces at the ends. Louder means a bigger group; quiet passages go dark. |
-| 9 | `beat_chase_calm` | The chase on every other beat with at most 3 channels lit. |
-| 10 | `vu_meter` | A bar graph from channel 1 up, refreshed on each beat. |
-| 11 | `beat_ab` | Odd and even channels swap on every beat. |
-| 12 | `sections` | A different look per song section (sparse → A/B → chase → all-pulse, by loudness), and the same look when a section repeats. A short blackout and a flash lead into louder sections. |
-| 13 | `test_alternate` | Odd/even swap every 0.5 s whatever the music does. It checks the CSV path and audio/light sync. |
+| 7 | `onset_runs` | **Hits + scale sweeps + starts.** The dynamic version plus: fast rising or falling scale runs light the display from one end to the other with the notes (each light comes on once as the run passes it, so relays don't chatter), and when the music crashes back in after a stop, every light flashes on that hit. `--order 1,3,5,…` sets the display's physical end-to-end order. |
+| 8 | `stems` | **Instrument per light.** Demucs separates the song; each light follows one instrument: kick drum, snare/hats, bass, low voice, high voice, guitar, piano, other, whichever are present. Spare lights split the loudest instrument into low/high. Drums blink on hits; pitched parts light per note while they sound. The menu and preview label each light. |
+| 9 | `beat_chase` | A group of adjacent channels steps along on every beat and bounces at the ends. Louder means a bigger group; quiet passages go dark. |
+| 10 | `beat_chase_calm` | The chase on every other beat with at most 3 channels lit. |
+| 11 | `vu_meter` | A bar graph from channel 1 up, refreshed on each beat. |
+| 12 | `beat_ab` | Odd and even channels swap on every beat. |
+| 13 | `sections` | A different look per song section (sparse → A/B → chase → all-pulse, by loudness), and the same look when a section repeats. A short blackout and a flash lead into louder sections. |
+| 14 | `test_alternate` | Odd/even swap every 0.5 s whatever the music does. It checks the CSV path and audio/light sync. |
 
-**The drop cut** (onset 4–6 and `stems`): the cut lands on the loudness cliff itself (on Deck
+**The drop cut** (variants 4–8): the cut lands on the loudness cliff itself (on Deck
 the Halls at 44.8 s it switches off within one 25 ms row of the drop). The lights stay dark until
 the music is back within 10 dB (6 dB for "sensitive") of where it was, or for at most 3 s. After
 that they relight at the new, quieter level. Near-silence (35 dB below the song's loud level) is
@@ -113,7 +114,7 @@ Each variant starts a fresh show process, so expect a few seconds of dark betwee
 that stops early (for example a column mismatch) is reported with the end of the log. Judge
 `sections` in full-song mode (`m`), because a 30 s clip usually sits inside one section.
 
-**Step 0:** play `test_alternate` first. It passes when odd and even channels swap steadily every
+**Step 0:** play `test_alternate` (menu 14) first. It passes when odd and even channels swap steadily every
 0.5 s and stay in time with the music, with no audio dropouts.
 
 ## Single-strategy tool

@@ -658,3 +658,63 @@ class TestStems:
         from lspcompose import stems
         assert stems.voice_spec("guitar@0-420") == ("guitar", 0.0, 420.0, "tone", "guitar low")
         assert stems.voice_spec("kick")[4] == "kick drum"
+
+
+# ---------------------------------------------------------------------------
+# Scale sweeps and restart flashes (onset_runs)
+# ---------------------------------------------------------------------------
+
+class TestRuns:
+
+    def test_finds_fast_rising_and_falling_scales(self):
+        t = np.arange(8) * 0.12
+        up = strategies.find_runs(t, 60 + np.array([0, 2, 4, 5, 7, 9, 11, 12]))
+        down = strategies.find_runs(t, 72 - np.array([0, 2, 4, 5, 7, 9, 11, 12]))
+        assert len(up) == 1 and up[0].direction == 1 and len(up[0].times) == 8
+        assert len(down) == 1 and down[0].direction == -1
+
+    def test_repeating_figure_and_slow_or_small_moves_are_not_runs(self):
+        t = np.arange(16) * 0.15
+        carol = np.tile([70, 69, 70, 67], 4)               # Carol of the Bells ostinato
+        assert strategies.find_runs(t, carol) == []
+        assert strategies.find_runs(np.arange(8) * 0.6, 60 + np.arange(8) * 2) == []   # too slow
+        assert strategies.find_runs(np.arange(8) * 0.1, [60, 61, 61, 62, 62, 61, 60, 61]) == []
+        assert strategies.find_runs(np.arange(6) * 0.1, [60, 61, 62, 63, 64, 65]) == []  # 5 semitones
+        # a held note then a scale is still a scale
+        assert len(strategies.find_runs(np.arange(8) * 0.1, [60, 60, 60, 62, 64, 65, 67, 69])) == 1
+
+    def test_octave_jumps_are_folded(self):
+        t = np.arange(7) * 0.12
+        pitch = np.array([60, 62, 64 + 12, 65, 67, 69 - 12, 71])   # tracker octave errors
+        runs = strategies.find_runs(t, pitch)
+        assert len(runs) == 1 and runs[0].pitch[-1] - runs[0].pitch[0] == 11
+
+    def test_sweep_fills_end_to_end_one_switch_per_light(self):
+        t_notes = 1.0 + np.arange(7) * 0.1
+        run = strategies.find_runs(t_notes, 60 + np.arange(7) * 2)[0]
+        rows = timing.row_count(SR * 3, SR)
+        times = timing.row_times(rows, SR)
+        out = np.zeros((rows, 7))
+        order = [6, 5, 4, 3, 2, 1, 0]                      # display runs right to left
+        strategies.sweep(run, order, times, out, hold=0.25)
+        first_on = [times[np.argmax(out[:, c] > 0)] for c in order]
+        assert first_on == sorted(first_on)               # lights come on in display order
+        for c in range(7):
+            assert len(safety.runs(out[:, c] > 0.5)) == 1  # each relay switches once
+        assert out[times > run.end + 0.3].sum() == 0
+
+    def test_onset_runs_flashes_when_the_music_returns(self):
+        from types import SimpleNamespace
+        mel_t, mel, beats, et, edb, rows = TestDrops()._song(drop_at=15.0)
+        mel[:, (mel_t >= 18.0)] += 25                       # music crashes back in at 18 s
+        feats = SimpleNamespace(mel_times=mel_t, mel_db=mel, beat_times=beats,
+                                energy_times=et, energy_db=edb, onset_times=beats,
+                                note_times=np.array([]), note_pitch=np.array([]))
+        levels, n = strategies.onset_runs(feats, rows, SR, strategies.Layout(7))
+        t = timing.row_times(rows, SR)
+        assert n == 0
+        assert levels[(t >= 15.05) & (t < 17.9)].sum() == 0          # stop: dark
+        back = levels[(t >= 18.0) & (t < 18.25)]
+        assert (back.sum(axis=1) == 7).any()                          # start: everything flashes
+        m = metrics.summarize(levels, SR, beats, et, edb)
+        assert m["short_on_violations"] == m["short_off_violations"] == 0

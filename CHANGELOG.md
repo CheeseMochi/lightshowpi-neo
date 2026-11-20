@@ -88,6 +88,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (htdemucs_6s) to give each light one instrument (kick, snare/hats, bass,
   low/high voice, guitar, piano, other). The test-bed menu and preview label
   each light with its instrument. Clips default to the song's biggest drop.
+- **Composer: scale sweeps and dramatic starts (research)**: `onset_runs` adds,
+  on top of dynamic hits per band, sweeps that light the display end to end
+  with fast rising/falling scale runs (pitch from a CQT of the harmonic part;
+  each light switches once per run) and a full flash on the first hit after
+  every stop. `--order` sets the display's physical end-to-end channel order.
 
 ### Changed
 - Test patterns in `hardware_controller.py` moved into a `Patterns` class so the
