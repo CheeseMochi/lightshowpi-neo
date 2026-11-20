@@ -16,7 +16,6 @@ from typing import List
 
 from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
 # Add py directory to path
@@ -24,6 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'py'))
 
 from api.core.database import init_database
 from api.core.config import APIConfig, get_api_config
+from api.core.frontend import add_frontend_routes, index_response, resolve_dist_dir
 from api.core.auth import (
     AuthManager, configure_secret_key, dev_mode, ensure_admin_user, get_current_user,
     password_problem,
@@ -361,14 +361,30 @@ async def health_check():
 @app.get("/", tags=["Info"])
 async def root():
     """
-    API information endpoint.
+    The web UI when a build is served, otherwise API information.
     """
+    if FRONTEND_INDEX is not None:
+        return index_response(FRONTEND_INDEX)
     return {
         "name": "LightShowPi Neo API",
         "version": API_VERSION,
         "docs": "/docs",
         "health": "/api/health"
     }
+
+
+def load_web_dist() -> str:
+    """``[api] web_dist`` (blank means ``<repo>/web/dist``)."""
+    try:
+        return APIConfig().web_dist
+    except Exception as e:
+        log.warning(f"Could not read [api] web_dist, using the default: {e}")
+        return ""
+
+
+# Registered last: its catch-all route must not shadow any API route. Read at
+# import for the same reason as CORS (routes exist before the lifespan runs).
+FRONTEND_INDEX = add_frontend_routes(app, resolve_dist_dir(load_web_dist()))
 
 
 if __name__ == "__main__":

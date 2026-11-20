@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **The API serves the built web UI**: after `npm run build` in `web/`, the
+  UI is served from the API's own port (one origin, so no CORS, and one tunnel
+  target). Client-side routes such as `/show` fall back to `index.html`;
+  unknown `/api/*` paths stay JSON 404s. Override the folder with
+  `[api] web_dist`. Without a build, `/` still returns API info.
 - **Public read-only API** for the public show page: `GET /api/public/now-playing`
   (on/off, song title, progress) and `GET /api/public/schedule` (tonight's show
   window, enabled schedules, and the free-text `[api] public_schedule` note for
