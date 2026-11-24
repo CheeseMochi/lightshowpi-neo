@@ -14,8 +14,10 @@ LED strips for LightShowPi: show channel levels drawn as pixel patterns.
   setup, e.g. an ESPixelStick) runs natively here: numpy pixel buffer,
   ``led_colors`` for colours and ``driver_sacn.SacnSender`` on the wire.
   No BiblioPixel needed.
-* Everything else (MATRIX layouts, SPI and SERIAL connections) still uses the
-  BiblioPixel code in ``led_bibliopixel.py``. BiblioPixel is unmaintained and
+* ``led_connection = SACN`` with ``led_configuration = MATRIX`` (a strip
+  folded zigzag into rows) runs natively in ``led_matrix.py``.
+* SPI and SERIAL connections still use the BiblioPixel code in
+  ``led_bibliopixel.py``. BiblioPixel is unmaintained and
   isn't installable on the Python versions Neo runs, so those configs raise
   ``ImportError`` with an explanation instead.
 
@@ -46,13 +48,16 @@ def Led(led_config):
     """Create the LED driver for ``led_config`` (see the module docstring)."""
     if led_config.led_connection == "SACN" and led_config.led_configuration == "STRIP":
         return SacnStripLed(led_config)
+    if led_config.led_connection == "SACN" and led_config.led_configuration == "MATRIX":
+        import led_matrix
+        return led_matrix.SacnMatrixLed(led_config)
     try:
         import led_bibliopixel
     except ImportError as e:
         raise ImportError(
             f"LED config uses led_connection = {led_config.led_connection}, "
             f"led_configuration = {led_config.led_configuration}, which still needs "
-            f"BiblioPixel ({e}). Only SACN + STRIP runs without it.") from e
+            f"BiblioPixel ({e}). Only SACN (STRIP or MATRIX) runs without it.") from e
     return led_bibliopixel.Led(led_config)
 
 

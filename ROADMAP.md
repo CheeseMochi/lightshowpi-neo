@@ -57,4 +57,4 @@ Pi-to-Pi sACN (`py/networking_sacn.py`) and the LED sACN driver (`py/driver_sacn
 
 ### Finish removing BiblioPixel
 
-LED strips over sACN no longer need BiblioPixel (Nov 2026: `py/led_module.py`, `py/led_colors.py`). MATRIX layouts and the SPI/SERIAL connections still go through `py/led_bibliopixel.py`, which can't run on Neo's Python. Port the matrix patterns (SBARS, MBARS, IMAGE, PINWHEEL, CBARS, CIRCLES, BANNER) to the native `PixelStrip` with a coordinate map, Pillow for GIF frames and a small bitmap font; then decide whether SPI/SERIAL are worth keeping.
+LED strips and matrices over sACN no longer need BiblioPixel (Nov 2026: `py/led_module.py`, `py/led_matrix.py`, `py/led_colors.py`, `py/led_font.py`). Only the SPI/SERIAL connections still go through `py/led_bibliopixel.py`, which can't run on Neo's Python. Decide whether SPI/SERIAL are worth keeping; if not, delete `led_bibliopixel.py` (keep `tests/fixtures/make_led_matrix_goldens.py` working, as it reads the legacy `write_matrix` from it, or freeze the goldens).

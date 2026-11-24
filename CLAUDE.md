@@ -21,7 +21,7 @@ The workflow from AGENTS.md applies:
 | `py/gpio_adapter.py`, `py/wiring_pi.py` | lgpio backend plus the WiringPi→BCM pin translation layer. |
 | `py/configuration_manager.py` | Loads `config/defaults.cfg` with `overrides.cfg` layered on top. |
 | `py/buttonmanager.py` | Physical button daemon. Runs in `api`, `direct` (state file) or `auto` mode. |
-| `py/led_module.py`, `led_colors.py`, `led_color_maps.py`, `driver_sacn.py`, `networking*.py` | LED and sACN/E1.31 output, plus server/client networking. `led_module.Led()` runs SACN + STRIP natively; MATRIX/SPI/SERIAL fall back to `led_bibliopixel.py`, which needs the uninstallable BiblioPixel. |
+| `py/led_module.py`, `led_colors.py`, `led_color_maps.py`, `driver_sacn.py`, `networking*.py` | LED and sACN/E1.31 output, plus server/client networking. `led_module.Led()` runs SACN STRIP natively and SACN MATRIX via `led_matrix.py`; SPI/SERIAL fall back to `led_bibliopixel.py`, which needs the uninstallable BiblioPixel. |
 | `py/outputs/` | `Output` interface for frame destinations: `LedOutput` wraps `led_module.Led`, `ThreadedOutput` runs slow/network outputs off the audio loop. `Hardware.outputs` / `write_outputs()` drive them. |
 | `py/audio_timing.py` | Chunk-timing maths for `light_delay` (frames vs bytes per audio source). |
 | `api/` | FastAPI backend (optional). `core/` holds config, auth (JWT + bcrypt) and SQLite; `routers/` holds the endpoints; `services/` holds the managers. |

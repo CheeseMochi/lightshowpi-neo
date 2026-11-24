@@ -294,7 +294,7 @@ class TestSacnStripLed:
 @pytest.mark.unit
 class TestLegacyConfigs:
 
-    @pytest.mark.parametrize("overrides", [{"led_configuration": "MATRIX"},
+    @pytest.mark.parametrize("overrides", [{"led_connection": "SERIAL"},
                                            {"led_connection": "SPI", "strip_type": "APA102"}])
     def test_non_sacn_strip_explains_bibliopixel(self, tmp_path, overrides):
         pytest.importorskip("numpy")

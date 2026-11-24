@@ -7,12 +7,12 @@
 # Author: Ken B
 
 
-"""Legacy BiblioPixel LED paths (MATRIX layouts, SPI and SERIAL connections).
+"""Legacy BiblioPixel LED paths (SPI and SERIAL connections).
 
 Only used when BiblioPixel is installed, which it can't be on Python 3.8+.
-STRIP over sACN, the common setup, runs natively in led_module.py instead.
-Kept so these configs still work wherever BiblioPixel is available; porting
-the matrix patterns natively is planned.
+sACN runs natively instead: STRIP in led_module.py, MATRIX in led_matrix.py.
+Kept so SPI/SERIAL configs still work wherever BiblioPixel is available, and
+as the reference the native matrix port is checked against.
 """
 
 import atexit

@@ -122,7 +122,7 @@ class SacnSender(object):
                 self._sock = None
 
 
-# BiblioPixel adapter, only for the legacy LED paths (MATRIX, SPI, SERIAL) in
+# BiblioPixel adapter, only for the legacy LED paths (SPI, SERIAL) in
 # led_bibliopixel.py. Defined only when BiblioPixel is installed.
 try:
     from bibliopixel.drivers.driver_base import DriverBase
