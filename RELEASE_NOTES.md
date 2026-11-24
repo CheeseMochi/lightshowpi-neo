@@ -6,6 +6,11 @@ Draft. See the [Unreleased] section of [CHANGELOG.md](CHANGELOG.md).
 
 ### 🐛 Notable Fixes
 
+- LED strips and matrices over sACN (e.g. an ESPixelStick) light up again: they
+  no longer need BiblioPixel, which can't be installed on Neo. All matrix
+  patterns draw exactly as before. SPI and SERIAL LED configs still need
+  BiblioPixel and are skipped with an error in the log. After the
+  season the LED sender moves to the maintained `sacn` library.
 - Multi-Pi shows: client LEDs now follow the show, clients with fewer channels
   no longer crash, and a client dropping off Wi-Fi no longer crashes the server.
 - A blank line in the playlist no longer stops the show.

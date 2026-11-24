@@ -5,7 +5,7 @@ Holiday Color Maps: Eric Stewart (eric.jay.stewart@gmail.com)
 
 """
 
-import bibliopixel.colors as colors
+import led_colors as colors
 
 class lspi_color_maps:
 

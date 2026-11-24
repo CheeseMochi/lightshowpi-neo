@@ -41,10 +41,11 @@ adafruit-blinka>=8.20.0  # CircuitPython compatibility layer
 # ----------------------------------------------------------------------------
 # LED Control
 # ----------------------------------------------------------------------------
-# BiblioPixel>=3.20210812.1  # LED strip/matrix control framework (OPTIONAL)
-#   Note: BiblioPixel only supports Python <=3.7 and is unmaintained.
-#   Only needed for RGB LED strips/matrices. Most users don't need this.
-#   Install separately if needed: pip install BiblioPixel==3.20210812.1
+# LED strips over sACN (led_connection = SACN, led_configuration = STRIP) need
+# nothing extra: led_module.py drives them natively.
+# BiblioPixel (unmaintained, Python <=3.7) is only used by the legacy MATRIX,
+# SPI and SERIAL paths in py/led_bibliopixel.py, and can't be installed on the
+# Python versions Neo supports. See ROADMAP.md, "Finish removing BiblioPixel".
 Pillow>=13.0.0  # Image processing for LED effects
 
 # ----------------------------------------------------------------------------
