@@ -1,44 +1,42 @@
-import { useState, useEffect } from 'react';
-import Login from './components/Login';
-import Dashboard from './components/Dashboard';
-import { auth, AUTH_EXPIRED_EVENT } from './services/api';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Home from './components/Home';
+import AdminApp from './components/AdminApp';
+import { ADMIN_URL } from './config';
 import './App.css';
 
-export default function App() {
-  const [authenticated, setAuthenticated] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    // Check if user is already authenticated
-    setAuthenticated(auth.isAuthenticated());
-    setLoading(false);
-
-    // Any 401 from the API (expired or revoked token) returns to the login screen
-    const onExpired = () => setAuthenticated(false);
-    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
-    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
-  }, []);
-
-  const handleLogin = () => {
-    setAuthenticated(true);
-  };
-
-  const handleLogout = () => {
-    auth.logout();
-    setAuthenticated(false);
-  };
-
-  if (loading) {
-    return <div className="app-loading">Loading...</div>;
+/**
+ * True when the admin UI lives on another host (the cloud build sets
+ * VITE_ADMIN_URL=https://<admin-host>/admin). Then /admin here only redirects.
+ */
+function adminIsElsewhere() {
+  try {
+    return new URL(ADMIN_URL, window.location.href).origin !== window.location.origin;
+  } catch {
+    return false;
   }
+}
 
+function AdminRoute() {
+  if (adminIsElsewhere()) {
+    window.location.replace(ADMIN_URL);
+    return <div className="app-loading">Redirecting...</div>;
+  }
+  return <AdminApp />;
+}
+
+/**
+ * Routes: / is the public show page (no login), /admin/* the admin UI.
+ * The API's SPA fallback (api/core/frontend.py) serves index.html for both.
+ */
+export default function App() {
   return (
-    <div className="app">
-      {authenticated ? (
-        <Dashboard onLogout={handleLogout} />
-      ) : (
-        <Login onLogin={handleLogin} />
-      )}
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/public" element={<Home />} />
+        <Route path="/admin/*" element={<AdminRoute />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }

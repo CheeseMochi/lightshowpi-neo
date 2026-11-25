@@ -118,6 +118,7 @@ crash.log
 # Web Frontend
 web/node_modules/
 web/dist/
+web/dist-cloud/
 web/.vite/
 npm-debug.log*
 yarn-debug.log*

@@ -1,0 +1,17 @@
+{
+  "name": "lightshowpi-neo-cloud-worker",
+  "version": "0.9.1",
+  "description": "Cloudflare Worker serving the LightShowPi Neo public Home page and a cloud copy of /api/public",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.23.0",
+    "vitest": "~4.1.0",
+    "wrangler": "^4.168.0"
+  }
+}
