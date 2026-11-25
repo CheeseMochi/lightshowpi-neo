@@ -367,10 +367,16 @@ def _record_config_change(name: str, user: Optional[str], backup_id: Optional[st
     """
     Hook for the event log: record that a config file changed.
 
-    A no-op that only logs for now. When the event log lands, wire it here
-    (event type ``config_change``) so every write path records it.
+    Recorded as a ``config_change`` event (never raises; a no-op when
+    ``[events] enabled = false``).
     """
     log.info("Config %s %s by %s (backup %s)", name, action, user or "unknown", backup_id)
+    try:
+        import event_log
+        event_log.record("config_change", source="api", user=user, file=name,
+                         action=action, backup=backup_id)
+    except Exception:  # the event log must never break a config save
+        log.debug("config_change event not recorded", exc_info=True)
 
 
 def write_file(config_dir: str, name: str, text: str, base_sha256: Optional[str],

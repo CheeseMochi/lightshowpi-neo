@@ -141,6 +141,15 @@ class TestWrites:
         mode = stat.S_IMODE(os.stat(os.path.join(config_dir, "overrides.cfg")).st_mode)
         assert mode == 0o644
 
+    def test_save_records_config_change_event(self, config_dir, events_db):
+        import event_log
+        cf.write_file(config_dir, "overrides.cfg", "[api]\nenabled = True\n",
+                      cf.sha256_text(None), user="steve")
+        events, total = event_log.fetch_events(types=["config_change"])
+        assert total == 1
+        assert events[0]["details"]["file"] == "overrides.cfg"
+        assert events[0]["details"]["user"] == "steve"
+
     def test_stale_hash_rejected(self, config_dir):
         write(config_dir, "overrides.cfg", "[api]\nenabled = True\n")
         with pytest.raises(cf.StaleFileError):
