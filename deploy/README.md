@@ -131,7 +131,7 @@ should say `off`.
 ## Turnstile on the admin login (optional)
 
 Adds a Cloudflare Turnstile check (a CAPTCHA, usually invisible) to the web UI login for logins
-that come **through the tunnel**: the API sees them from cloudflared on loopback with a
+that come **through the tunnel**: they carry Cloudflare's
 `CF-Connecting-IP` header. Logins from the LAN and the local button manager never need it.
 
 1. Cloudflare dashboard > **Turnstile > Add widget**: hostname `lights.keepmuellerlit.com` (the

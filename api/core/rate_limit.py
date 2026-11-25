@@ -38,23 +38,17 @@ def client_ip(request: Request) -> str:
 
 def is_tunnel_request(request: Request) -> bool:
     """
-    True when the request came in through the Cloudflare tunnel.
+    True when the request may have come in through the Cloudflare tunnel.
 
-    That is: the ``CF-Connecting-IP`` header is present and the peer is
-    loopback (cloudflared on this Pi). LAN clients and local tools such as the
-    button manager (loopback, no header) are not tunnel requests.
-
-    The peer may also *equal* the header value: uvicorn's default proxy-header
-    handling trusts 127.0.0.1 and rewrites the peer from cloudflared's
-    ``X-Forwarded-For`` to the visitor's IP, so a tunnel request would otherwise
-    look like a LAN one and skip the check. A LAN client that forges the header
-    with its own IP only makes itself need a CAPTCHA.
+    Any non-blank ``CF-Connecting-IP`` header counts, whatever the peer address.
+    Cloudflare always sets it (and overwrites a client's copy), while LAN
+    clients and local tools such as the button manager never send it. Keying
+    on the header alone fails toward asking for the CAPTCHA: the peer address
+    can't be relied on, since uvicorn rewrites it from the proxy's
+    X-Forwarded-For (which a visitor can partly control), and a LAN client that
+    sends the header only makes itself solve a CAPTCHA.
     """
-    forwarded = request.headers.get("cf-connecting-ip", "").strip()
-    if not forwarded:
-        return False
-    peer = request.client.host if request.client else ""
-    return peer in TRUSTED_PROXY_PEERS or peer == forwarded
+    return bool(request.headers.get("cf-connecting-ip", "").strip())
 
 
 class RateLimiter:

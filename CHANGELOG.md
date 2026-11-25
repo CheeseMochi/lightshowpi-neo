@@ -169,7 +169,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - **Cloudflare Turnstile on the admin login** (optional, off by default). With
   `[api] turnstile_site_key` and `turnstile_secret_key` set, logins that come
-  through the Cloudflare tunnel (loopback peer with `CF-Connecting-IP`) must pass
+  through the Cloudflare tunnel (any request carrying Cloudflare's `CF-Connecting-IP` header) must pass
   a Turnstile check, verified with Cloudflare before the password is tried. It
   fails closed (400 "Complete the CAPTCHA") and failures count toward the
   per-IP failed-login limit. LAN logins and the button manager are unchanged.

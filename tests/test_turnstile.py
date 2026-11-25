@@ -88,12 +88,16 @@ class TestIsTunnelRequest:
     def test_blank_header_is_local(self):
         assert not is_tunnel_request(self.request("127.0.0.1", {"cf-connecting-ip": "  "}))
 
-    def test_lan_peer_with_spoofed_header(self):
-        assert not is_tunnel_request(self.request("192.168.1.20",
-                                                  {"cf-connecting-ip": VISITOR_IP}))
+    def test_any_peer_with_header_needs_captcha(self):
+        # Fail toward the CAPTCHA: the peer can be rewritten from X-Forwarded-For
+        assert is_tunnel_request(self.request("192.168.1.20",
+                                              {"cf-connecting-ip": VISITOR_IP}))
+        assert is_tunnel_request(self.request("198.51.100.7",
+                                              {"cf-connecting-ip": VISITOR_IP}))
 
     def test_no_client(self):
-        assert not is_tunnel_request(self.request(None, {"cf-connecting-ip": VISITOR_IP}))
+        assert is_tunnel_request(self.request(None, {"cf-connecting-ip": VISITOR_IP}))
+        assert not is_tunnel_request(self.request(None))
 
     def test_peer_rewritten_by_uvicorn_proxy_headers(self):
         # uvicorn trusts X-Forwarded-For from 127.0.0.1 by default, so the
@@ -191,8 +195,13 @@ class TestAuthConfigEndpoint:
         assert client.get("/api/auth/config", headers=TUNNEL_HEADERS).json()["required"] is False
 
     def test_configured_lan_not_required(self, lan):
-        res = lan.get("/api/auth/config", headers=TUNNEL_HEADERS)  # spoofed header
+        res = lan.get("/api/auth/config")
         assert res.json() == {"turnstile_site_key": SITE_KEY, "required": False}
+
+    def test_lan_with_cf_header_required(self, lan):
+        # A CF header from any peer asks for the CAPTCHA (fails safe)
+        res = lan.get("/api/auth/config", headers=TUNNEL_HEADERS)
+        assert res.json()["required"] is True
 
     def test_configured_local_without_header_not_required(self, tunnel):
         assert tunnel.get("/api/auth/config").json()["required"] is False
@@ -273,8 +282,9 @@ class TestLogin:
     def test_lan_login_needs_no_token(self, lan):
         with patch.object(turnstile, "verify") as verify:
             assert login(lan, headers={}).status_code == 200
-            assert login(lan).status_code == 200  # spoofed CF header from the LAN
         verify.assert_not_called()
+        # a LAN client that sends the CF header has to solve the CAPTCHA
+        assert login(lan).status_code == 400
 
     def test_turnstile_off_unchanged(self, monkeypatch, database):
         client = make_client(monkeypatch, database, config("", ""), "127.0.0.1")
