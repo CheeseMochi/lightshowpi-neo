@@ -251,6 +251,8 @@ class TestHelpers:
 
     @pytest.mark.parametrize("override,expected", [
         (None, "/home/x/music/sequences"),
+        ("", "/home/x/music/sequences"),
+        ("VALUELESS", "/home/x/music/sequences"),
         ("$SYNCHRONIZED_LIGHTS_HOME/seq", "/home/x/seq"),
         ("/srv/seq", "/srv/seq"),
     ])
@@ -264,7 +266,9 @@ class TestHelpers:
         cfg.home_dir = "/home/x"
         cfg.config = configparser.RawConfigParser(allow_no_value=True)
         cfg.config.read(os.path.join(repo, "config", "defaults.cfg"))
-        if override:
+        if override == "VALUELESS":  # a bare "sequences_dir" line
+            cfg.config.set("lightshow", "sequences_dir", None)
+        elif override is not None:
             cfg.config.set("lightshow", "sequences_dir", override)
         cfg.set_lightshow()
         assert cfg.lightshow.sequences_dir == expected

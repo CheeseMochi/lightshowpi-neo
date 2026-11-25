@@ -41,8 +41,7 @@ def get_library(_user: dict = Depends(get_current_user)) -> SongLibrary:
     cm = _config.cm
     return SongLibrary(playlist_path=cm.lightshow.playlist_path,
                        home_dir=cm.home_dir or '',
-                       sequences_dir=cm.lightshow.sequences_dir,
-                       gpio_len=int(cm.hardware.gpio_len))
+                       sequences_dir=cm.lightshow.sequences_dir)
 
 
 def get_manager() -> LightshowManager:
@@ -151,8 +150,12 @@ def play_song_now(index: int, library: SongLibrary = Depends(get_library),
     if not manager.is_running():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="The show isn't running; start it first")
+    # Only a playlist show reads play_now; in ambient/audio-in it would linger
     current = getattr(manager, "current_playlist", None)
-    if current and os.path.realpath(os.path.expandvars(current)) != \
+    if not current:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail="The show isn't playing a playlist")
+    if os.path.realpath(os.path.expandvars(current)) != \
             os.path.realpath(library.playlist_path):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="The show is playing a different playlist")

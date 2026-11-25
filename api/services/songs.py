@@ -69,7 +69,6 @@ class SongLibrary:
     playlist_path: str
     home_dir: str
     sequences_dir: str
-    gpio_len: int
 
     @property
     def disabled_path(self) -> str:
@@ -178,27 +177,35 @@ class SongLibrary:
         with _write_lock:
             if not os.path.isfile(self.playlist_path):
                 raise SongError('Playlist not found: %s' % self.playlist_path, 404)
-            with open(self.playlist_path, 'r+') as pfp, \
-                    open(self.disabled_path, 'a+') as dfp:
-                fcntl.lockf(pfp, fcntl.LOCK_EX)
-                fcntl.lockf(dfp, fcntl.LOCK_EX)
-                try:
-                    pfp.seek(0)
-                    dfp.seek(0)
-                    p_text = pfp.read()
-                    active = _parse_rows(p_text)
-                    disabled = _parse_rows(dfp.read())
-                    before = (_format_rows(active), _format_rows(disabled))
-                    apply(active, disabled)
-                    after = (_format_rows(active), _format_rows(disabled))
-                    if after[0] != before[0]:
-                        _atomic_copy_text(self.playlist_path + '.bak', p_text)
-                        _rewrite(pfp, after[0])
-                    if after[1] != before[1]:
-                        _rewrite(dfp, after[1])
-                finally:
-                    fcntl.lockf(dfp, fcntl.LOCK_UN)
-                    fcntl.lockf(pfp, fcntl.LOCK_UN)
+            try:
+                self._modify_locked(apply)
+            except PermissionError as error:
+                raise SongError('No permission to change the playlist (%s); check the owner '
+                                'of %s and its folder' % (error, self.playlist_path), 403)
+
+    def _modify_locked(self, apply) -> None:
+        """Body of _modify: both files locked, read, changed and rewritten in place."""
+        with open(self.playlist_path, 'r+') as pfp, \
+                open(self.disabled_path, 'a+') as dfp:
+            fcntl.lockf(pfp, fcntl.LOCK_EX)
+            fcntl.lockf(dfp, fcntl.LOCK_EX)
+            try:
+                pfp.seek(0)
+                dfp.seek(0)
+                p_text = pfp.read()
+                active = _parse_rows(p_text)
+                disabled = _parse_rows(dfp.read())
+                before = (_format_rows(active), _format_rows(disabled))
+                apply(active, disabled)
+                after = (_format_rows(active), _format_rows(disabled))
+                if after[0] != before[0]:
+                    _atomic_copy_text(self.playlist_path + '.bak', p_text)
+                    _rewrite(pfp, after[0])
+                if after[1] != before[1]:
+                    _rewrite(dfp, after[1])
+            finally:
+                fcntl.lockf(dfp, fcntl.LOCK_UN)
+                fcntl.lockf(pfp, fcntl.LOCK_UN)
 
     # ------------------------------------------------------------------
     # per-song settings
@@ -222,7 +229,7 @@ class SongLibrary:
         if not os.path.isdir(os.path.dirname(abs_path)):
             raise SongError('Song folder not found for %s' % abs_path, 404)
         variants = sequence_select.list_variants(self.sequences_dir, abs_path)
-        clean = {k: validate_setting(k, v, variants) for k, v in changes.items()}
+        clean = {k: validate_setting(k, v, variants, self.home_dir) for k, v in changes.items()}
         with _write_lock:
             write_settings(self.cfg_path(abs_path), clean)
         return self.get_settings(index)
@@ -331,11 +338,14 @@ def read_settings(cfg_path: str) -> Dict[str, str]:
     return {k: (v or '') for k, v in config.items(SECTION)}
 
 
-def validate_setting(key: str, value: Optional[str], variants: List[str]) -> str:
+def validate_setting(key: str, value: Optional[str], variants: List[str],
+                     home_dir: str = '') -> str:
     """Normalize one setting; '' means remove. Raises SongError (422) if invalid.
 
     The show crashes on some values a form produces naturally (an empty
-    channel list, a non-number), so everything is checked here.
+    channel list, a non-number), so everything is checked here. Pre/postshow
+    scripts are Python the show imports and runs as root, so a script must be
+    an existing ``.py`` file inside the LightShowPi folder (``home_dir``).
     """
     if key not in SETTINGS_KEYS:
         raise SongError('Unknown setting: %s' % key, 422)
@@ -379,7 +389,14 @@ def validate_setting(key: str, value: Optional[str], variants: List[str]) -> str
             raise SongError('%s must be JSON: %s' % (key, error), 422)
         return text
 
-    return text  # *_script: a path; the show skips it if the file is missing
+    # *_script: the show uses the path as-is (no $SYNCHRONIZED_LIGHTS_HOME expansion)
+    home = os.path.realpath(home_dir) if home_dir else ''
+    real = os.path.realpath(text)
+    if not (os.path.isabs(text) and text.endswith('.py') and os.path.isfile(real)
+            and home and real.startswith(home + os.sep)):
+        raise SongError('%s must be the absolute path of an existing .py file inside %s'
+                        % (key, home_dir or 'the LightShowPi folder'), 422)
+    return text
 
 
 def write_settings(cfg_path: str, changes: Dict[str, str]) -> None:
@@ -392,8 +409,13 @@ def write_settings(cfg_path: str, changes: Dict[str, str]) -> None:
     """
     config = configparser.RawConfigParser(allow_no_value=True)
     if os.path.isfile(cfg_path):
-        with open(cfg_path) as f:
-            config.read_file(f)
+        try:
+            with open(cfg_path) as f:
+                config.read_file(f)
+        except (configparser.Error, UnicodeDecodeError) as error:
+            raise SongError("Can't parse %s (%s); fix or remove it first" % (cfg_path, error), 409)
+        except PermissionError as error:
+            raise SongError('No permission to read %s (%s)' % (cfg_path, error), 403)
     if not config.has_section(SECTION):
         config.add_section(SECTION)
 

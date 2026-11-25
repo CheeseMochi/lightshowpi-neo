@@ -132,9 +132,19 @@ function SettingsPanel({ song, onClose, onSaved }) {
   }, [song.index]);
 
   const save = async () => {
+    // Send only what changed, so an old value the API would now reject
+    // doesn't block editing the others
+    const changes = {};
+    Object.keys(form).forEach((key) => {
+      if ((form[key] || '') !== (data.settings[key] || '')) changes[key] = form[key] || '';
+    });
+    if (Object.keys(changes).length === 0) {
+      onClose();
+      return;
+    }
     setSaving(true);
     try {
-      await songsApi.saveSettings(song.index, form);
+      await songsApi.saveSettings(song.index, changes);
       setError('');
       onSaved();
     } catch (err) {

@@ -4,6 +4,7 @@ Everything runs on a temp playlist, music folder and sequences folder.
 """
 
 import configparser
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -15,6 +16,7 @@ from api.routers import songs as songs_router
 from api.services import songs as songs_service
 from api.services.lightshow_manager import LightshowManager
 from api.services.songs import SongLibrary
+from tests.test_get_song_sequence import sl  # noqa: F401  (fixture: the show module)
 
 pytestmark = pytest.mark.integration
 
@@ -43,15 +45,14 @@ def home(tmp_path):
 def library(home):
     return SongLibrary(playlist_path=str(home / "music" / ".playlist"),
                        home_dir=str(home),
-                       sequences_dir=str(home / "sequences"),
-                       gpio_len=3)
+                       sequences_dir=str(home / "sequences"))
 
 
 @pytest.fixture
-def manager():
+def manager(library):
     mgr = Mock(spec=LightshowManager)
     mgr.is_running.return_value = True
-    mgr.current_playlist = None
+    mgr.current_playlist = library.playlist_path
     mgr.config = Mock()
     return mgr
 
@@ -105,6 +106,14 @@ class TestOrder:
         lines = playlist_lines(home)
         assert lines[2] == "Song B\tmusic/b.mp3\tvoter1,voter2"
         assert (home / "music" / ".playlist.bak").exists()
+
+    def test_permission_error_is_403(self, client, home, monkeypatch):
+        def deny(*args, **kwargs):
+            raise PermissionError("denied")
+        monkeypatch.setattr(songs_service, "_atomic_copy_text", deny)
+        before = playlist_lines(home)
+        assert client.put("/api/songs/order", json={"order": [2, 1, 0]}).status_code == 403
+        assert playlist_lines(home) == before
 
     @pytest.mark.parametrize("order", [[0, 1], [0, 0, 1], [0, 1, 3]])
     def test_bad_order_is_409(self, client, home, order):
@@ -236,11 +245,95 @@ class TestSettings:
         assert sequence_select.read_sequence_setting(str(self.cfg(home))) == \
             "random:stems,onset_bands"
 
+    def test_script_must_be_py_inside_home(self, client, home, tmp_path_factory):
+        script = home / "scripts" / "pre.py"
+        script.parent.mkdir()
+        script.write_text("def main(exit_event):\n    pass\n")
+        outside = tmp_path_factory.mktemp("elsewhere") / "evil.py"
+        outside.write_text("")
+        for bad in [str(outside), "scripts/pre.py", str(home / "scripts" / "missing.py"),
+                    str(home / "music" / "a.mp3"), str(home / "scripts" / ".." / ".." / outside.name)]:
+            res = client.put("/api/songs/1/settings", json={"preshow_script": bad})
+            assert res.status_code == 422, bad
+        res = client.put("/api/songs/1/settings", json={"preshow_script": str(script)})
+        assert res.status_code == 200
+        assert res.json()["settings"]["preshow_script"] == str(script)
+
+    def test_only_changed_keys_are_validated(self, client, home):
+        """A legacy value the validator would reject doesn't block other edits."""
+        self.cfg(home).write_text("[custom_lightshow]\npreshow_script = /old/place/pre.py\n")
+        res = client.put("/api/songs/1/settings", json={"attenuate_pct": "5"})
+        assert res.status_code == 200
+        config = read_cfg(self.cfg(home))
+        assert config.get("custom_lightshow", "preshow_script") == "/old/place/pre.py"
+        assert config.get("custom_lightshow", "preshow_configuration") == ""
+
+    def test_unparsable_cfg_is_409(self, client, home):
+        self.cfg(home).write_text("garbage without a section\n")
+        assert client.put("/api/songs/1/settings", json={"sequence": "fft"}).status_code == 409
+        assert self.cfg(home).read_text() == "garbage without a section\n"
+
     def test_permission_error_is_403(self, client, home, monkeypatch):
         def deny(*args, **kwargs):
             raise PermissionError("denied")
         monkeypatch.setattr(songs_service, "_atomic_copy_text", deny)
         assert client.put("/api/songs/1/settings", json={"sequence": "fft"}).status_code == 403
+
+
+class TestShowLoadsWrittenSettings:
+    """Whatever the API writes, the show's load_custom_config() must accept."""
+
+    @pytest.fixture
+    def show(self, sl, monkeypatch):
+        cm = SimpleNamespace(lightshow=SimpleNamespace(preshow=None, postshow=None),
+                             audio_processing=SimpleNamespace())
+        monkeypatch.setattr(sl, "cm", cm)
+        monkeypatch.setattr(sl, "hc", Mock())
+        show = sl.Lightshow.__new__(sl.Lightshow)
+        show.attenuate_pct = 0.0
+        return SimpleNamespace(show=show, cm=cm, hc=sl.hc)
+
+    @pytest.fixture
+    def script(self, home):
+        path = home / "scripts" / "post.py"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text("def main(exit_event):\n    pass\n")
+        return str(path)
+
+    def load(self, show, home):
+        show.show.config_filename = str(home / "music" / ".b.mp3.cfg")
+        show.show.load_custom_config()
+
+    @pytest.mark.parametrize("body", [
+        {"postshow_configuration": '{"transitions": []}'},
+        {"preshow_configuration": '{"transitions": []}'},
+        {"always_on_channels": "1, 2", "always_off_channels": "3", "invert_channels": "-1"},
+        {"network_always_on": "1", "network_always_off": "2", "network_invert": "3"},
+        {"attenuate_pct": "12.5"},
+        {"sequence": "rotate:stems,fft"},
+    ])
+    def test_loads(self, client, home, show, body):
+        assert client.put("/api/songs/1/settings", json=body).status_code == 200
+        self.load(show, home)
+
+    def test_postshow_script_only(self, client, home, show, script):
+        assert client.put("/api/songs/1/settings", json={"postshow_script": script}).status_code == 200
+        self.load(show, home)
+        assert show.cm.lightshow.postshow == script
+
+    def test_values_reach_the_show(self, client, home, show):
+        client.put("/api/songs/1/settings", json={
+            "always_off_channels": "2,5", "attenuate_pct": "20",
+            "postshow_configuration": '{"transitions": [{"type": "off"}]}'})
+        self.load(show, home)
+        assert show.cm.lightshow.always_off_channels == [2, 5]
+        assert show.show.attenuate_pct == 20.0
+        assert show.cm.lightshow.postshow == {"transitions": [{"type": "off"}]}
+
+    def test_cleared_settings_load(self, client, home, show, script):
+        client.put("/api/songs/1/settings", json={"postshow_script": script, "always_on_channels": "1"})
+        client.put("/api/songs/1/settings", json={"postshow_script": "", "always_on_channels": ""})
+        self.load(show, home)
 
 
 class TestPlay:
@@ -260,9 +353,10 @@ class TestPlay:
         manager.current_playlist = str(home / "other.playlist")
         assert client.post("/api/songs/0/play").status_code == 409
 
-    def test_same_playlist_ok(self, client, manager, library):
-        manager.current_playlist = library.playlist_path
-        assert client.post("/api/songs/0/play").status_code == 200
+    def test_not_a_playlist_show_is_409(self, client, manager):
+        manager.current_playlist = None  # ambient, audio-in or --file
+        assert client.post("/api/songs/0/play").status_code == 409
+        manager.config.update_state.assert_not_called()
 
     def test_unknown_index_is_404(self, client):
         assert client.post("/api/songs/7/play").status_code == 404
