@@ -168,6 +168,36 @@ class Database:
                 )
             """)
 
+            # Devices: Pis, outputs (Nanoleaf, sACN LED controllers) and relay
+            # channels. Rows from config are keyed by config_key (relay:0,
+            # output:nanoleaf, led:led1.cfg, self, pi:<addr>) so a sync never
+            # duplicates a renamed device; manual rows have no config_key.
+            # Status columns are written by the device monitor and heartbeats.
+            # (The older `clients` table is left alone: /api/health counts it.)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS devices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    kind TEXT NOT NULL CHECK (kind IN ('pi', 'output', 'relay')),
+                    address TEXT,
+                    port INTEGER,
+                    role TEXT,
+                    channel INTEGER,
+                    notes TEXT,
+                    enabled BOOLEAN DEFAULT 1,
+                    source TEXT DEFAULT 'manual',
+                    config_key TEXT UNIQUE,
+                    in_config BOOLEAN DEFAULT 1,
+                    last_seen TIMESTAMP,
+                    last_ok BOOLEAN,
+                    last_error TEXT,
+                    last_checked TIMESTAMP,
+                    info TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             # Create indexes for better query performance
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_song_plays_song_id
