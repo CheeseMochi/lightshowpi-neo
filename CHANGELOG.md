@@ -117,6 +117,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and an OSV scan of a fresh `requirements-dev.txt` install both report none.
 
 ### Fixed
+- **`bin/stop_music_and_lights` could not stop a cron-started show**: the
+  playlist loop runs as root, so its unprivileged `kill -0` check failed, the
+  loop was skipped and its pid file deleted; every later stop killed only the
+  current song and the loop started the next. It now checks with `sudo`, and
+  also finds playlist loops by name when the pid file is missing.
 - **LED strips over sACN work again without BiblioPixel.** BiblioPixel can't be
   installed on Neo's Python, so `led_connection = SACN` with
   `led_configuration = STRIP` (e.g. an ESPixelStick) was silently disabled. It

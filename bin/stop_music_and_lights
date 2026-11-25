@@ -26,12 +26,23 @@ echo "Stopping lightshow and button manager..."
 LOOP_PID_FILE="$SYNCHRONIZED_LIGHTS_HOME/logs/show_loop.pid"
 if [ -f "$LOOP_PID_FILE" ]; then
     loop_pid=$(cat "$LOOP_PID_FILE")
-    if [ -n "$loop_pid" ] && [ "$loop_pid" != "$id" ] && kill -0 "$loop_pid" 2>/dev/null; then
+    # sudo: a loop started by root's cron can't be signalled by a normal
+    # user, so a plain kill -0 fails and the loop would be skipped
+    if [ -n "$loop_pid" ] && [ "$loop_pid" != "$id" ] && sudo kill -0 "$loop_pid" 2>/dev/null; then
         echo "Stopping playlist loop (PID ${loop_pid})"
         sudo kill "$loop_pid"
     fi
     rm -f "$LOOP_PID_FILE"
 fi
+
+# Any other playlist loop (pid file missing or stale, or started by
+# start_playlist_loop/once): kill the loop before its song, or it starts the next
+for OUTPUT in $(pgrep -f "bash .*bin/start_(music_and_lights|playlist_loop|playlist_once)"); do
+    if [ ${OUTPUT} != ${id} ] && [ ${OUTPUT} != $$ ]; then
+        echo "Stopping playlist loop (PID ${OUTPUT})"
+        sudo kill ${OUTPUT} 2>/dev/null
+    fi
+done
 
 # Show and button processes by script name: catches relative paths and the
 # conda python, which the path match below misses
@@ -47,7 +58,7 @@ done
 # Kill synchronized_lights.py and buttonmanager.py processes
 for OUTPUT in $(pgrep -f lightshowpi); do
     if [ ${OUTPUT} != ${id} ] && [ ${OUTPUT} != $$ ]; then
-        out=`ps -p ${OUTPUT} -o cmd`
+        out=`ps -p ${OUTPUT} -o args=`
 
         # Kill lightshowpi processes except web/API
         if [[ ${out} == *"${SYNCHRONIZED_LIGHTS_HOME}"* ]] && [[ ${out} != *"web"* ]] && [[ ${out} != *"api"* ]]; then

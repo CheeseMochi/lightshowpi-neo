@@ -15,6 +15,8 @@ Draft. See the [Unreleased] section of [CHANGELOG.md](CHANGELOG.md).
   no longer crash, and a client dropping off Wi-Fi no longer crashes the server.
 - A blank line in the playlist no longer stops the show.
 - `audio-in` mode drives the lights again.
+- `bin/stop_music_and_lights` stops a show started from root's crontab again
+  (it used to kill only the current song).
 
 ### ⚠️ Upgrade Notes
 
