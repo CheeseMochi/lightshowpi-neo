@@ -146,6 +146,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   second) instead of on every audio chunk.
 
 ### Security
+- The web config editor refuses to add, change or remove `songname_command`,
+  `stream_command_string`, `preshow_script` and `postshow_script` (any section),
+  because the show runs them as root. Edit those over SSH; a file that already has
+  them still saves as long as they are unchanged (403 otherwise, and Check shows why).
 - **API auth hardening.** The API refuses to start without `JWT_SECRET_KEY`
   (32+ characters; Ansible writes it to `/etc/lightshowpi/api.env`), so tokens
   survive restarts and can't be forged. `LSP_DEV=1` allows a throwaway key for

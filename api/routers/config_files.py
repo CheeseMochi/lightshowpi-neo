@@ -98,6 +98,8 @@ def _http(fn):
                             detail=f"Config does not parse: {e}")
     except cf.StaleFileError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except cf.ProtectedKeyError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except FileNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except configparser.Error as e:
@@ -138,8 +140,10 @@ def validate_config_file(name: str, body: ConfigFileWrite,
     """Check text without saving: parse errors and unknown sections/keys."""
     _http(lambda: cf.check_name(config_dir, name))
     try:
-        return {"ok": True, "warnings": cf.validate(config_dir, name, body.content)}
-    except cf.ParseError as e:
+        warnings = cf.validate(config_dir, name, body.content)
+        cf.check_protected(cf.read_file(config_dir, name).get("content"), body.content)
+        return {"ok": True, "warnings": warnings}
+    except (cf.ParseError, cf.ProtectedKeyError) as e:
         return {"ok": False, "error": str(e), "warnings": []}
 
 

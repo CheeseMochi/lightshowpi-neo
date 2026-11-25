@@ -378,3 +378,79 @@ class TestRouter:
         assert client.get("/api/config/effective").status_code == 400
         # The file can still be opened to fix it
         assert client.get("/api/config/files/overrides.cfg").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Keys the show runs as root can't be set from the web
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestProtectedKeys:
+
+    BASE = "[lightshow]\nmode = playlist\n"
+
+    def save(self, config_dir, text):
+        current = read(config_dir, "overrides.cfg") if os.path.exists(
+            os.path.join(config_dir, "overrides.cfg")) else None
+        return cf.write_file(config_dir, "overrides.cfg", text, cf.sha256_text(current))
+
+    @pytest.mark.parametrize("key", sorted(cf.PROTECTED_KEYS))
+    def test_adding_refused(self, config_dir, key):
+        write(config_dir, "overrides.cfg", self.BASE)
+        with pytest.raises(cf.ProtectedKeyError, match=key):
+            self.save(config_dir, self.BASE + f"{key} = /tmp/evil.sh\n")
+        assert read(config_dir, "overrides.cfg") == self.BASE
+
+    def test_adding_in_any_section_refused(self, config_dir):
+        write(config_dir, "overrides.cfg", self.BASE)
+        with pytest.raises(cf.ProtectedKeyError):
+            self.save(config_dir, self.BASE + "[custom_lightshow]\npreshow_script = /tmp/x.py\n")
+
+    def test_new_file_with_key_refused(self, config_dir):
+        with pytest.raises(cf.ProtectedKeyError):
+            self.save(config_dir, "[lightshow]\nsongname_command = rm -rf /\n")
+        assert not os.path.exists(os.path.join(config_dir, "overrides.cfg"))
+
+    def test_changing_and_removing_refused(self, config_dir):
+        start = self.BASE + "songname_command = /usr/bin/flite\n"
+        write(config_dir, "overrides.cfg", start)
+        with pytest.raises(cf.ProtectedKeyError):
+            self.save(config_dir, self.BASE + "songname_command = /tmp/evil\n")
+        with pytest.raises(cf.ProtectedKeyError):
+            self.save(config_dir, self.BASE)
+        assert read(config_dir, "overrides.cfg") == start
+
+    def test_unchanged_key_allows_other_edits(self, config_dir):
+        start = self.BASE + "songname_command = /usr/bin/flite\n"
+        write(config_dir, "overrides.cfg", start)
+        self.save(config_dir, start + "\n[api]\nenabled = True\n")
+        assert "enabled = True" in read(config_dir, "overrides.cfg")
+
+    def test_blank_key_counts_as_a_value(self, config_dir):
+        write(config_dir, "overrides.cfg", self.BASE)
+        # even a blank value is refused: these lines are SSH-only, full stop
+        with pytest.raises(cf.ProtectedKeyError):
+            self.save(config_dir, self.BASE + "preshow_script =\n")
+
+    def test_restore_cannot_bring_key_back(self, config_dir):
+        write(config_dir, "overrides.cfg", self.BASE + "postshow_script = /old.py\n")
+        cf.write_file(config_dir, "overrides.cfg", self.BASE + "postshow_script = /old.py\n# note\n",
+                      None)
+        backup = cf.list_backups(config_dir, "overrides.cfg")[0]["id"]
+        # someone removes the key over SSH; the old backup must not restore it
+        write(config_dir, "overrides.cfg", self.BASE)
+        with pytest.raises(cf.ProtectedKeyError):
+            cf.restore_backup(config_dir, "overrides.cfg", backup)
+        assert read(config_dir, "overrides.cfg") == self.BASE
+
+    def test_http_put_403_and_validate_reports(self, config_dir, client):
+        write(config_dir, "overrides.cfg", self.BASE)
+        sha = cf.sha256_text(self.BASE)
+        body = {"content": self.BASE + "stream_command_string = nc -l 4444\n", "base_sha256": sha}
+        res = client.put("/api/config/files/overrides.cfg", json=body)
+        assert res.status_code == 403
+        assert "SSH" in res.json()["detail"]
+        res = client.post("/api/config/files/overrides.cfg/validate", json=body)
+        assert res.status_code == 200
+        assert res.json()["ok"] is False
+        assert "stream_command_string" in res.json()["error"]
