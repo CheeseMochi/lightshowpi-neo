@@ -6,6 +6,13 @@
 
 const API_BASE = '/api';
 
+/**
+ * Base of the public (no login) endpoints. The Pi serves them at /api/public;
+ * the cloud build sets VITE_PUBLIC_API_BASE so the same Home page reads the
+ * Cloudflare Worker's copy instead.
+ */
+export const PUBLIC_API_BASE = (import.meta.env.VITE_PUBLIC_API_BASE || '/api/public').replace(/\/$/, '');
+
 class ApiError extends Error {
   constructor(message, status, details) {
     super(message);
@@ -57,13 +64,14 @@ async function apiRequest(endpoint, options = {}) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  const { base = API_BASE, skipAuth, ...fetchOptions } = options;
   const config = {
-    ...options,
+    ...fetchOptions,
     headers
   };
 
   try {
-    const response = await fetch(`${API_BASE}${endpoint}`, config);
+    const response = await fetch(`${base}${endpoint}`, config);
 
     // Handle non-2xx responses
     if (response.status === 401 && !options.skipAuth) {
@@ -244,6 +252,31 @@ export const buttons = {
 export const system = {
   async getHealth() {
     return apiRequest('/health', { skipAuth: true });
+  }
+};
+
+// =============================================================================
+// Public API (no login): what the Home page shows to visitors
+// =============================================================================
+
+function publicRequest(endpoint) {
+  return apiRequest(endpoint, { skipAuth: true, base: PUBLIC_API_BASE, cache: 'no-store' });
+}
+
+export const publicApi = {
+  /** {state: playing|ambient|off, title, elapsed_s, duration_s} */
+  async nowPlaying() {
+    return publicRequest('/now-playing');
+  },
+
+  /** {note, tonight: {days, start, stop} | null, shows: [...]} */
+  async schedule() {
+    return publicRequest('/schedule');
+  },
+
+  /** {songs: [title], current: index | null} */
+  async playlist() {
+    return publicRequest('/playlist');
   }
 };
 
