@@ -128,6 +128,45 @@ should say `off`.
 
 `make cloud-test` runs the Worker's tests (vitest inside workerd, no account needed).
 
+## Turnstile on the admin login (optional)
+
+Adds a Cloudflare Turnstile check (a CAPTCHA, usually invisible) to the web UI login for logins
+that come **through the tunnel**: the API sees them from cloudflared on loopback with a
+`CF-Connecting-IP` header. Logins from the LAN and the local button manager never need it.
+
+1. Cloudflare dashboard > **Turnstile > Add widget**: hostname `lights.keepmuellerlit.com` (the
+   admin host), widget mode **Managed**. Copy the site key and the secret key.
+2. On the show Pi, in `config/overrides.cfg`, then restart the API (`sudo systemctl restart
+   lightshowpi-api` or `./bin/start_api.sh`):
+
+   ```ini
+   [api]
+   turnstile_site_key = <site key>
+   turnstile_secret_key = <secret key>
+   ```
+
+3. Open the admin login through the tunnel: the widget appears above **Log In**, which stays
+   disabled until the check passes. `curl https://<ADMIN_HOST>/api/auth/config` should show
+   `"required": true`; from the LAN it shows `false`.
+
+The API verifies each token with Cloudflare (5 s timeout) before checking the password, and
+fails closed: no token, a rejected token or Cloudflare unreachable gives `400 Complete the CAPTCHA`.
+Failures count toward the 5-per-minute failed-login limit. The secret is never logged or sent to
+the browser, and the config editor masks it.
+
+**Turn it off:** blank either key and restart the API.
+
+**Local testing:** Cloudflare's always-pass test keys are site `1x00000000000000000000AA` and
+secret `1x0000000000000000000000000000000AA`. A plain LAN or localhost login won't show the widget,
+since only tunnel requests need it. To exercise the server side from the Pi, fake a tunnel request
+on loopback:
+
+```bash
+curl -s localhost:8000/api/auth/config -H 'CF-Connecting-IP: 203.0.113.9'   # required: true
+curl -s localhost:8000/api/auth/login -H 'CF-Connecting-IP: 203.0.113.9' \
+  -H 'Content-Type: application/json' -d '{"username":"admin","password":"..."}'  # 400 CAPTCHA
+```
+
 ## Secrets: none are ever committed
 
 | Secret | Where it lives |
@@ -139,6 +178,7 @@ should say `off`.
 | JWT signing key | generated on the first run, stored in `/etc/lightshowpi/api.env` (0600) on the Pi, and reused on later runs |
 | Runner registration token | the `TOKEN=` argument, used once; the runner stores its own credentials afterwards |
 | Cloud ingest key | Worker secret `INGEST_KEY` (`wrangler secret put`) and `[api] cloud_key` in the Pi's `overrides.cfg` (git-ignored) |
+| Turnstile secret key | Cloudflare dashboard (Turnstile) and `[api] turnstile_secret_key` in the Pi's `overrides.cfg` (git-ignored) |
 
 ## Notes and gotchas
 

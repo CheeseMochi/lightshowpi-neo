@@ -40,6 +40,20 @@
   margin-top: var(--spacing-md);
 }
 
+.login-captcha {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+  min-height: 65px; /* Turnstile widget height, so the form doesn't jump */
+}
+
+.login-captcha .error-message {
+  width: 100%;
+  margin-bottom: 0;
+}
+
 .login-footer {
   text-align: center;
   font-size: 0.875rem;

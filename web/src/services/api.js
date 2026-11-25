@@ -107,10 +107,14 @@ async function apiRequest(endpoint, options = {}) {
 // =============================================================================
 
 export const auth = {
-  async login(username, password) {
+  async login(username, password, turnstileToken = null) {
+    const body = { username, password };
+    if (turnstileToken) {
+      body.turnstile_token = turnstileToken;
+    }
     const data = await apiRequest('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify(body),
       skipAuth: true
     });
 
@@ -119,6 +123,11 @@ export const auth = {
     }
 
     return data;
+  },
+
+  /** Login page settings: { turnstile_site_key, required } (no login needed). */
+  async getConfig() {
+    return apiRequest('/auth/config', { skipAuth: true, cache: 'no-store' });
   },
 
   logout() {
