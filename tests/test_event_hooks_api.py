@@ -124,6 +124,22 @@ class TestButtonServiceEvents:
         assert ev["details"] == {"name": "skip", "mode": "api", "user": "buttons"}
         show.skip.assert_called_once_with(source="button", user="buttons")
 
+    def test_repeat_replay_is_not_a_press(self, events_db):
+        from api.routers import buttons as buttons_router
+        show = Mock(spec=LightshowManager)
+        show.is_running.return_value = True
+        svc = ButtonManagerService({"button_manager": {"enabled": True}}, show)
+        app = FastAPI()
+        app.include_router(buttons_router.router)
+        app.dependency_overrides[buttons_router.get_button_manager] = lambda: svc
+        app.dependency_overrides[get_current_user] = lambda: {"username": "buttons"}
+        client = TestClient(app)
+        assert client.post("/api/buttons/skip?repeat=true").status_code == 200
+        assert events(["button_press"]) == []
+        assert client.post("/api/buttons/skip").status_code == 200
+        assert len(events(["button_press"])) == 1
+        assert show.skip.call_count == 2
+
     def test_start_from_button_has_button_source(self, events_db):
         show = Mock(spec=LightshowManager)
         show.is_running.return_value = False

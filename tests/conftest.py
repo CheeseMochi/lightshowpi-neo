@@ -47,6 +47,11 @@ def _isolated_event_log(tmp_path):
     saved = dict(event_log._settings)
     event_log.configure(enabled=False, db_path=str(tmp_path / "events.db"))
     yield
+    # A test that re-configured the log from real config must not leave it
+    # writing to the repo's data/events.db
+    leaked = (event_log._settings["enabled"]
+              and not str(event_log._settings["db_path"]).startswith(str(tmp_path)))
+    assert not leaked, f"event log left enabled outside tmp_path: {event_log._settings}"
     event_log._settings.update(saved)
     event_log._ready_paths.clear()
 

@@ -14,8 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   started it (cron, API user, schedule, button), every song start and end
   (completed, skipped or stopped, seconds heard, light-sequence variant from
   `song_sequence` in state.cfg), skips, button presses, admin API changes,
-  test mode and errors. Logging can never stop or slow the show: writes wait
-  at most 0.5 s for a lock, failures are dropped with a once-a-minute warning,
+  test mode and errors. Logging can't stop the show and adds only a short,
+  bounded wait: each SQLite statement waits at most 0.5 s for a lock, the two
+  song writes happen outside the audio loop, failures are dropped with a
+  once-a-minute warning,
   and `[events] enabled = false` turns every hook off. Physical button presses
   honour the existing `[buttons] log_button_presses` and are counted once (by
   the API when the press went through it). New endpoints (login required):

@@ -117,13 +117,16 @@ class ButtonManagerService:
             'warning': warning
         }
 
-    def handle_button_action(self, action: ButtonAction, user: Optional[str] = None) -> bool:
+    def handle_button_action(self, action: ButtonAction, user: Optional[str] = None,
+                             record_press: bool = True) -> bool:
         """Handle a button action (physical or virtual).
 
         Args:
             action: The button action to perform
             user: API user who pressed it (physical buttonmanager.py logs in
                 as its configured user), for the event log
+            record_press: False for automatic actions (repeat mode's next
+                song) that aren't a press
 
         Returns:
             New state value for toggle actions (True/False)
@@ -139,10 +142,11 @@ class ButtonManagerService:
         self.last_action = action.value
         self.last_action_time = datetime.now()
         self._actor = user
-        details = {"name": action.value, "mode": "api"}
-        if user:
-            details["user"] = user
-        event_log.record("button_press", source="api", **details)
+        if record_press:
+            details = {"name": action.value, "mode": "api"}
+            if user:
+                details["user"] = user
+            event_log.record("button_press", source="api", **details)
 
         log.info(f"Handling button action: {action}")
 

@@ -84,6 +84,14 @@ class TestButtonPressEvents:
         bm.playsong(-1)
         assert presses() == []
 
+    def test_repeat_replay_in_api_mode_tells_the_api(self, buttons, monkeypatch):
+        monkeypatch.setattr(bm, "API_ENABLED", True)
+        bm.playsong(-1, replay=True)
+        bm.call_api.assert_called_once_with("/buttons/skip?repeat=true")
+        bm.call_api.reset_mock()
+        bm.playsong(-1)
+        bm.call_api.assert_called_once_with("/buttons/skip")
+
     def test_cooldown_press_is_not_logged(self, buttons, monkeypatch):
         monkeypatch.setattr(bm, "audio_cooldown", 1e12)
         bm.audiobutton()

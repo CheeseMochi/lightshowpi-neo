@@ -309,8 +309,12 @@ class Lightshow(object):
 
     def exit_function(self):
         """atexit function"""
-        # Killed or stopped mid-song: close the song_end event first
-        song_tracker.end("stopped")
+        # Killed or stopped mid-song: close the song_end event first. A second
+        # SIGTERM (sys.exit) landing in the write must not skip the clean-up below.
+        try:
+            song_tracker.end("stopped")
+        except BaseException:
+            pass
 
         if self.server:
             self.network.set_playing()

@@ -351,8 +351,13 @@ def log_button_press(name: str, via_api: bool = False) -> None:
     event_log.record("button_press", source="button", name=name, mode=BUTTON_MODE)
 
 
-def playsong(songindex) -> bool:
+def playsong(songindex, replay: bool = False) -> bool:
     """Queue a song to play (-1 = next song).
+
+    Args:
+        songindex: playlist index, -1 for the next song
+        replay: True for repeat mode's automatic next song (not a press);
+            the API then leaves it out of the button_press events
 
     Returns:
         True if the API handled it, False if the state file was used.
@@ -362,7 +367,7 @@ def playsong(songindex) -> bool:
 
     # Try API first if enabled
     if API_ENABLED:
-        if call_api("/buttons/skip"):
+        if call_api("/buttons/skip?repeat=true" if replay else "/buttons/skip"):
             log.debug("Skip triggered via API")
             via_api = True
         else:
@@ -590,7 +595,7 @@ def main():
                     repeat_songs = 0
                 else:
                     log.debug(f"Repeat mode: Playing next song ({repeat_songs}/{REPEAT_MAX_ITERATIONS})")
-                    playsong(-1)
+                    playsong(-1, replay=True)
 
             # Sleep to reduce CPU usage
             time.sleep(5)

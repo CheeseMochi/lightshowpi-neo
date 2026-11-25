@@ -6,7 +6,7 @@ Allows web UI to trigger button actions and monitor button state.
 
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from api.core.auth import get_current_user
@@ -87,15 +87,21 @@ async def get_button_health(
 
 @router.post("/skip", response_model=ButtonActionResponse)
 async def skip_song(
+    repeat: bool = Query(False, description="Repeat mode's automatic next song, not a press"),
     manager: ButtonManagerService = Depends(get_button_manager),
     current_user: dict = Depends(get_current_user)
 ):
     """Trigger skip button action (play next song).
 
-    Virtual button press - queues the next song to play.
+    Virtual button press - queues the next song to play. ``repeat=true`` is
+    the physical button manager's repeat loop; it is not logged as a press.
     """
     try:
-        manager.handle_button_action(ButtonAction.SKIP, user=current_user.get("username"))
+        if repeat:
+            manager.handle_button_action(ButtonAction.SKIP, user=current_user.get("username"),
+                                         record_press=False)
+        else:
+            manager.handle_button_action(ButtonAction.SKIP, user=current_user.get("username"))
         return ButtonActionResponse(
             success=True,
             action="skip",
