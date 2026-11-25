@@ -112,6 +112,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and an OSV scan of a fresh `requirements-dev.txt` install both report none.
 
 ### Fixed
+- **Bench runners going offline after a cold boot**: the Pis have no RTC
+  battery, so the GitHub runner connected with a days-old clock, had its token
+  rejected ("registration has been deleted") and exited for good. The
+  `gh_runner` Ansible role now starts the runner only after NTP sync
+  (`systemd-time-wait-sync`) and restarts it if it exits.
 - sACN clients crashed on the first per-song override message from the server
   (`'SACNNetworking' object has no attribute 'get_overrides'`); they now honour
   `[network] get_overrides` like legacy clients. Found on the Pi bench.

@@ -103,11 +103,43 @@
     src: "{{ gh_runner_dir }}/.service"
   register: gh_runner_service_file
 
+# Bench Pis have no RTC battery (Zero 2 W: no RTC at all) and are powered off
+# overnight, so they boot with a days-old clock. A runner that connects before
+# NTP sync gets its token rejected, reports "registration has been deleted"
+# and exits for good. Make time-sync.target wait for a real sync, start the
+# runner after it, and restart the runner if it exits anyway.
+- name: Enable systemd-time-wait-sync (time-sync.target waits for NTP)
+  ansible.builtin.systemd_service:
+    name: systemd-time-wait-sync.service
+    enabled: true
+
+- name: Create runner service drop-in directory
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ gh_runner_service_file.content | b64decode | trim }}.d"
+    state: directory
+    mode: "0755"
+
+- name: Start runner after clock sync and restart it if it exits
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ gh_runner_service_file.content | b64decode | trim }}.d/wait-for-clock.conf"
+    mode: "0644"
+    content: |
+      # Managed by Ansible (gh_runner role)
+      [Unit]
+      Wants=time-sync.target
+      After=time-sync.target
+
+      [Service]
+      Restart=always
+      RestartSec=60
+  register: gh_runner_dropin
+
 - name: Enable and start runner service
   ansible.builtin.systemd_service:
     name: "{{ gh_runner_service_file.content | b64decode | trim }}"
     enabled: true
     state: started
+    daemon_reload: "{{ gh_runner_dropin is changed }}"
 
 # The bench Pi must not start the show on a timer. Crontab entries from
 # crontab/synchronized_lights are installed by hand, so comment them out by pattern.
