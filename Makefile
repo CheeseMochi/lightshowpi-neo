@@ -10,6 +10,10 @@ ARGS          ?=
 WORKER_DIR    := cloud/worker
 PUBLIC_HOST   ?=
 ADMIN_HOST    ?=
+# Home page title on the cloud site (blank = "Holiday Light Show")
+SHOW_NAME     ?=
+# WWW=1 also attaches www.PUBLIC_HOST to the Worker (WWW=0 to skip)
+WWW           ?= 1
 
 # ASK_VAULT=1 prompts for the ansible-vault password (if secrets.yml is encrypted)
 VAULT_FLAGS := $(if $(ASK_VAULT),--ask-vault-pass,)
@@ -60,12 +64,12 @@ tunnel-token: ## Save the tunnel token for Ansible (group_vars/show/tunnel.yml, 
 		> $(ANSIBLE_DIR)/group_vars/show/tunnel.yml
 	@echo "Wrote $(ANSIBLE_DIR)/group_vars/show/tunnel.yml (mode 600). Next: make provision HOST=show"
 
-cloud: ## Build the Home page for the cloud and deploy the public Worker (PUBLIC_HOST=... ADMIN_HOST=...)
+cloud: ## Build the Home page for the cloud and deploy the public Worker (PUBLIC_HOST=... ADMIN_HOST=... [SHOW_NAME="..."] [WWW=0])
 	@test -n "$(PUBLIC_HOST)" || { echo "ERROR: set PUBLIC_HOST=<public hostname>, e.g. make cloud PUBLIC_HOST=lightshow.example.com ADMIN_HOST=lights.example.com"; exit 1; }
 	@test -n "$(ADMIN_HOST)" || { echo "ERROR: set ADMIN_HOST=<admin hostname>; the gear icon and /admin go to https://ADMIN_HOST/admin"; exit 1; }
 	@! grep -q REPLACE_WITH_KV_NAMESPACE_ID $(WORKER_DIR)/wrangler.toml || { echo "ERROR: create the KV namespace and paste its id into $(WORKER_DIR)/wrangler.toml (deploy/README.md, Cloud public page)"; exit 1; }
-	cd web && npm ci && VITE_PUBLIC_API_BASE=/api/public VITE_ADMIN_URL=https://$(ADMIN_HOST)/admin npx vite build --outDir dist-cloud --emptyOutDir
-	cd $(WORKER_DIR) && npm ci && npx wrangler deploy --domain $(PUBLIC_HOST) --var ADMIN_HOST:$(ADMIN_HOST) --var PUBLIC_HOST:$(PUBLIC_HOST)
+	cd web && npm ci && VITE_PUBLIC_API_BASE=/api/public VITE_ADMIN_URL=https://$(ADMIN_HOST)/admin VITE_SHOW_NAME='$(SHOW_NAME)' npx vite build --outDir dist-cloud --emptyOutDir
+	cd $(WORKER_DIR) && npm ci && npx wrangler deploy --domain $(PUBLIC_HOST) $(if $(filter 1,$(WWW)),--domain www.$(PUBLIC_HOST),) --var ADMIN_HOST:$(ADMIN_HOST) --var PUBLIC_HOST:$(PUBLIC_HOST)
 
 cloud-test: ## Run the public Worker's tests (vitest in workerd)
 	cd $(WORKER_DIR) && npm ci && npm test
