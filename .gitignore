@@ -94,6 +94,9 @@ led[0-9].cfg
 config/overrides.cfg
 config/overrides*.cfg
 
+# Config editor backups (web UI)
+config/backups/
+
 # Temporary files
 *.tmp
 *.temp
@@ -122,6 +125,7 @@ crash.log
 # Web Frontend
 web/node_modules/
 web/dist/
+web/dist-cloud/
 web/.vite/
 npm-debug.log*
 yarn-debug.log*
@@ -135,6 +139,8 @@ pnpm-debug.log*
 # API database at the default location ($SYNCHRONIZED_LIGHTS_HOME/data)
 data/*.db
 data/*.db-journal
+data/*.db-wal
+data/*.db-shm
 
 # Per-host deployment files (converted configs etc.); never commit
 deploy/local/

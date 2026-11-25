@@ -72,4 +72,12 @@ done
 echo "Cleaning up GPIO..."
 sudo -E $(which python) $SYNCHRONIZED_LIGHTS_HOME/py/hardware_controller.py --state=cleanup
 
+# Event log (data/events.db), only when run on its own: start_music_and_lights
+# calls this script with its PID first, and that's not a show stop. Never
+# lets a logging problem fail the script.
+if [ -z "$1" ]; then
+    "$(which python)" "$SYNCHRONIZED_LIGHTS_HOME/py/event_log.py" show_stop \
+        --source "${LSP_EVENT_SOURCE:-cron}" >/dev/null 2>&1 || true
+fi
+
 echo "✓ Lightshow stopped"

@@ -13,6 +13,29 @@ Draft. See the [Unreleased] section of [CHANGELOG.md](CHANGELOG.md).
   variant, or rotate/randomize across several, so each play of a song can look
   different. Copy research variants in with `tools/install_sequences.py`.
   Songs you don't configure play exactly as before.
+- **Config editor** in the web UI: edit `overrides.cfg` and LED configs from
+  the browser, with a diff before saving, automatic backups you can restore,
+  and an effective-config view. A file that wouldn't parse is never saved.
+  Changes apply from the next song.
+- **Devices page**: every Pi, output (Nanoleaf, ESPixelStick) and relay
+  channel in one place, with a green/red reachability dot, friendly relay
+  names and On/Off test buttons.
+- **Show history and insights.** Every song play is now recorded: whether it
+  was played out, skipped or stopped, and how much of it was heard. The web UI
+  gains an **Activity** page (who started or stopped the show, button presses,
+  admin changes, errors) and an **Insights** page (skip and completion rates per
+  song, average listen %, busiest hours and days). The log lives in
+  `data/events.db` and works whether the show runs from cron, buttons or the
+  API. If anything goes wrong with it, the show carries on; to turn it off,
+  set `enabled = false` under `[events]` in `overrides.cfg`.
+- **A festive Home page for visitors** at `/`: what's playing with a live
+  progress bar, tonight's show time, and the playlist. The admin UI is now at
+  `/admin` (the gear icon on the Home page).
+- **Optional cloud copy** of that page on Cloudflare Workers, fed by the Pi,
+  so a crowd of phones never touches the Pi. Off unless `[api] cloud_url` is
+  set; see "Cloud public page" in `deploy/README.md`.
+- Cron-run shows can publish their times with `[api] public_show_start` /
+  `public_show_stop` (and optionally `public_show_days`).
 
 ### 🐛 Notable Fixes
 
@@ -44,6 +67,11 @@ Draft. See the [Unreleased] section of [CHANGELOG.md](CHANGELOG.md).
 - Changing the admin password breaks the button manager's API login until
   `/etc/lightshowpi/buttons.env` is updated too.
 - Ambient mode and `set_array` scripts now light LED strips as well as GPIO.
+- The config editor writes to `config/` and `config/backups/` as the user the
+  API runs as. Saving keeps each file's permissions (and its owner when the
+  API runs as root).
+- The API now checks devices in the background every 60 s (`[devices]`; set
+  `enabled = False` to turn it off).
 
 ## Version 0.9.1 - Beta 2 (September 2026)
 

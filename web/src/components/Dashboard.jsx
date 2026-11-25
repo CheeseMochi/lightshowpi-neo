@@ -3,6 +3,10 @@ import { lightshow, schedules as schedulesApi, buttons } from '../services/api';
 import ScheduleManager from './ScheduleManager';
 import Songs from './Songs';
 import ChangePassword from './ChangePassword';
+import ConfigEditor from './ConfigEditor';
+import Devices from './Devices';
+import Activity from './Activity';
+import Insights from './Insights';
 import '../styles/Dashboard.css';
 
 export default function Dashboard({ onLogout }) {
@@ -13,6 +17,10 @@ export default function Dashboard({ onLogout }) {
   const [showSchedules, setShowSchedules] = useState(false);
   const [showSongs, setShowSongs] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
+  const [showDevices, setShowDevices] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
   const [buttonStatus, setButtonStatus] = useState(null);
   const [buttonHealth, setButtonHealth] = useState(null);
   const [selectedMode, setSelectedMode] = useState('playlist');
@@ -144,6 +152,22 @@ export default function Dashboard({ onLogout }) {
 
   if (showSongs) {
     return <Songs onBack={() => setShowSongs(false)} onLogout={onLogout} />;
+  }
+
+  if (showConfig) {
+    return <ConfigEditor onBack={() => setShowConfig(false)} onLogout={onLogout} />;
+  }
+
+  if (showDevices) {
+    return <Devices onBack={() => setShowDevices(false)} onLogout={onLogout} />;
+  }
+
+  if (showActivity) {
+    return <Activity onBack={() => setShowActivity(false)} />;
+  }
+
+  if (showInsights) {
+    return <Insights onBack={() => setShowInsights(false)} />;
   }
 
   const isRunning = ['playing', 'starting'].includes(status?.state);
@@ -289,6 +313,34 @@ export default function Dashboard({ onLogout }) {
               className="btn btn-secondary btn-large"
             >
               🎵 Songs
+            </button>
+
+            <button
+              onClick={() => setShowDevices(true)}
+              className="btn btn-secondary btn-large"
+            >
+              Devices
+            </button>
+
+            <button
+              onClick={() => setShowConfig(true)}
+              className="btn btn-secondary btn-large"
+            >
+              Config
+            </button>
+
+            <button
+              onClick={() => setShowActivity(true)}
+              className="btn btn-secondary btn-large"
+            >
+              📜 Activity
+            </button>
+
+            <button
+              onClick={() => setShowInsights(true)}
+              className="btn btn-secondary btn-large"
+            >
+              📊 Insights
             </button>
           </div>
         </div>

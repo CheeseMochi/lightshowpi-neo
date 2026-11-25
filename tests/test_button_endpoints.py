@@ -213,7 +213,8 @@ class TestSkipEndpoint:
         assert 'skip' in data['message'].lower()
 
         # Verify service method was called
-        mock_button_manager.handle_button_action.assert_called_once_with(ButtonAction.SKIP)
+        mock_button_manager.handle_button_action.assert_called_once_with(
+            ButtonAction.SKIP, user="testuser")
 
     def test_skip_button_failure(self, client, auth_headers, mock_button_manager):
         """Test skip button when action fails."""
@@ -242,7 +243,8 @@ class TestRepeatToggleEndpoint:
         assert data['action'] == 'repeat_toggle'
         assert 'enabled' in data['message'].lower()
 
-        mock_button_manager.handle_button_action.assert_called_once_with(ButtonAction.REPEAT_TOGGLE)
+        mock_button_manager.handle_button_action.assert_called_once_with(
+            ButtonAction.REPEAT_TOGGLE, user="testuser")
 
     def test_repeat_toggle_disable(self, client, auth_headers, mock_button_manager):
         """Test disabling repeat mode."""
@@ -282,7 +284,8 @@ class TestAudioToggleEndpoint:
         assert data['action'] == 'audio_toggle'
         assert 'on' in data['message'].lower()
 
-        mock_button_manager.handle_button_action.assert_called_once_with(ButtonAction.AUDIO_TOGGLE)
+        mock_button_manager.handle_button_action.assert_called_once_with(
+            ButtonAction.AUDIO_TOGGLE, user="testuser")
 
     def test_audio_toggle_off(self, client, auth_headers, mock_button_manager):
         """Test turning audio off."""

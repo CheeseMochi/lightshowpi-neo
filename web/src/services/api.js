@@ -6,6 +6,13 @@
 
 const API_BASE = '/api';
 
+/**
+ * Base of the public (no login) endpoints. The Pi serves them at /api/public;
+ * the cloud build sets VITE_PUBLIC_API_BASE so the same Home page reads the
+ * Cloudflare Worker's copy instead.
+ */
+export const PUBLIC_API_BASE = (import.meta.env.VITE_PUBLIC_API_BASE || '/api/public').replace(/\/$/, '');
+
 class ApiError extends Error {
   constructor(message, status, details) {
     super(message);
@@ -57,13 +64,14 @@ async function apiRequest(endpoint, options = {}) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  const { base = API_BASE, skipAuth, ...fetchOptions } = options;
   const config = {
-    ...options,
+    ...fetchOptions,
     headers
   };
 
   try {
-    const response = await fetch(`${API_BASE}${endpoint}`, config);
+    const response = await fetch(`${base}${endpoint}`, config);
 
     // Handle non-2xx responses
     if (response.status === 401 && !options.skipAuth) {
@@ -238,6 +246,157 @@ export const buttons = {
 };
 
 // =============================================================================
+// Config editor API (admin)
+// =============================================================================
+
+const cfgPath = (name) => `/config/files/${encodeURIComponent(name)}`;
+
+export const configFiles = {
+  async list() {
+    return apiRequest('/config/files');
+  },
+
+  async get(name) {
+    return apiRequest(cfgPath(name));
+  },
+
+  async save(name, content, baseSha256) {
+    return apiRequest(cfgPath(name), {
+      method: 'PUT',
+      body: JSON.stringify({ content, base_sha256: baseSha256 })
+    });
+  },
+
+  async validate(name, content, baseSha256) {
+    return apiRequest(`${cfgPath(name)}/validate`, {
+      method: 'POST',
+      body: JSON.stringify({ content, base_sha256: baseSha256 })
+    });
+  },
+
+  async backups(name) {
+    return apiRequest(`${cfgPath(name)}/backups`);
+  },
+
+  async getBackup(name, backupId) {
+    return apiRequest(`${cfgPath(name)}/backups/${encodeURIComponent(backupId)}`);
+  },
+
+  async restore(name, backupId) {
+    return apiRequest(`${cfgPath(name)}/backups/${encodeURIComponent(backupId)}/restore`, {
+      method: 'POST'
+    });
+  },
+
+  async effective() {
+    return apiRequest('/config/effective');
+  }
+};
+
+// =============================================================================
+// Devices API (admin)
+// =============================================================================
+
+export const devices = {
+  async status() {
+    return apiRequest('/devices/status');
+  },
+
+  async create(device) {
+    return apiRequest('/devices', {
+      method: 'POST',
+      body: JSON.stringify(device)
+    });
+  },
+
+  async update(id, changes) {
+    return apiRequest(`/devices/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(changes)
+    });
+  },
+
+  async delete(id) {
+    return apiRequest(`/devices/${id}`, { method: 'DELETE' });
+  },
+
+  async sync() {
+    return apiRequest('/devices/sync', { method: 'POST' });
+  },
+
+  async probe() {
+    return apiRequest('/devices/probe', { method: 'POST' });
+  }
+};
+
+// =============================================================================
+// Test mode API (relay test buttons)
+// =============================================================================
+
+export const testMode = {
+  async status() {
+    return apiRequest('/test/status');
+  },
+
+  async enter() {
+    return apiRequest('/test/enter', { method: 'POST' });
+  },
+
+  async exit() {
+    return apiRequest('/test/exit', { method: 'POST' });
+  },
+
+  async channel(channel, state) {
+    return apiRequest('/test/channel', {
+      method: 'POST',
+      body: JSON.stringify({ channel, state })
+    });
+  }
+};
+
+// =============================================================================
+// Event log & analytics API
+// =============================================================================
+
+/**
+ * Build a query string, dropping empty values. Arrays become repeated keys.
+ */
+function query(params = {}) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === null || value === undefined || value === '') return;
+    if (Array.isArray(value)) {
+      value.forEach((v) => search.append(key, v));
+    } else {
+      search.append(key, value);
+    }
+  });
+  const text = search.toString();
+  return text ? `?${text}` : '';
+}
+
+export const events = {
+  /** Page through the event log, newest first. since/until: ISO strings. */
+  async list({ types, since, until, limit = 50, offset = 0 } = {}) {
+    return apiRequest(`/events${query({ type: types, since, until, limit, offset })}`);
+  }
+};
+
+export const analytics = {
+  async songs({ since, until, byVariant = false } = {}) {
+    return apiRequest(`/analytics/songs${query({ since, until, by_variant: byVariant || null })}`);
+  },
+
+  async hours({ since, until } = {}) {
+    return apiRequest(`/analytics/hours${query({ since, until })}`);
+  },
+
+  async summary({ since, until } = {}) {
+    return apiRequest(`/analytics/summary${query({ since, until })}`);
+  }
+};
+
+// =============================================================================
 // System API
 // =============================================================================
 
@@ -292,6 +451,31 @@ export const songs = {
     return apiRequest(`/songs/${index}/play`, {
       method: 'POST'
     });
+  }
+};
+
+// =============================================================================
+// Public API (no login): what the Home page shows to visitors
+// =============================================================================
+
+function publicRequest(endpoint) {
+  return apiRequest(endpoint, { skipAuth: true, base: PUBLIC_API_BASE, cache: 'no-store' });
+}
+
+export const publicApi = {
+  /** {state: playing|ambient|off, title, elapsed_s, duration_s} */
+  async nowPlaying() {
+    return publicRequest('/now-playing');
+  },
+
+  /** {note, tonight: {days, start, stop} | null, shows: [...]} */
+  async schedule() {
+    return publicRequest('/schedule');
+  },
+
+  /** {songs: [title], current: index | null} */
+  async playlist() {
+    return publicRequest('/playlist');
   }
 };
 

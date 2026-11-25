@@ -237,6 +237,7 @@ cache_group.add_argument('--createcache', action="store_true",
                          help='create light timing cache without audio playback or lightshow.')
 
 # Module-level imports
+import event_log
 import hardware_controller
 import show_logging
 
@@ -244,6 +245,9 @@ import show_logging
 args = None
 hc = None
 cm = None
+
+# song_start / song_end events (one song per process; never raises)
+song_tracker = event_log.SongTracker()
 
 class Lightshow(object):
     def __init__(self):
@@ -307,6 +311,13 @@ class Lightshow(object):
 
     def exit_function(self):
         """atexit function"""
+        # Killed or stopped mid-song: close the song_end event first. A second
+        # SIGTERM (sys.exit) landing in the write must not skip the clean-up below.
+        try:
+            song_tracker.end("stopped")
+        except BaseException:
+            pass
+
         if self.server:
             self.network.set_playing()
             hc.set_array([0. for _ in range(cm.hardware.gpio_len)], False)
@@ -1040,6 +1051,8 @@ class Lightshow(object):
 
         # Reset the state to indicate whether we're playing
         cm.update_states({'now_playing': "1", 'song_started_at': time.time()})
+        if not args.createcache:
+            song_tracker.start_from_state(cm.get_state, cm.lightshow.mode)
 
         while data != b'' and not play_now:
             # output data to sound device
@@ -1087,6 +1100,8 @@ class Lightshow(object):
             # (stat-gated: re-parses only when state.cfg changed or every 1 s)
             cm.refresh_state()
             play_now = int(cm.get_state('play_now', "0"))
+
+        song_tracker.end(song_tracker.end_reason(play_now))
 
         if not self.cache_found and not play_now and self.sequence_type == 'auto':
             self.save_cache()
@@ -1242,6 +1257,9 @@ if __name__ == "__main__":
 
     # Get copy of configuration manager
     cm = hc.cm
+
+    # Event log settings ([events]); recording never raises
+    event_log.configure(cm.config)
 
     # Set default playlist if not specified
     if not args.playlist:

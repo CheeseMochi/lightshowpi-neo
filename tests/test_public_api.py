@@ -1,6 +1,7 @@
 """Tests for the public, read-only API (/api/public/*)."""
 
 import json
+import time
 from datetime import datetime
 from unittest.mock import Mock
 
@@ -24,7 +25,8 @@ def fresh_state():
     public.public_limiter.reset()
 
 
-def make_client(state=None, schedules=None, note=None):
+def make_client(state=None, schedules=None, note=None, show_times=None,
+                entries=None, home_dir="/home/pi/lightshowpi"):
     app = FastAPI()
     app.include_router(public.router)
     app.dependency_overrides[public.get_state_reader] = (
@@ -35,6 +37,10 @@ def make_client(state=None, schedules=None, note=None):
         scheduler.get_schedules.return_value = schedules
     app.dependency_overrides[get_optional_scheduler] = lambda: scheduler
     app.dependency_overrides[public.get_schedule_note] = lambda: note
+    app.dependency_overrides[public.get_show_times] = lambda: show_times
+    app.dependency_overrides[public.get_playlist_reader] = (
+        lambda: (lambda: [list(e) for e in entries]) if entries is not None else None)
+    app.dependency_overrides[public.get_home_dir] = lambda: home_dir
     return TestClient(app)
 
 
@@ -180,10 +186,144 @@ class TestSchedule:
 
 
 @pytest.mark.unit
+class TestShowTimesFallback:
+    """[api] public_show_* gives the window when the show runs from cron."""
+
+    def test_parse_defaults_to_every_day(self):
+        show = public.parse_show_times("17:30", "22:30", "")
+        assert show.days == public.DAY_NAMES
+        assert (show.start, show.stop) == ("17:30", "22:30")
+
+    def test_parse_days_and_pads_hours(self):
+        show = public.parse_show_times("5:30", "22:00", "sat, Friday,sun")
+        assert show.days == ["Sun", "Fri", "Sat"]
+        assert show.start == "05:30"
+
+    @pytest.mark.parametrize("start, stop, days", [
+        ("", "22:30", ""), ("17:30", "", ""),           # unset: today's behaviour
+        ("5pm", "22:30", ""), ("24:00", "22:30", ""),   # invalid time
+        ("17:30", "22:30", "Mon,Funday"),               # invalid day
+    ])
+    def test_blank_or_invalid_is_none(self, start, stop, days):
+        assert public.parse_show_times(start, stop, days) is None
+
+    def test_fallback_used_when_no_db_schedules(self):
+        fallback = public.parse_show_times("17:30", "22:30")
+        res = public.build_schedule([], None, today=datetime(2026, 11, 20), fallback=fallback)
+        assert res.tonight.start == "17:30" and len(res.shows) == 1
+
+    def test_db_schedules_win_over_fallback(self):
+        fallback = public.parse_show_times("18:00", "21:00")
+        res = public.build_schedule(SCHEDULES, None, today=datetime(2026, 11, 20),
+                                    fallback=fallback)
+        assert [s.start for s in res.shows] == ["17:30", "16:00"]
+
+    def test_fallback_not_tonight(self):
+        fallback = public.parse_show_times("17:30", "22:30", "Sat")
+        res = public.build_schedule([], None, today=datetime(2026, 11, 20), fallback=fallback)
+        assert res.tonight is None and res.shows[0].days == ["Sat"]
+
+    def test_endpoint_uses_fallback(self):
+        body = make_client(schedules=[], show_times=public.parse_show_times("17:30", "22:30")
+                           ).get("/api/public/schedule").json()
+        assert body["shows"] == [{"days": public.DAY_NAMES, "start": "17:30", "stop": "22:30"}]
+        assert body["tonight"]["start"] == "17:30"
+
+    def test_config_getters(self):
+        config = Mock(public_show_start="17:30", public_show_stop="22:30",
+                      public_show_days="Fri,Sat")
+        assert public.config_show_times(config).days == ["Fri", "Sat"]
+
+
+# ---------------------------------------------------------------------------
+# playlist
+# ---------------------------------------------------------------------------
+
+ENTRIES = [
+    ["Carol Of The Bells", "$SYNCHRONIZED_LIGHTS_HOME/music/secret/Carol_of_the_Bells.mp3", set()],
+    ["Deck_The_Halls.mp3", "/abs/music/deck.mp3", {"1.2.3.4"}, "playing!"],
+    ["", "/abs/music/untitled.mp3", set()],
+]
+
+
+@pytest.mark.unit
+class TestPlaylist:
+
+    def test_titles_only(self):
+        res = public.build_playlist(ENTRIES)
+        assert res.songs == ["Carol Of The Bells", "Deck The Halls"]
+        assert res.current is None
+
+    def test_current_found_by_path(self):
+        state = {**PLAYING, "song_path": "/home/scroce/lightshowpi/music/secret/Carol_of_the_Bells.mp3"}
+        res = public.build_playlist(ENTRIES, state, home_dir="/home/scroce/lightshowpi", now=NOW)
+        assert res.current == 0
+
+    def test_no_current_when_off_or_stale(self):
+        state = {**PLAYING, "song_path": "/abs/music/deck.mp3"}
+        assert public.build_playlist(ENTRIES, state, now=NOW).current == 1
+        assert public.build_playlist(ENTRIES, {**state, "now_playing": "0"}, now=NOW).current is None
+        assert public.build_playlist(ENTRIES, state, now=NOW + 1000).current is None
+
+    def test_capped(self):
+        many = [[f"Song {i}", f"/m/{i}.mp3", set()] for i in range(public.MAX_PUBLIC_SONGS + 5)]
+        assert len(public.build_playlist(many).songs) == public.MAX_PUBLIC_SONGS
+
+    def test_endpoint_hides_paths_and_extras(self):
+        state = {**PLAYING, "song_path": "/abs/music/deck.mp3",
+                 "song_started_at": str(time.time() - 10)}
+        res = make_client(state=state, entries=ENTRIES).get("/api/public/playlist")
+        assert res.status_code == 200
+        body = res.json()
+        assert body == {"songs": ["Carol Of The Bells", "Deck The Halls"], "current": 1}
+        for leak in ("/abs", "SYNCHRONIZED", "1.2.3.4", "playing!", ".mp3"):
+            assert leak not in res.text
+        assert "max-age" in res.headers["cache-control"]
+
+    def test_no_config_is_empty(self):
+        assert make_client().get("/api/public/playlist").json() == {"songs": [], "current": None}
+
+    def test_unreadable_playlist_is_empty(self):
+        client = make_client()
+        client.app.dependency_overrides[public.get_playlist_reader] = (
+            lambda: (lambda: (_ for _ in ()).throw(OSError("locked"))))
+        assert client.get("/api/public/playlist").json()["songs"] == []
+
+    def test_missing_file_is_empty_and_never_exits(self, tmp_path):
+        config = Mock()
+        config.lightshow.playlist_path = str(tmp_path / "missing.playlist")
+        assert public.read_playlist_entries(config) == []
+        assert public.playlist_snapshot(lambda: public.read_playlist_entries(config)).songs == []
+
+    def test_reads_real_file(self, tmp_path):
+        playlist = tmp_path / ".playlist"
+        playlist.write_text("Jingle Bells\t/m/jingle.mp3\nbroken line\nSilent Night\t/m/s.mp3\t\t\n")
+        config = Mock()
+        config.lightshow.playlist_path = str(playlist)
+        res = public.playlist_snapshot(lambda: public.read_playlist_entries(config))
+        assert res.songs == ["Jingle Bells", "Silent Night"]
+
+    def test_rate_limit_shared(self):
+        client = make_client(state={"now_playing": "0"}, entries=ENTRIES)
+        for _ in range(public.PUBLIC_REQUESTS_PER_MINUTE):
+            client.get("/api/public/playlist")
+        assert client.get("/api/public/playlist").status_code == 429
+
+
+@pytest.mark.unit
+def test_read_state_returns_only_public_keys():
+    config = Mock()
+    config.get_state.side_effect = lambda key, default="": {"now_playing": "1"}.get(key, default)
+    state = public.read_state(config)
+    config.reload_state.assert_called_once()
+    assert set(state) == set(public.STATE_KEYS)
+
+
+@pytest.mark.unit
 def test_public_routes_are_mounted_without_auth():
     main.app.openapi_schema = None
     paths = main.app.openapi()["paths"]
-    for path in ("/api/public/now-playing", "/api/public/schedule"):
+    for path in ("/api/public/now-playing", "/api/public/schedule", "/api/public/playlist"):
         assert not paths[path]["get"].get("security")
 
 

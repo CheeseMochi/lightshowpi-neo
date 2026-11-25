@@ -675,29 +675,7 @@ class Configuration(object):
             sys.exit(1)
 
         try:
-            with open(play_list, 'rt') as playlist_fp:
-                fcntl.lockf(playlist_fp, fcntl.LOCK_SH)
-                playlist = csv.reader(playlist_fp, delimiter='\t')
-                songs = list()
-
-                for song in playlist:
-                    if len(song) < 2 or len(song) > 4:
-                        log.error('Invalid playlist.  Each line should be in the form: '
-                                  '<song name><tab><path to song>')
-                        log.warning('Removing invalid entry')
-                        print("Error found in playlist")
-                        print("Deleting entry:", song)
-                        continue
-
-                    elif len(song) > 2:
-                        song[2] = set(song[2].split(','))
-
-                    elif len(song) == 2:
-                        song.append(set())
-
-                    songs.append(song)
-
-                fcntl.lockf(playlist_fp, fcntl.LOCK_UN)
+            songs = read_playlist(play_list, on_invalid=_report_invalid_playlist_entry)
         except Exception as e:
             log.error(f"Error reading playlist file: {e}")
             print(f"\nERROR: Failed to read playlist file: {play_list}")
@@ -730,6 +708,54 @@ class Configuration(object):
         self.playlist = songs
 
     # SMS-related methods (has_permission, is_throttle_exceeded) removed
+
+
+def _report_invalid_playlist_entry(song):
+    """CLI output for a playlist line that read_playlist() skipped."""
+    print("Error found in playlist")
+    print("Deleting entry:", song)
+
+
+def read_playlist(path, on_invalid=None):
+    """Parse a tab-separated playlist file without ever exiting the process.
+
+    Each line is ``name<TAB>path[<TAB>votes[<TAB>playing!]]``. Lines with fewer
+    than 2 or more than 4 fields are logged and skipped (``on_invalid`` is
+    called with the raw fields). The votes column becomes a set; a missing one
+    becomes an empty set.
+
+    The show reads playlists through Configuration.get_playlist(), which adds
+    the exit and help text; the API calls this directly because it must never
+    exit.
+
+    :param path: playlist file
+    :param on_invalid: optional callback for each skipped line
+    :return: list of ``[name, path, votes(set)[, "playing!"]]`` entries
+    :raises OSError: when the file can't be opened
+    """
+    songs = list()
+    with open(path, 'rt') as playlist_fp:
+        fcntl.lockf(playlist_fp, fcntl.LOCK_SH)
+        try:
+            for song in csv.reader(playlist_fp, delimiter='\t'):
+                if len(song) < 2 or len(song) > 4:
+                    log.error('Invalid playlist.  Each line should be in the form: '
+                              '<song name><tab><path to song>')
+                    log.warning('Removing invalid entry')
+                    if on_invalid is not None:
+                        on_invalid(song)
+                    continue
+
+                elif len(song) > 2:
+                    song[2] = set(song[2].split(','))
+
+                elif len(song) == 2:
+                    song.append(set())
+
+                songs.append(song)
+        finally:
+            fcntl.lockf(playlist_fp, fcntl.LOCK_UN)
+    return songs
 
 
 class Section(object):

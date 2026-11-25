@@ -29,6 +29,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   them as root.
 - `tools/install_sequences.py` copies research bundle CSVs
   (`research/out/<song>/full/<variant>/full.csv`) into the sequences folder.
+- **Config editor in the web UI** (admin, `/api/config/*`): edit
+  `overrides.cfg`, the LED configs named in `[configs] led_config` and other
+  `config/*.cfg` files (defaults are read-only; `state.cfg` is never shown).
+  Saves are parsed the way the show parses them (a file that doesn't parse is
+  refused), warn about sections and keys the show doesn't know, show a diff
+  first, back up the old file to `config/backups/` (last 20 per file, with
+  restore), write atomically, and refuse to overwrite a file someone changed
+  since you opened it. An "Effective config" view shows defaults plus
+  overrides with secrets masked. Changes apply from the next song; API
+  settings need an API restart.
+- **Devices page** (admin, `/api/devices/*`): this Pi, network clients, other
+  Pis you add, `[output:*]` outputs, LED configs (sACN targets such as an
+  ESPixelStick) and one row per relay channel, seeded from the config and
+  kept in sync without losing the names and notes you give them (name relays
+  "letter", "snowflake"...). A background check (new `[devices]` section)
+  shows whether each device answers: TCP for Pis and Nanoleaf, HTTP for sACN
+  LED controllers. Relays have On/Off test buttons (test mode); enabling or
+  disabling an output writes `enabled =` to `overrides.cfg` through the config
+  editor's safe write path. `POST /api/devices/heartbeat` lets a client Pi
+  report in.
+- **Event log and show analytics**: the show, the button manager, the cron
+  scripts and the API record what happened to `data/events.db` (its own SQLite
+  file, WAL mode, separate from the API database): show start/stop with who
+  started it (cron, API user, schedule, button), every song start and end
+  (completed, skipped or stopped, seconds heard, light-sequence variant from
+  `song_sequence` in state.cfg), skips, button presses, admin API changes,
+  test mode and errors. Logging can't stop the show and adds only a short,
+  bounded wait: each SQLite statement waits at most 0.5 s for a lock, the two
+  song writes happen outside the audio loop, failures are dropped with a
+  once-a-minute warning,
+  and `[events] enabled = false` turns every hook off. Physical button presses
+  honour the existing `[buttons] log_button_presses` and are counted once (by
+  the API when the press went through it). New endpoints (login required):
+  `GET /api/events` (paged, filter by type and time) and
+  `GET /api/analytics/{songs,hours,summary}` (per-song plays, completion and
+  skip rate, average listen %, plays and skips by hour and weekday). Web UI:
+  **Activity** (event table with filters) and **Insights** (headline numbers,
+  how each song ends, plays by hour and day, song table) from the dashboard.
+  CLI: `python py/event_log.py show_start --source cron`.
+- **Festive public Home page at `/`**: snowfall, a string-light header (both
+  still under `prefers-reduced-motion`), a status card with a live song
+  progress bar or the next show time ("Next show tonight at 5:30 PM", "Show's
+  over for tonight"), and the playlist with the current song highlighted. A
+  gear icon (top right) links to the admin UI, which moved to **`/admin`**.
+  Mobile first; polls every 5 s and pauses while the tab is hidden. Build
+  settings: `VITE_PUBLIC_API_BASE`, `VITE_ADMIN_URL`, `VITE_SHOW_NAME`.
+- `GET /api/public/playlist`: song titles in playlist order (never paths) and
+  the index playing now. Same cache and rate limit as the other public routes.
+- `[api] public_show_start`, `public_show_stop`, `public_show_days`: the show
+  window for the public page when the show runs from cron (the API's own
+  schedules are empty then). Blank (the default) keeps the old behaviour.
+- **Cloud copy of the public page** (optional): `cloud/worker/` is a
+  Cloudflare Worker that serves the Home page and the `/api/public/*` data
+  from Workers KV, so visitors never reach the Pi. Setting `[api] cloud_url`
+  and `cloud_key` makes the API push the public data on every change plus a
+  5-minute heartbeat; the page says "off" 15 minutes after pushes stop.
+  Deploy with `make cloud PUBLIC_HOST=... ADMIN_HOST=...` (see
+  `deploy/README.md`). Blank `cloud_url` (the default) leaves it off.
 - **The API serves the built web UI**: after `npm run build` in `web/`, the
   UI is served from the API's own port (one origin, so no CORS, and one tunnel
   target). Client-side routes such as `/show` fall back to `index.html`;

@@ -279,6 +279,34 @@ class TestPlaylistErrorPaths:
         songs = self._cm().get_playlist(str(playlist))
         assert [s[0] for s in songs] == ["Good Song"]
 
+    def test_get_playlist_keeps_votes_and_playing_flag(self, tmp_path):
+        playlist = tmp_path / ".playlist"
+        playlist.write_text("A\t/m/a.mp3\nB\t/m/b.mp3\t1.1.1.1,2.2.2.2\tplaying!\n")
+        cm = self._cm()
+        songs = cm.get_playlist(str(playlist))
+        assert songs[0] == ["A", "/m/a.mp3", set()]
+        assert songs[1] == ["B", "/m/b.mp3", {"1.1.1.1", "2.2.2.2"}, "playing!"]
+        assert cm.playlist is songs
+
+
+@pytest.mark.unit
+class TestReadPlaylist:
+    """read_playlist() is the non-exiting parser the API uses."""
+
+    def test_missing_file_raises_instead_of_exiting(self, tmp_path):
+        import configuration_manager
+        with pytest.raises(OSError):
+            configuration_manager.read_playlist(str(tmp_path / "missing.playlist"))
+
+    def test_reports_invalid_lines(self, tmp_path):
+        import configuration_manager
+        playlist = tmp_path / ".playlist"
+        playlist.write_text("Good\t/m/g.mp3\nbad\n")
+        skipped = []
+        songs = configuration_manager.read_playlist(str(playlist), on_invalid=skipped.append)
+        assert [s[0] for s in songs] == ["Good"]
+        assert skipped == [["bad"]]
+
 
 @pytest.mark.unit
 class TestShowScriptPaths:

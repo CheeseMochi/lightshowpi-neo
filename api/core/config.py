@@ -41,6 +41,10 @@ class APIConfig:
         self.port = self._get_int('api', 'port', 8000)
         self.cloud_url = self._get_str('api', 'cloud_url', '')
         self.cloud_key = self._get_str('api', 'cloud_key', '')
+        # Show times for the public page when the show runs from cron (blank = unset)
+        self.public_show_start = self._get_str('api', 'public_show_start', '').strip()
+        self.public_show_stop = self._get_str('api', 'public_show_stop', '').strip()
+        self.public_show_days = self._get_str('api', 'public_show_days', '').strip()
         self.db_path = self._get_str('api', 'db_path', '')
         self.cors_origins = [o.strip().rstrip('/') for o in
                              self._get_str('api', 'cors_origins', '').split(',') if o.strip()]
@@ -48,6 +52,12 @@ class APIConfig:
         self.test_mode_timeout_minutes = self._get_float('api', 'test_mode_timeout_minutes', 10.0)
         if self.test_mode_timeout_minutes <= 0:
             self.test_mode_timeout_minutes = 10.0
+
+        # Device status checks ([devices]); bounds are enforced by DeviceMonitor
+        self.devices_enabled = self._get_bool('devices', 'enabled', True)
+        self.devices_probe_interval = self._get_float('devices', 'probe_interval', 60.0)
+        self.devices_probe_timeout = self._get_float('devices', 'probe_timeout', 2.0)
+        self.devices_sync_on_start = self._get_bool('devices', 'sync_on_start', True)
 
         # Load client settings (for client Pis)
         self.client_id = self._get_str('client', 'client_id', '')
