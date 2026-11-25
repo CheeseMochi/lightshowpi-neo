@@ -7,6 +7,9 @@ CONDA_DEV_ENV ?= lightshowpi-neo-dev
 HOST          ?=
 TOKEN         ?=
 ARGS          ?=
+WORKER_DIR    := cloud/worker
+PUBLIC_HOST   ?=
+ADMIN_HOST    ?=
 
 # ASK_VAULT=1 prompts for the ansible-vault password (if secrets.yml is encrypted)
 VAULT_FLAGS := $(if $(ASK_VAULT),--ask-vault-pass,)
@@ -14,7 +17,7 @@ PLAYBOOK    := ansible-playbook site.yml $(VAULT_FLAGS)
 
 .DEFAULT_GOAL := help
 .PHONY: help deploy-deps provision deploy media runner tunnel tunnel-token test lint-deploy \
-        _require-host _require-inventory
+        cloud cloud-test _require-host _require-inventory
 
 help: ## Show this help
 	@echo "LightShowPi Neo deployment"
@@ -27,6 +30,7 @@ help: ## Show this help
 	@echo "  make deploy HOST=show"
 	@echo "  make media HOST=piserver-neo SRC=~/backups/piserver OLD_PREFIX=/home/scroce/test/lightshowpi"
 	@echo "  make runner HOST=lsp-bench TOKEN=<github-runner-registration-token>"
+	@echo "  make cloud PUBLIC_HOST=show.example.com ADMIN_HOST=lights.example.com"
 	@echo "  ASK_VAULT=1 make provision HOST=all"
 
 deploy-deps: ## Install Ansible collections needed by the playbook (one time)
@@ -55,6 +59,16 @@ tunnel-token: ## Save the tunnel token for Ansible (group_vars/show/tunnel.yml, 
 		printf -- '---\n# Written by make tunnel-token. Do not commit.\nvault_cloudflared_tunnel_token: "%s"\n' "$$tok" \
 		> $(ANSIBLE_DIR)/group_vars/show/tunnel.yml
 	@echo "Wrote $(ANSIBLE_DIR)/group_vars/show/tunnel.yml (mode 600). Next: make provision HOST=show"
+
+cloud: ## Build the Home page for the cloud and deploy the public Worker (PUBLIC_HOST=... ADMIN_HOST=...)
+	@test -n "$(PUBLIC_HOST)" || { echo "ERROR: set PUBLIC_HOST=<public hostname>, e.g. make cloud PUBLIC_HOST=show.example.com ADMIN_HOST=lights.example.com"; exit 1; }
+	@test -n "$(ADMIN_HOST)" || { echo "ERROR: set ADMIN_HOST=<admin hostname>; the gear icon and /admin go to https://ADMIN_HOST/admin"; exit 1; }
+	@! grep -q REPLACE_WITH_KV_NAMESPACE_ID $(WORKER_DIR)/wrangler.toml || { echo "ERROR: create the KV namespace and paste its id into $(WORKER_DIR)/wrangler.toml (deploy/README.md, Cloud public page)"; exit 1; }
+	cd web && npm ci && VITE_PUBLIC_API_BASE=/api/public VITE_ADMIN_URL=https://$(ADMIN_HOST)/admin npx vite build --outDir dist-cloud --emptyOutDir
+	cd $(WORKER_DIR) && npm ci && npx wrangler deploy --domain $(PUBLIC_HOST) --var ADMIN_HOST:$(ADMIN_HOST) --var PUBLIC_HOST:$(PUBLIC_HOST)
+
+cloud-test: ## Run the public Worker's tests (vitest in workerd)
+	cd $(WORKER_DIR) && npm ci && npm test
 
 test: ## Run the Python test suite locally (conda env lightshowpi-neo-dev; override CONDA_DEV_ENV=...)
 	SYNCHRONIZED_LIGHTS_HOME=$(CURDIR) conda run -n $(CONDA_DEV_ENV) pytest -q

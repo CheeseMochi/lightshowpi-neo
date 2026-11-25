@@ -1,13 +1,15 @@
 # Deploying LightShowPi Neo
 
 Ansible sets up the Pis. Terraform sets up the Cloudflare Tunnel, DNS and Access login.
+Wrangler deploys the optional cloud copy of the public Home page (a Cloudflare Worker).
 Run everything from your laptop, in the repo root.
 
 ```
 deploy/
   ansible/              site.yml + roles: base, conda_env, lightshowpi, cloudflared, gh_runner
   terraform/cloudflare/ tunnel, ingress rules, DNS records, Access app + policy
-Makefile                make provision | deploy | runner | tunnel | tunnel-token | test | lint-deploy
+cloud/worker/           Cloudflare Worker: public Home page + cloud copy of /api/public
+Makefile                make provision | deploy | runner | tunnel | tunnel-token | test | lint-deploy | cloud
 ```
 
 ## Prerequisites (one time)
@@ -59,6 +61,62 @@ What runs where:
 | server, client | base, conda_env, lightshowpi |
 | bench  | base, gh_runner (its runner labels are `self-hosted, Linux, ARM64, pi-bench`; lightshow crontab entries are commented out) |
 
+## Cloud public page (optional)
+
+Visitors on the street open the Home page from Cloudflare instead of the Pi. The Pi's API pushes
+the public data (now playing, show times, playlist titles; nothing else) to a Worker, which keeps
+the latest copy in Workers KV and serves the same `/api/public/*` responses plus the built Home
+page. Crowds never reach the Pi, and the page keeps working if the tunnel is down.
+
+```
+Pi API --(push on change + every 5 min, Bearer key)--> https://<PUBLIC_HOST>/ingest --> KV
+phones --> https://<PUBLIC_HOST>/  and  /api/public/{now-playing,schedule,playlist}
+           https://<PUBLIC_HOST>/admin --> 302 to https://<ADMIN_HOST>/admin (Access login)
+```
+
+If the pushes stop for 15 minutes (the Pi or API is down), now-playing reports `off` rather than
+freezing on the last song. A night uses roughly 100-300 KV writes, inside the free tier
+(1,000/day).
+
+**Pick the public hostname.** Any hostname in a zone on your Cloudflare account works, e.g. a
+subdomain of the existing zone or a new cheap domain. Only `PUBLIC_HOST` changes. If you reuse
+the tunnel's public host (`show.<zone>`), delete that DNS record first (it belongs to the tunnel
+and Terraform): Wrangler can't attach a Worker to a hostname that already has a record.
+
+One-time setup (laptop, repo root; needs Node 20+):
+
+```bash
+cd cloud/worker && npm ci
+npx wrangler login                              # opens the browser once
+npx wrangler kv namespace create SHOW_KV        # paste the printed id into wrangler.toml
+openssl rand -hex 32                            # make the shared key; keep it for the next two steps
+npx wrangler secret put INGEST_KEY              # paste the key
+cd ../..
+make cloud PUBLIC_HOST=show.example.com ADMIN_HOST=lights.example.com
+```
+
+`make cloud` builds the Home page into `web/dist-cloud` (with `VITE_PUBLIC_API_BASE=/api/public`
+and `VITE_ADMIN_URL=https://<ADMIN_HOST>/admin`; `web/dist`, which goes to the Pi, is not touched)
+and runs `wrangler deploy --domain <PUBLIC_HOST>`. Run it again after web changes.
+
+Then on the show Pi, in `config/overrides.cfg`, and restart the API:
+
+```ini
+[api]
+cloud_url = https://show.example.com
+cloud_key = <the same key as INGEST_KEY>
+```
+
+Check it during a show: `curl https://show.example.com/api/public/now-playing` should change
+within a few seconds of a song change. KV is eventually consistent, so an edge location that
+cached the old copy can lag by up to about a minute. About 15 minutes after the API stops, it
+should say `off`.
+
+**Turn it off:** blank `cloud_url` in `overrides.cfg` and restart the API. To take the page down,
+`cd cloud/worker && npx wrangler delete`.
+
+`make cloud-test` runs the Worker's tests (vitest inside workerd, no account needed).
+
 ## Secrets: none are ever committed
 
 | Secret | Where it lives |
@@ -69,6 +127,7 @@ What runs where:
 | Admin password | `group_vars/all/secrets.yml` (git-ignored). Optionally `ansible-vault encrypt` it and use `ASK_VAULT=1 make ...` |
 | JWT signing key | generated on the first run, stored in `/etc/lightshowpi/api.env` (0600) on the Pi, and reused on later runs |
 | Runner registration token | the `TOKEN=` argument, used once; the runner stores its own credentials afterwards |
+| Cloud ingest key | Worker secret `INGEST_KEY` (`wrangler secret put`) and `[api] cloud_key` in the Pi's `overrides.cfg` (git-ignored) |
 
 ## Notes and gotchas
 
@@ -88,8 +147,8 @@ What runs where:
   (`^/$`, `^/api/public/`, `^/assets/`, `^/public/?$`) and returns 404 for everything else.
   cloudflared matches these as unanchored Go regexes, which is why each one starts with `^`.
   `lights.<domain>` passes everything, but only after a Cloudflare Access email one-time PIN.
-  Today `/` returns API info JSON and `/api/public/*` doesn't exist yet. Adjust
-  `public_path_regexes` once the public page is built.
+  With a web build on the Pi, `/` is the public Home page and the admin UI is at `/admin`
+  (on the admin host). The optional cloud page above can replace the tunnel's public host.
 - **Existing One-time PIN login method:** if your Zero Trust account already has one, set
   `create_otp_idp = false` in `terraform.tfvars`.
 - **Validate locally:** `make lint-deploy`.
