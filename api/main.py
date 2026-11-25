@@ -36,6 +36,7 @@ from api.routers import lightshow, schedules, buttons, test_mode, public
 from api.services.lightshow_manager import LightshowManager
 from api.services.scheduler import SchedulerService
 from api.services.button_manager import ButtonManagerService
+from api.services.cloud_publisher import start_cloud_publisher
 from api.services.test_mode_manager import TestModeManager, set_test_mode_manager
 
 # Configure logging
@@ -53,6 +54,7 @@ lightshow_manager = None
 scheduler_service = None
 button_manager = None
 test_mode_manager = None
+cloud_publisher = None
 
 # API version
 API_VERSION = "0.9.1"
@@ -73,7 +75,7 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown tasks.
     """
     global db, auth_manager, api_config, lightshow_manager, scheduler_service, button_manager
-    global test_mode_manager
+    global test_mode_manager, cloud_publisher
 
     # Startup
     log.info("Starting LightShowPi Neo API...")
@@ -132,12 +134,19 @@ async def lifespan(app: FastAPI):
     scheduler_service.start()
     log.info("Scheduler service started")
 
+    # Push the public show data to the cloud page ([api] cloud_url; blank = off)
+    cloud_publisher = start_cloud_publisher(api_config, lambda: scheduler_service)
+
     log.info(f"LightShowPi Neo API {API_VERSION} started successfully")
 
     yield
 
     # Shutdown
     log.info("Shutting down LightShowPi Neo API...")
+
+    if cloud_publisher:
+        cloud_publisher.stop()
+        cloud_publisher = None
 
     # Stop scheduler
     if scheduler_service:
