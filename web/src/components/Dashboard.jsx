@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { lightshow, schedules as schedulesApi, buttons } from '../services/api';
 import ScheduleManager from './ScheduleManager';
+import Songs from './Songs';
 import ChangePassword from './ChangePassword';
 import '../styles/Dashboard.css';
 
@@ -10,6 +11,7 @@ export default function Dashboard({ onLogout }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showSchedules, setShowSchedules] = useState(false);
+  const [showSongs, setShowSongs] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [buttonStatus, setButtonStatus] = useState(null);
   const [buttonHealth, setButtonHealth] = useState(null);
@@ -138,6 +140,10 @@ export default function Dashboard({ onLogout }) {
         onLogout={onLogout}
       />
     );
+  }
+
+  if (showSongs) {
+    return <Songs onBack={() => setShowSongs(false)} onLogout={onLogout} />;
   }
 
   const isRunning = ['playing', 'starting'].includes(status?.state);
@@ -276,6 +282,13 @@ export default function Dashboard({ onLogout }) {
               className="btn btn-secondary btn-large"
             >
               📅 Schedules
+            </button>
+
+            <button
+              onClick={() => setShowSongs(true)}
+              className="btn btn-secondary btn-large"
+            >
+              🎵 Songs
             </button>
           </div>
         </div>
