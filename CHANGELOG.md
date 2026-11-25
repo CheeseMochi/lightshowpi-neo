@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Event log and show analytics**: the show, the button manager, the cron
+  scripts and the API record what happened to `data/events.db` (its own SQLite
+  file, WAL mode, separate from the API database): show start/stop with who
+  started it (cron, API user, schedule, button), every song start and end
+  (completed, skipped or stopped, seconds heard, light-sequence variant from
+  `song_sequence` in state.cfg), skips, button presses, admin API changes,
+  test mode and errors. Logging can never stop or slow the show: writes wait
+  at most 0.5 s for a lock, failures are dropped with a once-a-minute warning,
+  and `[events] enabled = false` turns every hook off. Physical button presses
+  honour the existing `[buttons] log_button_presses` and are counted once (by
+  the API when the press went through it). New endpoints (login required):
+  `GET /api/events` (paged, filter by type and time) and
+  `GET /api/analytics/{songs,hours,summary}` (per-song plays, completion and
+  skip rate, average listen %, plays and skips by hour and weekday). Web UI:
+  **Activity** (event table with filters) and **Insights** (headline numbers,
+  how each song ends, plays by hour and day, song table) from the dashboard.
+  CLI: `python py/event_log.py show_start --source cron`.
 - **The API serves the built web UI**: after `npm run build` in `web/`, the
   UI is served from the API's own port (one origin, so no CORS, and one tunnel
   target). Client-side routes such as `/show` fall back to `index.html`;
