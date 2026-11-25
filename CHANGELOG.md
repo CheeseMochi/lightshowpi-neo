@@ -112,6 +112,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and an OSV scan of a fresh `requirements-dev.txt` install both report none.
 
 ### Fixed
+- **`bin/stop_music_and_lights` could not stop a cron-started show**: the
+  playlist loop runs as root, so its unprivileged `kill -0` check failed, the
+  loop was skipped and its pid file deleted; every later stop killed only the
+  current song and the loop started the next. It now checks with `sudo`, and
+  also finds playlist loops by name when the pid file is missing.
 - sACN clients crashed on the first per-song override message from the server
   (`'SACNNetworking' object has no attribute 'get_overrides'`); they now honour
   `[network] get_overrides` like legacy clients. Found on the Pi bench.
