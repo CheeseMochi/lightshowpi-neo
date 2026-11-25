@@ -36,6 +36,21 @@ def client_ip(request: Request) -> str:
     return peer or "unknown"
 
 
+def is_tunnel_request(request: Request) -> bool:
+    """
+    True when the request came in through the Cloudflare tunnel.
+
+    That is: the TCP peer is loopback (cloudflared on this Pi) *and* the
+    ``CF-Connecting-IP`` header is present. LAN clients (any non-loopback peer)
+    and local tools such as the button manager (loopback, no header) are not
+    tunnel requests.
+    """
+    peer = request.client.host if request.client else ""
+    if peer not in TRUSTED_PROXY_PEERS:
+        return False
+    return bool(request.headers.get("cf-connecting-ip", "").strip())
+
+
 class RateLimiter:
     """Sliding-window counter: at most ``max_events`` per ``window_s`` per key."""
 

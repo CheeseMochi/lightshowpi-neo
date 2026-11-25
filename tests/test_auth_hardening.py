@@ -139,7 +139,7 @@ class TestFirstAdmin:
 # Unauthenticated requests: 401, and every non-public route needs a token
 # ---------------------------------------------------------------------------
 
-PUBLIC_PATHS = {"/", "/api/health", "/api/auth/login"}
+PUBLIC_PATHS = {"/", "/api/health", "/api/auth/login", "/api/auth/config"}
 # Routes that must be protected; guards against the audit passing vacuously
 KNOWN_PROTECTED = {"/api/lightshow/status", "/api/lightshow/start", "/api/schedules",
                    "/api/buttons/status", "/api/test/status", "/api/auth/password",

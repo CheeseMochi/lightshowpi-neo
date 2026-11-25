@@ -29,9 +29,12 @@ from api.core.auth import (
     password_problem, record_api_action,
 )
 import event_log
-from api.core.rate_limit import RateLimiter, client_ip
+from fastapi.concurrency import run_in_threadpool
+
+from api.core import turnstile
+from api.core.rate_limit import RateLimiter, client_ip, is_tunnel_request
 from api.models.schemas import (
-    UserLogin, PasswordChange, Token, SystemHealth, LightshowState
+    UserLogin, AuthConfig, PasswordChange, Token, SystemHealth, LightshowState
 )
 from api.routers import lightshow, schedules, buttons, test_mode, public, events
 from api.routers import config_files, devices, songs
@@ -278,6 +281,26 @@ def _too_many_attempts(ip: str) -> HTTPException:
     )
 
 
+def _turnstile_required(request: Request) -> bool:
+    """Turnstile is configured and this request came through the tunnel."""
+    site, _ = turnstile.keys(api_config)
+    return bool(site) and is_tunnel_request(request)
+
+
+@app.get("/api/auth/config", response_model=AuthConfig, tags=["Authentication"])
+async def auth_config(request: Request):
+    """
+    Login page settings (no login needed).
+
+    ``required`` is true only when Turnstile is configured and this request
+    came through the Cloudflare tunnel; LAN users see no CAPTCHA. The secret
+    key is never returned.
+    """
+    site, _ = turnstile.keys(api_config)
+    return AuthConfig(turnstile_site_key=site or None,
+                      required=_turnstile_required(request))
+
+
 @app.post("/api/auth/login", response_model=Token, tags=["Authentication"])
 async def login(
     credentials: UserLogin,
@@ -292,10 +315,26 @@ async def login(
     - JWT tokens expire after 24 hours
     - Optional IP whitelisting per user
     - 5 failed attempts per minute per client IP, then 429 until the window passes
+    - Via the Cloudflare tunnel with Turnstile configured: ``turnstile_token``
+      is required and verified before the password (400 if missing or invalid)
     """
     ip = client_ip(request)
     if login_limiter.is_limited(ip):
         raise _too_many_attempts(ip)
+
+    # Turnstile (CAPTCHA) for logins via the Cloudflare tunnel, checked before
+    # the password. Failures count toward the failed-login limit so a bot
+    # can't use this endpoint to hammer Cloudflare's siteverify.
+    if _turnstile_required(request):
+        _, secret = turnstile.keys(api_config)
+        ok = await run_in_threadpool(turnstile.verify, secret,
+                                     credentials.turnstile_token or "", ip)
+        if not ok:
+            login_limiter.record(ip)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Complete the CAPTCHA and try again",
+            )
 
     user = auth_mgr.authenticate_user(
         credentials.username,
