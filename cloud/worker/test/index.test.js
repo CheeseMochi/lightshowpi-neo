@@ -45,7 +45,7 @@ function ingest(body, { key = KEY, headers = {} } = {}, bindings = {}) {
 beforeEach(async () => {
   resetMemo();
   await env.SHOW_KV.delete(SNAPSHOT_KEY);
-  vi.useFakeTimers();
+  vi.useFakeTimers({ toFake: ['Date'] }); // only the clock; KV I/O keeps real timers
   vi.setSystemTime(T0 * 1000);
 });
 

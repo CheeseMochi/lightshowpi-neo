@@ -10,6 +10,7 @@ export default defineConfig({
       main: './src/index.js',
       miniflare: {
         compatibilityDate: '2025-11-01',
+        compatibilityFlags: ['nodejs_compat'], // required by the vitest pool
         kvNamespaces: ['SHOW_KV'],
         bindings: {
           INGEST_KEY: 'test-ingest-key-0123456789abcdef',

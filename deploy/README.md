@@ -75,13 +75,20 @@ phones --> https://<PUBLIC_HOST>/  and  /api/public/{now-playing,schedule,playli
 ```
 
 If the pushes stop for 15 minutes (the Pi or API is down), now-playing reports `off` rather than
-freezing on the last song. A night uses roughly 100-300 KV writes, inside the free tier
-(1,000/day).
+freezing on the last song.
+
+Free-tier budget: each push is one KV write (limit 1,000/day). Heartbeats are 288/day while the
+API runs, and each song causes about 3 pushes (title, start time, end), so a 5-hour night of
+about 75 songs is roughly 500 writes/day. Every 5 s now-playing poll is one Worker request
+(limit 100,000/day; static files don't count), so one phone with the page open costs about
+850 requests/hour: roughly 115 phone-hours a day.
 
 **Pick the public hostname.** Any hostname in a zone on your Cloudflare account works, e.g. a
-subdomain of the existing zone or a new cheap domain. Only `PUBLIC_HOST` changes. If you reuse
-the tunnel's public host (`show.<zone>`), delete that DNS record first (it belongs to the tunnel
-and Terraform): Wrangler can't attach a Worker to a hostname that already has a record.
+subdomain of the existing zone or a new cheap domain. Only `PUBLIC_HOST` changes. Don't use the
+tunnel's public host (`show.<zone>` by default): Terraform owns that DNS record, Wrangler can't
+attach a Worker to a hostname that already has one, and deleting it by hand only lasts until the
+next `make tunnel`. To move `show` to the Worker, change `public_subdomain` in `terraform.tfvars`
+first and re-run `make tunnel`.
 
 One-time setup (laptop, repo root; needs Node 20+):
 
@@ -92,7 +99,7 @@ npx wrangler kv namespace create SHOW_KV        # paste the printed id into wran
 openssl rand -hex 32                            # make the shared key; keep it for the next two steps
 npx wrangler secret put INGEST_KEY              # paste the key
 cd ../..
-make cloud PUBLIC_HOST=show.example.com ADMIN_HOST=lights.example.com
+make cloud PUBLIC_HOST=lightshow.example.com ADMIN_HOST=lights.example.com
 ```
 
 `make cloud` builds the Home page into `web/dist-cloud` (with `VITE_PUBLIC_API_BASE=/api/public`
@@ -103,11 +110,11 @@ Then on the show Pi, in `config/overrides.cfg`, and restart the API:
 
 ```ini
 [api]
-cloud_url = https://show.example.com
+cloud_url = https://lightshow.example.com
 cloud_key = <the same key as INGEST_KEY>
 ```
 
-Check it during a show: `curl https://show.example.com/api/public/now-playing` should change
+Check it during a show: `curl https://lightshow.example.com/api/public/now-playing` should change
 within a few seconds of a song change. KV is eventually consistent, so an edge location that
 cached the old copy can lag by up to about a minute. About 15 minutes after the API stops, it
 should say `off`.
