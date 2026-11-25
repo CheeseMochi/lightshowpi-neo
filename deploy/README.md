@@ -99,12 +99,16 @@ npx wrangler kv namespace create SHOW_KV        # paste the printed id into wran
 openssl rand -hex 32                            # make the shared key; keep it for the next two steps
 npx wrangler secret put INGEST_KEY              # paste the key
 cd ../..
-make cloud PUBLIC_HOST=lightshow.example.com ADMIN_HOST=lights.example.com
+make cloud PUBLIC_HOST=lightshow.example.com ADMIN_HOST=lights.example.com SHOW_NAME="Our Light Show"
 ```
 
-`make cloud` builds the Home page into `web/dist-cloud` (with `VITE_PUBLIC_API_BASE=/api/public`
-and `VITE_ADMIN_URL=https://<ADMIN_HOST>/admin`; `web/dist`, which goes to the Pi, is not touched)
-and runs `wrangler deploy --domain <PUBLIC_HOST>`. Run it again after web changes.
+`make cloud` builds the Home page into `web/dist-cloud` (with `VITE_PUBLIC_API_BASE=/api/public`,
+`VITE_ADMIN_URL=https://<ADMIN_HOST>/admin` and `VITE_SHOW_NAME`; `web/dist`, which goes to the Pi,
+is not touched) and runs `wrangler deploy --domain <PUBLIC_HOST> --domain www.<PUBLIC_HOST>`. Run it
+again after web changes. `WWW=0` skips the `www.` hostname (use it when `PUBLIC_HOST` is already a
+subdomain). With both attached, `www.` serves the same site; for a single canonical address add the
+dashboard's **Rules > Templates > Redirect from WWW to root** rule on that zone (a 301 at the edge,
+before the Worker).
 
 Then on the show Pi, in `config/overrides.cfg`, and restart the API:
 
