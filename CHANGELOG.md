@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Config editor in the web UI** (admin, `/api/config/*`): edit
+  `overrides.cfg`, the LED configs named in `[configs] led_config` and other
+  `config/*.cfg` files (defaults are read-only; `state.cfg` is never shown).
+  Saves are parsed the way the show parses them (a file that doesn't parse is
+  refused), warn about sections and keys the show doesn't know, show a diff
+  first, back up the old file to `config/backups/` (last 20 per file, with
+  restore), write atomically, and refuse to overwrite a file someone changed
+  since you opened it. An "Effective config" view shows defaults plus
+  overrides with secrets masked. Changes apply from the next song; API
+  settings need an API restart.
+- **Devices page** (admin, `/api/devices/*`): this Pi, network clients, other
+  Pis you add, `[output:*]` outputs, LED configs (sACN targets such as an
+  ESPixelStick) and one row per relay channel, seeded from the config and
+  kept in sync without losing the names and notes you give them (name relays
+  "letter", "snowflake"...). A background check (new `[devices]` section)
+  shows whether each device answers: TCP for Pis and Nanoleaf, HTTP for sACN
+  LED controllers. Relays have On/Off test buttons (test mode); enabling or
+  disabling an output writes `enabled =` to `overrides.cfg` through the config
+  editor's safe write path. `POST /api/devices/heartbeat` lets a client Pi
+  report in.
 - **The API serves the built web UI**: after `npm run build` in `web/`, the
   UI is served from the API's own port (one origin, so no CORS, and one tunnel
   target). Client-side routes such as `/show` fall back to `index.html`;
