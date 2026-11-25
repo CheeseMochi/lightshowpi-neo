@@ -301,6 +301,17 @@ class TestRouter:
         client.post("/api/devices/sync")
         assert client.get(f"/api/devices/{nl['id']}").json()["enabled"] is False
 
+    def test_disable_output_with_other_section_spelling(self, client, config_dir):
+        path = os.path.join(config_dir, "overrides.cfg")
+        with open(path, "w") as f:
+            f.write(OVERRIDES.replace("[output:nanoleaf]", "[Output: nanoleaf]"))
+        client.post("/api/devices/sync")
+        nl = next(d for d in client.get("/api/devices?kind=output").json()
+                  if d["config_key"] == "output:nanoleaf")
+        client.patch(f"/api/devices/{nl['id']}", json={"enabled": False})
+        text = open(path).read()
+        assert text.count("nanoleaf]") == 1 and "enabled = false" in text
+
     def test_relay_enable_does_not_touch_config(self, client, config_dir):
         client.post("/api/devices/sync")
         relay = client.get("/api/devices?kind=relay").json()[0]

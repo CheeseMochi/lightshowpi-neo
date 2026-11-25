@@ -215,6 +215,11 @@ class TestWrites:
         out = cf.set_option_text("[api]\n", "output:new", "enabled", "true")
         assert out.endswith("[output:new]\nenabled = true\n")
 
+    def test_set_option_text_matches_section_spelling(self):
+        text = "[Output: nl]\ntype = nanoleaf\nenabled = true\n"
+        out = cf.set_option_text(text, "output:nl", "enabled", "false")
+        assert out == "[Output: nl]\ntype = nanoleaf\nenabled = false\n"
+
     def test_set_option_writes_through_safe_path(self, config_dir):
         write(config_dir, "overrides.cfg", "[output:nl]\ntype = nanoleaf\nenabled = true\n")
         cf.set_option(config_dir, "overrides.cfg", "output:nl", "enabled", "false")
@@ -247,6 +252,26 @@ class TestValidation:
         assert cf.validate(config_dir, "led1.cfg", "[led]\nsacn_address = 10.0.0.9\n") == []
         assert cf.validate(config_dir, "led1.cfg", "[led]\nnope = 1\n") == [
             "Unknown key 'nope' in [led]"]
+
+    def test_real_defaults_accept_contrib_and_lightshow_keys(self, tmp_path):
+        """The checked-in defaults.cfg: no false warnings for real configs."""
+        repo_config = os.path.join(os.path.dirname(__file__), "..", "config")
+        d = tmp_path / "real"
+        d.mkdir()
+        for name in ("defaults.cfg", "led1.defaults.cfg"):
+            with open(os.path.join(repo_config, name)) as f:
+                (d / name).write_text(f.read())
+        contrib = os.path.join(repo_config, "contrib")
+        for name in sorted(os.listdir(contrib)):
+            if name.endswith(".cfg"):
+                with open(os.path.join(contrib, name)) as f:
+                    assert cf.validate(str(d), "overrides.cfg", f.read()) == [], name
+        # Read from [lightshow] but documented under [ambient] in defaults.cfg
+        sample = ("[lightshow]\nlight_delay = 0.2\nlight_delay_legacy_math = False\n"
+                  "decay_factor = 0.1\n[ambient]\nbrightness = 0.5\n"
+                  "[devices]\nprobe_interval = 30\n")
+        assert cf.validate(str(d), "overrides.cfg", sample) == []
+        assert cf.effective_config(str(d))["sections"]["devices"]
 
     def test_effective_masks_secrets(self, config_dir):
         write(config_dir, "overrides.cfg",
@@ -338,3 +363,9 @@ class TestRouter:
         res = client.get("/api/config/effective")
         assert res.status_code == 200
         assert "hunter2" not in res.text
+
+    def test_effective_with_broken_overrides_is_400(self, client, config_dir):
+        write(config_dir, "overrides.cfg", "no header\n")
+        assert client.get("/api/config/effective").status_code == 400
+        # The file can still be opened to fix it
+        assert client.get("/api/config/files/overrides.cfg").status_code == 200

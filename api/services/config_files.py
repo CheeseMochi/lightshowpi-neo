@@ -53,6 +53,9 @@ OUTPUT_KEYS = {
     "transition", "restore",
 }
 
+# The keys synchronized_lights.py really reads from [ambient]
+AMBIENT_OWN_KEYS = {"channels", "brightness"}
+
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.cfg$")
 _BACKUP_RE = re.compile(r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.cfg)\."
                         r"(?P<stamp>\d{8}-\d{6}-\d{6})$")
@@ -222,7 +225,14 @@ def _template_keys(config_dir: str, name: str) -> Dict[str, set]:
     if os.path.isfile(path):
         with open(path, encoding="utf-8") as f:
             parser.read_file(f)
-    return {s: set(parser.options(s)) for s in parser.sections()}
+    known = {s: set(parser.options(s)) for s in parser.sections()}
+    # defaults.cfg opens [ambient] in the middle of the [lightshow] settings, so
+    # keys the show reads from [lightshow] (light_delay, decay_factor,
+    # always_on_channels...) are documented under [ambient]. Accept them in
+    # [lightshow] too until defaults.cfg is reordered.
+    if "lightshow" in known and "ambient" in known:
+        known["lightshow"] |= known["ambient"] - AMBIENT_OWN_KEYS
+    return known
 
 
 def led_config_names_safe(config_dir: str) -> List[str]:
@@ -461,6 +471,19 @@ def effective_config(config_dir: str) -> dict:
     return {"sections": sections, "led_configs": led}
 
 
+def _section_id(name: str) -> str:
+    """
+    Compare section names the way the show matches outputs: ``[Output: nl]``
+    and ``[output:nl]`` are the same output (prefix case-insensitive, spaces
+    around the colon ignored).
+    """
+    name = name.strip()
+    if ":" in name:
+        prefix, rest = name.split(":", 1)
+        return f"{prefix.strip().lower()}:{rest.strip()}"
+    return name
+
+
 def set_option_text(text: str, section: str, key: str, value: str) -> str:
     """
     Set ``key = value`` in ``[section]`` by editing the text, keeping comments.
@@ -471,6 +494,7 @@ def set_option_text(text: str, section: str, key: str, value: str) -> str:
     """
     lines = text.splitlines()
     header = re.compile(r"^\s*\[(?P<s>[^\]]+)\]\s*$")
+    wanted = _section_id(section)
     key_re = re.compile(r"^\s*" + re.escape(key) + r"\s*[=:]", re.IGNORECASE)
     start = end = None
     for i, line in enumerate(lines):
@@ -479,7 +503,7 @@ def set_option_text(text: str, section: str, key: str, value: str) -> str:
             if start is not None:
                 end = i
                 break
-            if m.group("s").strip() == section:
+            if _section_id(m.group("s")) == wanted:
                 start = i
     if start is None:
         if lines and lines[-1].strip():

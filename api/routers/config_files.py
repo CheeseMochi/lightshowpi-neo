@@ -5,6 +5,7 @@ Changes apply from the next song (each song is a new show process). Settings
 the API itself reads ([api], [buttons], [devices]) need an API restart.
 """
 
+import configparser
 import logging
 import os
 from typing import List, Optional
@@ -99,6 +100,10 @@ def _http(fn):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except FileNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except configparser.Error as e:
+        # e.g. the effective view of a hand-edited overrides.cfg that doesn't parse
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"A config file does not parse: {str(e).strip()}")
 
 
 @router.get("/files", response_model=List[ConfigFileInfo])
