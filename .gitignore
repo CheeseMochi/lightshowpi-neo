@@ -81,6 +81,10 @@ music/**/*.flac
 music/**/*.ogg
 music/**/*.m4a
 !music/sample/
+# Per-song sequence variants and Songs-page backups / disabled-song lists
+music/sequences/
+music/**/*.bak
+music/**/*.disabled
 
 # LED configs (except defaults)
 Led[0-9].cfg

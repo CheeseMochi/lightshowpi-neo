@@ -559,6 +559,13 @@ class Configuration(object):
         else:
             lghtshw["playlist_path"] = "/home/pi/music/.playlist"
 
+        # Per-song variant sequences: <sequences_dir>/<song>/<variant>.csv
+        sequences_dir = (self.config.get(ls, 'sequences_dir', fallback='') or '').strip()
+        if not sequences_dir:
+            sequences_dir = '$SYNCHRONIZED_LIGHTS_HOME/music/sequences'
+        lghtshw["sequences_dir"] = sequences_dir.replace('$SYNCHRONIZED_LIGHTS_HOME',
+                                                         self.home_dir or '')
+
         lghtshw["randomize_playlist"] = self.config.getboolean(ls, 'randomize_playlist', fallback=False)
 
         on_c = "always_on_channels"

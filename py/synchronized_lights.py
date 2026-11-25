@@ -92,6 +92,7 @@ import fft
 import networking
 from prepostshow import PrePostShow
 import RunningStats
+import sequence_select
 
 
 # ============================================================================
@@ -305,7 +306,8 @@ class Lightshow(object):
                           'song_title': '',
                           'song_path': '',
                           'song_duration': '',
-                          'song_started_at': ''})
+                          'song_started_at': '',
+                          'song_sequence': ''})
 
     def exit_function(self):
         """atexit function"""
@@ -329,7 +331,8 @@ class Lightshow(object):
                           'song_title': '',
                           'song_path': '',
                           'song_duration': '',
-                          'song_started_at': ''})
+                          'song_started_at': '',
+                          'song_sequence': ''})
 
         if cm.lightshow.mode == 'stream-in':
             try:
@@ -905,19 +908,35 @@ class Lightshow(object):
 
         filename = os.path.abspath(self.song_filename)
 
-        self.sequence_filename = filename.rsplit('.',1)[0] + '.csv'
-        if os.path.isfile(self.sequence_filename):
-            sequence_channel_count = len(open(self.sequence_filename).readline().rstrip().split(","))
-            if (sequence_channel_count == cm.hardware.gpio_len):
-                self.sequence_type = 'csv'
-            else:
-               print("Number of channels in sequence does not match the number of channels set in LightShowPi!")
-               exit()
-
         self.config_filename = \
             os.path.dirname(filename) + "/." + os.path.basename(self.song_filename) + ".cfg"
         self.cache_filename = \
             os.path.dirname(filename) + "/." + os.path.basename(self.song_filename) + ".sync"
+
+        # Per-song "[custom_lightshow] sequence" picks FFT, the legacy CSV or a
+        # variant CSV; without it the original behaviour below is unchanged.
+        sequence_setting = sequence_select.read_sequence_setting(self.config_filename)
+        if sequence_setting is None:
+            self.sequence_filename = filename.rsplit('.',1)[0] + '.csv'
+            if os.path.isfile(self.sequence_filename):
+                sequence_channel_count = len(open(self.sequence_filename).readline().rstrip().split(","))
+                if (sequence_channel_count == cm.hardware.gpio_len):
+                    self.sequence_type = 'csv'
+                else:
+                   print("Number of channels in sequence does not match the number of channels set in LightShowPi!")
+                   exit()
+            song_sequence = 'csv' if self.sequence_type == 'csv' else 'fft'
+        else:
+            try:
+                selection = sequence_select.choose(
+                    sequence_setting, filename, cm.lightshow.sequences_dir,
+                    cm.hardware.gpio_len, cm.get_state, cm.update_state)
+            except Exception as error:  # never stop the show over a sequence choice
+                log.warning("Sequence selection failed (%s); using FFT", error)
+                selection = sequence_select.Selection('auto', None, 'fft')
+            self.sequence_type = selection.sequence_type
+            self.sequence_filename = selection.filename
+            song_sequence = selection.name
 
         os.system("/bin/echo \"\" >" + cm.home_dir + "/logs/now_playing.txt")
         metadata = mutagen.File(self.song_filename, easy=True)
@@ -946,7 +965,8 @@ class Lightshow(object):
         cm.update_states({'song_title': song_title or os.path.basename(self.song_filename),
                           'song_path': filename,
                           'song_duration': song_duration,
-                          'song_started_at': ''})
+                          'song_started_at': '',
+                          'song_sequence': song_sequence})
 
     def play_song(self):
         """Play the next song from the play list (or --file argument)."""

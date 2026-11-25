@@ -6,6 +6,13 @@ Draft. See the [Unreleased] section of [CHANGELOG.md](CHANGELOG.md).
 
 ### ✨ Highlights
 
+- **Songs page**: reorder, rename, disable and play songs from the web UI, and
+  edit each song's settings (always on/off channels, attenuation, pre/postshow)
+  without touching its `.cfg` file.
+- **Sequence variants per song**: pick FFT, the song's CSV, one composed
+  variant, or rotate/randomize across several, so each play of a song can look
+  different. Copy research variants in with `tools/install_sequences.py`.
+  Songs you don't configure play exactly as before.
 - **Config editor** in the web UI: edit `overrides.cfg` and LED configs from
   the browser, with a diff before saving, automatic backups you can restore,
   and an effective-config view. A file that wouldn't parse is never saved.

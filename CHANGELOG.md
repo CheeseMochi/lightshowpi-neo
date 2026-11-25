@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Per-song sequence variants**: a song's `.<song-file>.cfg` can set
+  `[custom_lightshow] sequence = fft | csv | <variant> | rotate:<v1>,<v2>,… |
+  random:<v1>,…`. Variant CSVs live in `<sequences_dir>/<song>/<variant>.csv`
+  (new `[lightshow] sequences_dir`, default `music/sequences`). `rotate:` plays
+  the next one each time the song comes round (position kept in `state.cfg` as
+  `seq_rot_<song>`); `fft` and `csv` (the legacy CSV beside the audio) can be
+  mixed in. The sequence that played is published as the `song_sequence` state
+  key. A missing or mismatched variant falls back to the legacy CSV or FFT with
+  a warning instead of stopping the show. Songs without the key behave exactly
+  as before.
+- **Songs page** in the web UI and `/api/songs` (login required; changes need
+  admin): playlist order, rename, disable/enable (disabled songs move to
+  `<playlist>.disabled`, which the show never reads), per-song settings
+  (sequence, always on/off, inverted and network channels, attenuation,
+  pre/postshow) and play now. Settings are validated before they are written,
+  since some blank or malformed values crash the show; files are written
+  atomically with a `.bak` copy. Pre/postshow scripts set from the web must be
+  existing `.py` files inside the LightShowPi folder, because the show runs
+  them as root.
+- `tools/install_sequences.py` copies research bundle CSVs
+  (`research/out/<song>/full/<variant>/full.csv`) into the sequences folder.
 - **Config editor in the web UI** (admin, `/api/config/*`): edit
   `overrides.cfg`, the LED configs named in `[configs] led_config` and other
   `config/*.cfg` files (defaults are read-only; `state.cfg` is never shown).

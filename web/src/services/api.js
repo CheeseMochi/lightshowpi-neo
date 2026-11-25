@@ -407,6 +407,54 @@ export const system = {
 };
 
 // =============================================================================
+// Songs API (playlist order, enable/disable, per-song settings)
+// =============================================================================
+
+export const songs = {
+  async list() {
+    return apiRequest('/songs');
+  },
+
+  async reorder(order) {
+    return apiRequest('/songs/order', {
+      method: 'PUT',
+      body: JSON.stringify({ order })
+    });
+  },
+
+  async update(index, changes) {
+    return apiRequest(`/songs/${index}`, {
+      method: 'PATCH',
+      body: JSON.stringify(changes)
+    });
+  },
+
+  async updateDisabled(index, changes) {
+    return apiRequest(`/songs/disabled/${index}`, {
+      method: 'PATCH',
+      body: JSON.stringify(changes)
+    });
+  },
+
+  async getSettings(index) {
+    return apiRequest(`/songs/${index}/settings`);
+  },
+
+  async saveSettings(index, settings) {
+    return apiRequest(`/songs/${index}/settings`, {
+      method: 'PUT',
+      body: JSON.stringify(settings)
+    });
+  },
+
+  async play(index) {
+    return apiRequest(`/songs/${index}/play`, {
+      method: 'POST'
+    });
+  }
+};
+
+// =============================================================================
 // Public API (no login): what the Home page shows to visitors
 // =============================================================================
 
