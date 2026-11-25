@@ -95,7 +95,7 @@ async def skip_song(
     Virtual button press - queues the next song to play.
     """
     try:
-        manager.handle_button_action(ButtonAction.SKIP)
+        manager.handle_button_action(ButtonAction.SKIP, user=current_user.get("username"))
         return ButtonActionResponse(
             success=True,
             action="skip",
@@ -115,7 +115,8 @@ async def toggle_repeat(
     Virtual button press - enables or disables continuous play mode.
     """
     try:
-        new_state = manager.handle_button_action(ButtonAction.REPEAT_TOGGLE)
+        new_state = manager.handle_button_action(ButtonAction.REPEAT_TOGGLE,
+                                                 user=current_user.get("username"))
         return ButtonActionResponse(
             success=True,
             action="repeat_toggle",
@@ -135,7 +136,8 @@ async def toggle_audio(
     Virtual button press - turns audio output relay on or off with cooldown.
     """
     try:
-        new_state = manager.handle_button_action(ButtonAction.AUDIO_TOGGLE)
+        new_state = manager.handle_button_action(ButtonAction.AUDIO_TOGGLE,
+                                                 user=current_user.get("username"))
         return ButtonActionResponse(
             success=True,
             action="audio_toggle",

@@ -26,8 +26,9 @@ from api.core.config import APIConfig, get_api_config
 from api.core.frontend import add_frontend_routes, index_response, resolve_dist_dir
 from api.core.auth import (
     AuthManager, configure_secret_key, dev_mode, ensure_admin_user, get_current_user,
-    password_problem,
+    password_problem, record_api_action,
 )
+import event_log
 from api.core.rate_limit import RateLimiter, client_ip
 from api.models.schemas import (
     UserLogin, PasswordChange, Token, SystemHealth, LightshowState
@@ -88,6 +89,11 @@ async def lifespan(app: FastAPI):
     if not api_config.enabled:
         log.warning("API is not enabled in configuration. Set api.enabled=true to use the API.")
         log.warning("LightShowPi will continue to work in traditional mode.")
+
+    # Event log ([events]): data/events.db, separate from the API database
+    event_log.configure(api_config.config)
+    log.info(f"Event log {'enabled' if event_log.is_enabled() else 'disabled'}: "
+             f"{event_log.get_db_path()}")
 
     # Initialize database
     db = init_database(api_config.db_path if api_config.db_path else None)
@@ -307,6 +313,7 @@ async def change_password(
 
     if not auth_mgr.set_password(username, body.new_password):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    record_api_action(request, current_user)
 
 
 # ============================================================================

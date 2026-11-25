@@ -83,17 +83,17 @@ class TestScheduledJobsWhileSuspended:
 
     def test_jobs_run_when_not_suspended(self, scheduler, manager):
         scheduler._start_lightshow("ambient")
-        manager.start.assert_called_once_with(mode="ambient")
+        manager.start.assert_called_once_with(mode="ambient", source="schedule")
 
         scheduler._stop_lightshow()
-        manager.stop.assert_called_once_with(graceful=True)
+        manager.stop.assert_called_once_with(graceful=True, source="schedule")
 
     def test_jobs_run_again_after_resume(self, scheduler, manager):
         scheduler.suspend()
         scheduler._start_lightshow("playlist")
         scheduler.resume()
         scheduler._start_lightshow("playlist")
-        manager.start.assert_called_once_with(mode="playlist")
+        manager.start.assert_called_once_with(mode="playlist", source="schedule")
 
 
 @pytest.mark.unit

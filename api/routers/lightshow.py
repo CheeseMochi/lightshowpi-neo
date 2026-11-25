@@ -141,7 +141,9 @@ async def start_lightshow(
     # Start the lightshow with optional mode and playlist
     success = manager.start(
         mode=request.mode.value if request.mode else None,
-        playlist=request.playlist
+        playlist=request.playlist,
+        source="api",
+        user=current_user.get('username'),
     )
 
     if not success:
@@ -192,7 +194,7 @@ async def stop_lightshow(
     """
 
     # Stop the lightshow
-    success = manager.stop(graceful=True)
+    success = manager.stop(graceful=True, source="api", user=current_user.get('username'))
 
     if not success:
         raise HTTPException(
@@ -243,7 +245,7 @@ async def skip_song(
             detail="Lightshow is not running"
         )
 
-    success = manager.skip()
+    success = manager.skip(source="api", user=current_user.get('username'))
 
     if not success:
         raise HTTPException(
@@ -339,7 +341,7 @@ async def restart_lightshow(
     - Success message and status
     """
 
-    success = manager.restart()
+    success = manager.restart(source="api", user=current_user.get('username'))
 
     if not success:
         raise HTTPException(

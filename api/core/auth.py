@@ -16,7 +16,7 @@ import json
 import bcrypt
 import jwt
 from jwt.exceptions import InvalidTokenError, ExpiredSignatureError
-from fastapi import HTTPException, Security, Depends, status
+from fastapi import HTTPException, Request, Security, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 log = logging.getLogger(__name__)
@@ -360,19 +360,51 @@ async def get_current_user(
     return {"username": username, "id": payload.get("user_id")}
 
 
-def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
+AUDITED_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+# Per-command test mode routes fire many times a minute; test mode enter/exit
+# are recorded as test_mode events instead
+AUDIT_SKIP_PATHS = ("/api/test/channel", "/api/test/all", "/api/test/pattern")
+
+
+def record_api_action(request: Optional[Request], user: Optional[dict]) -> None:
+    """Write an ``api_action`` event (user, method, route) for an admin change.
+
+    Reads are not recorded. Never raises: the event log drops failed writes.
+    """
+    try:
+        if request is None or request.method not in AUDITED_METHODS:
+            return
+        if request.url.path.rstrip("/") in AUDIT_SKIP_PATHS:
+            return
+        import event_log  # py/ is on sys.path (api/core/config.py, pytest pythonpath)
+        route = request.scope.get("route")
+        event_log.record("api_action", source="api",
+                         user=(user or {}).get("username"),
+                         method=request.method,
+                         route=getattr(route, "path", None) or request.url.path,
+                         path=request.url.path)
+    except Exception as e:
+        log.debug(f"api_action not recorded: {e}")
+
+
+def require_admin(request: Request, current_user: dict = Depends(get_current_user)) -> dict:
     """
     Dependency for requiring admin access.
 
     For now, all authenticated users are admins (as per requirements).
     This can be extended in the future for role-based access.
 
+    Admin changes (POST/PUT/PATCH/DELETE) are recorded in the event log as
+    ``api_action`` (user, method, route).
+
     Args:
+        request: The current request (for the audit record)
         current_user: Current authenticated user
 
     Returns:
         dict: Current user data
     """
+    record_api_action(request, current_user)
     # All users are admins for now
     return current_user
 

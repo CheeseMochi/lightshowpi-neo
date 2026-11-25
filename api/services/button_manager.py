@@ -10,6 +10,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
+import event_log
+
 log = logging.getLogger(__name__)
 
 
@@ -47,6 +49,7 @@ class ButtonManagerService:
         # Action tracking
         self.last_action: Optional[str] = None
         self.last_action_time: Optional[datetime] = None
+        self._actor: Optional[str] = None  # user of the action being handled
 
         # Stuck button detection
         self.button_press_start: dict[str, float] = {}
@@ -114,11 +117,13 @@ class ButtonManagerService:
             'warning': warning
         }
 
-    def handle_button_action(self, action: ButtonAction) -> bool:
+    def handle_button_action(self, action: ButtonAction, user: Optional[str] = None) -> bool:
         """Handle a button action (physical or virtual).
 
         Args:
             action: The button action to perform
+            user: API user who pressed it (physical buttonmanager.py logs in
+                as its configured user), for the event log
 
         Returns:
             New state value for toggle actions (True/False)
@@ -133,6 +138,11 @@ class ButtonManagerService:
         # Record action
         self.last_action = action.value
         self.last_action_time = datetime.now()
+        self._actor = user
+        details = {"name": action.value, "mode": "api"}
+        if user:
+            details["user"] = user
+        event_log.record("button_press", source="api", **details)
 
         log.info(f"Handling button action: {action}")
 
@@ -156,10 +166,10 @@ class ButtonManagerService:
 
         # Skip to next song (or start if not playing)
         if self.lightshow_manager.is_running():
-            self.lightshow_manager.skip()
+            self.lightshow_manager.skip(source="button", user=self._actor)
             log.info("Skip action: skipping to next song")
         else:
-            self.lightshow_manager.start()
+            self.lightshow_manager.start(source="button", user=self._actor)
             log.info("Skip action: starting playback")
         return True
 
@@ -173,7 +183,7 @@ class ButtonManagerService:
             if not self.audio_on:
                 self._audio_on()
             if self.lightshow_manager:
-                self.lightshow_manager.start()
+                self.lightshow_manager.start(source="button", user=self._actor)
         else:
             log.info("Repeat mode DISABLED")
             # Turn off audio when disabling repeat
@@ -198,7 +208,7 @@ class ButtonManagerService:
             self._audio_on()
             # If no song playing, start one
             if self.lightshow_manager and not self.lightshow_manager.is_running():
-                self.lightshow_manager.start()
+                self.lightshow_manager.start(source="button", user=self._actor)
 
         return self.audio_on
 
