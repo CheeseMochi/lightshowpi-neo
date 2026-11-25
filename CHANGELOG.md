@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Festive public Home page at `/`**: snowfall, a string-light header (both
+  still under `prefers-reduced-motion`), a status card with a live song
+  progress bar or the next show time ("Next show tonight at 5:30 PM", "Show's
+  over for tonight"), and the playlist with the current song highlighted. A
+  gear icon (top right) links to the admin UI, which moved to **`/admin`**.
+  Mobile first; polls every 5 s and pauses while the tab is hidden. Build
+  settings: `VITE_PUBLIC_API_BASE`, `VITE_ADMIN_URL`, `VITE_SHOW_NAME`.
+- `GET /api/public/playlist`: song titles in playlist order (never paths) and
+  the index playing now. Same cache and rate limit as the other public routes.
+- `[api] public_show_start`, `public_show_stop`, `public_show_days`: the show
+  window for the public page when the show runs from cron (the API's own
+  schedules are empty then). Blank (the default) keeps the old behaviour.
+- **Cloud copy of the public page** (optional): `cloud/worker/` is a
+  Cloudflare Worker that serves the Home page and the `/api/public/*` data
+  from Workers KV, so visitors never reach the Pi. Setting `[api] cloud_url`
+  and `cloud_key` makes the API push the public data on every change plus a
+  5-minute heartbeat; the page says "off" 15 minutes after pushes stop.
+  Deploy with `make cloud PUBLIC_HOST=... ADMIN_HOST=...` (see
+  `deploy/README.md`). Blank `cloud_url` (the default) leaves it off.
 - **The API serves the built web UI**: after `npm run build` in `web/`, the
   UI is served from the API's own port (one origin, so no CORS, and one tunnel
   target). Client-side routes such as `/show` fall back to `index.html`;
