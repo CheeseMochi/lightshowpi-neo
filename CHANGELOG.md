@@ -24,7 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (sequence, always on/off, inverted and network channels, attenuation,
   pre/postshow) and play now. Settings are validated before they are written,
   since some blank or malformed values crash the show; files are written
-  atomically with a `.bak` copy.
+  atomically with a `.bak` copy. Pre/postshow scripts set from the web must be
+  existing `.py` files inside the LightShowPi folder, because the show runs
+  them as root.
 - `tools/install_sequences.py` copies research bundle CSVs
   (`research/out/<song>/full/<variant>/full.csv`) into the sequences folder.
 - **The API serves the built web UI**: after `npm run build` in `web/`, the
