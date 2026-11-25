@@ -13,6 +13,22 @@ Draft. See the [Unreleased] section of [CHANGELOG.md](CHANGELOG.md).
 - **Devices page**: every Pi, output (Nanoleaf, ESPixelStick) and relay
   channel in one place, with a green/red reachability dot, friendly relay
   names and On/Off test buttons.
+- **Show history and insights.** Every song play is now recorded: whether it
+  was played out, skipped or stopped, and how much of it was heard. The web UI
+  gains an **Activity** page (who started or stopped the show, button presses,
+  admin changes, errors) and an **Insights** page (skip and completion rates per
+  song, average listen %, busiest hours and days). The log lives in
+  `data/events.db` and works whether the show runs from cron, buttons or the
+  API. If anything goes wrong with it, the show carries on; to turn it off,
+  set `enabled = false` under `[events]` in `overrides.cfg`.
+- **A festive Home page for visitors** at `/`: what's playing with a live
+  progress bar, tonight's show time, and the playlist. The admin UI is now at
+  `/admin` (the gear icon on the Home page).
+- **Optional cloud copy** of that page on Cloudflare Workers, fed by the Pi,
+  so a crowd of phones never touches the Pi. Off unless `[api] cloud_url` is
+  set; see "Cloud public page" in `deploy/README.md`.
+- Cron-run shows can publish their times with `[api] public_show_start` /
+  `public_show_stop` (and optionally `public_show_days`).
 
 ### 🐛 Notable Fixes
 

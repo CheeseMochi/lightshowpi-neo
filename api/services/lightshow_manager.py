@@ -17,10 +17,19 @@ from threading import Event, Thread, Lock
 # Add py directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..', 'py'))
 
+import event_log
 from api.core.config import APIConfig
 from api.models.schemas import LightshowState
 
 log = logging.getLogger(__name__)
+
+
+def record_event(event_type: str, source: Optional[str] = None,
+                 user: Optional[str] = None, **details) -> None:
+    """Write an event-log entry with the acting user (never raises)."""
+    if user:
+        details["user"] = user
+    event_log.record(event_type, source=source, **details)
 
 
 def _parse_float(value) -> Optional[float]:
@@ -127,7 +136,9 @@ class LightshowManager:
         except Exception as e:
             log.error(f"Error reading subprocess output: {e}")
 
-    def start(self, playlist: Optional[str] = None, song: Optional[str] = None, mode: Optional[str] = None) -> bool:
+    def start(self, playlist: Optional[str] = None, song: Optional[str] = None,
+              mode: Optional[str] = None, source: str = "api",
+              user: Optional[str] = None) -> bool:
         """
         Start the lightshow.
 
@@ -135,10 +146,24 @@ class LightshowManager:
             playlist: Optional path to playlist file
             song: Optional path to single song file
             mode: Optional lightshow mode (playlist, ambient, audio-in, stream-in)
+            source: Who asked, for the event log (api, schedule, button)
+            user: Username, for the event log
 
         Returns:
             bool: True if started successfully
         """
+        ok = self._start(playlist=playlist, song=song, mode=mode)
+        if ok:
+            record_event("show_start", source=source, user=user, mode=mode or "playlist",
+                         playlist=self.current_playlist, file=self.current_song)
+        elif self.state == LightshowState.ERROR:
+            record_event("error", source=source, user=user, action="start",
+                         message=self.error_message)
+        return ok
+
+    def _start(self, playlist: Optional[str] = None, song: Optional[str] = None,
+               mode: Optional[str] = None) -> bool:
+        """Start the show process (see start())."""
         with self.lock:
             if self.state in [LightshowState.PLAYING, LightshowState.STARTING]:
                 log.warning("Lightshow already running")
@@ -289,6 +314,8 @@ class LightshowManager:
                         self.error_message = (f"Show exited {fast_failures} times in a row "
                                               f"within {self.min_run_seconds:.0f}s; stopped")
                     log.error(self.error_message)
+                    record_event("error", source="api", action="playlist_loop",
+                                 message=self.error_message)
                     return
                 if self._stop_event.wait(self.fast_failure_pause):
                     return
@@ -312,22 +339,39 @@ class LightshowManager:
                     self.process = None
                     self.state = LightshowState.ERROR
                     self.error_message = str(e)
+                    record_event("error", source="api", action="playlist_loop",
+                                 message=self.error_message)
                     return
 
     def _looping(self) -> bool:
         return (self._supervisor is not None and self._supervisor.is_alive()
                 and not self._stop_event.is_set())
 
-    def stop(self, graceful: bool = True) -> bool:
+    def stop(self, graceful: bool = True, source: str = "api",
+             user: Optional[str] = None) -> bool:
         """
         Stop the lightshow (and the playlist loop, so no next song starts).
 
         Args:
             graceful: If True, send SIGTERM; if False, send SIGKILL
+            source: Who asked, for the event log (api, schedule, button)
+            user: Username, for the event log
 
         Returns:
             bool: True if stopped successfully
         """
+        was_running = self.process is not None or self._looping()
+        ok = self._stop(graceful)
+        if was_running:
+            if ok:
+                record_event("show_stop", source=source, user=user)
+            else:
+                record_event("error", source=source, user=user, action="stop",
+                             message=self.error_message)
+        return ok
+
+    def _stop(self, graceful: bool = True) -> bool:
+        """Stop the show process (see stop())."""
         self._stop_event.set()
         with self.lock:
             if not self.process:
@@ -367,11 +411,15 @@ class LightshowManager:
                 self.error_message = str(e)
                 return False
 
-    def skip(self) -> bool:
+    def skip(self, source: str = "api", user: Optional[str] = None) -> bool:
         """
         Skip to next song.
 
         Uses the state file to signal skip request.
+
+        Args:
+            source: Who asked, for the event log (api, button)
+            user: Username, for the event log
 
         Returns:
             bool: True if skip signal sent successfully
@@ -380,6 +428,12 @@ class LightshowManager:
             # Use configuration manager's update_state
             self.config.update_state('play_now', '-1')
             log.info("Skip signal sent via state file")
+            song = None
+            try:
+                song = self.config.get_state('song_title', '') or None
+            except Exception:
+                pass
+            record_event("skip", source=source, user=user, song=song)
             return True
         except Exception as e:
             log.error(f"Failed to send skip signal: {e}")
@@ -461,9 +515,13 @@ class LightshowManager:
             "pid": self.process.pid if self.process else None
         }
 
-    def restart(self) -> bool:
+    def restart(self, source: str = "api", user: Optional[str] = None) -> bool:
         """
         Restart the lightshow with current settings (playlist and mode).
+
+        Args:
+            source: Who asked, for the event log
+            user: Username, for the event log
 
         Returns:
             bool: True if restarted successfully
@@ -471,12 +529,12 @@ class LightshowManager:
         playlist = self.current_playlist
         mode = self.current_mode
 
-        if not self.stop():
+        if not self.stop(source=source, user=user):
             return False
 
         time.sleep(1)
 
-        return self.start(playlist=playlist, mode=mode)
+        return self.start(playlist=playlist, mode=mode, source=source, user=user)
 
     def cleanup(self):
         """Clean up resources."""

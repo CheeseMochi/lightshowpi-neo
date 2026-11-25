@@ -26,19 +26,21 @@ from api.core.config import APIConfig, get_api_config
 from api.core.frontend import add_frontend_routes, index_response, resolve_dist_dir
 from api.core.auth import (
     AuthManager, configure_secret_key, dev_mode, ensure_admin_user, get_current_user,
-    password_problem,
+    password_problem, record_api_action,
 )
+import event_log
 from api.core.rate_limit import RateLimiter, client_ip
 from api.models.schemas import (
     UserLogin, PasswordChange, Token, SystemHealth, LightshowState
 )
-from api.routers import lightshow, schedules, buttons, test_mode, public
+from api.routers import lightshow, schedules, buttons, test_mode, public, events
 from api.routers import config_files, devices
 from api.services.device_monitor import DeviceMonitor
 from api.services.devices import DeviceStore
 from api.services.lightshow_manager import LightshowManager
 from api.services.scheduler import SchedulerService
 from api.services.button_manager import ButtonManagerService
+from api.services.cloud_publisher import start_cloud_publisher
 from api.services.test_mode_manager import TestModeManager, set_test_mode_manager
 
 # Configure logging
@@ -57,6 +59,7 @@ scheduler_service = None
 button_manager = None
 test_mode_manager = None
 device_monitor = None
+cloud_publisher = None
 
 # API version
 API_VERSION = "0.9.1"
@@ -77,7 +80,7 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown tasks.
     """
     global db, auth_manager, api_config, lightshow_manager, scheduler_service, button_manager
-    global test_mode_manager, device_monitor
+    global test_mode_manager, device_monitor, cloud_publisher
 
     # Startup
     log.info("Starting LightShowPi Neo API...")
@@ -92,6 +95,11 @@ async def lifespan(app: FastAPI):
     if not api_config.enabled:
         log.warning("API is not enabled in configuration. Set api.enabled=true to use the API.")
         log.warning("LightShowPi will continue to work in traditional mode.")
+
+    # Event log ([events]): data/events.db, separate from the API database
+    event_log.configure(api_config.config)
+    log.info(f"Event log {'enabled' if event_log.is_enabled() else 'disabled'}: "
+             f"{event_log.get_db_path()}")
 
     # Initialize database
     db = init_database(api_config.db_path if api_config.db_path else None)
@@ -155,6 +163,8 @@ async def lifespan(app: FastAPI):
     )
     devices.set_monitor(device_monitor)
     device_monitor.start()
+    # Push the public show data to the cloud page ([api] cloud_url; blank = off)
+    cloud_publisher = start_cloud_publisher(api_config, lambda: scheduler_service)
 
     log.info(f"LightShowPi Neo API {API_VERSION} started successfully")
 
@@ -165,6 +175,9 @@ async def lifespan(app: FastAPI):
 
     if device_monitor:
         device_monitor.stop()
+    if cloud_publisher:
+        cloud_publisher.stop()
+        cloud_publisher = None
 
     # Stop scheduler
     if scheduler_service:
@@ -228,6 +241,7 @@ app.include_router(test_mode.router)
 app.include_router(public.router)
 app.include_router(config_files.router)
 app.include_router(devices.router)
+app.include_router(events.router)
 
 
 # Dependency to get database
@@ -336,6 +350,7 @@ async def change_password(
 
     if not auth_mgr.set_password(username, body.new_password):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    record_api_action(request, current_user)
 
 
 # ============================================================================

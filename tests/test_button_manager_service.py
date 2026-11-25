@@ -23,14 +23,16 @@ class MockLightshowManager:
     def is_running(self):
         return self.running
 
-    def skip(self):
+    def skip(self, **kwargs):
         self.skip_called = True
+        self.skip_kwargs = kwargs
 
-    def start(self):
+    def start(self, **kwargs):
         self.start_called = True
+        self.start_kwargs = kwargs
         self.running = True
 
-    def stop(self):
+    def stop(self, **kwargs):
         self.running = False
 
 

@@ -182,7 +182,9 @@ class TestRouteAudit:
     # Routes whose other dependencies resolve without the lifespan (buttons and
     # test mode return 503 first when their manager isn't set; the audit above
     # covers them).
-    @pytest.mark.parametrize("path", ["/api/lightshow/status", "/api/schedules"])
+    @pytest.mark.parametrize("path", ["/api/lightshow/status", "/api/schedules", "/api/events",
+                                      "/api/analytics/songs", "/api/analytics/hours",
+                                      "/api/analytics/summary"])
     def test_missing_token_is_401(self, client, path):
         res = client.get(path)
         assert res.status_code == 401

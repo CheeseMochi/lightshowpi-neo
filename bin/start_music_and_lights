@@ -34,6 +34,10 @@ SHOW="$SYNCHRONIZED_LIGHTS_HOME/py/synchronized_lights.py"
 LOOP_PID_FILE="$SYNCHRONIZED_LIGHTS_HOME/logs/show_loop.pid"
 MIN_RUN=${LSP_MIN_RUN_SECONDS:-5}
 
+# Event log (data/events.db): never lets a logging problem fail the script
+"$PY" "$SYNCHRONIZED_LIGHTS_HOME/py/event_log.py" show_start \
+    --source "${LSP_EVENT_SOURCE:-cron}" >/dev/null 2>&1 || true
+
 # -E preserves environment variables (SYNCHRONIZED_LIGHTS_HOME, conda env, etc.)
 case " $* " in
     *" --file="*|*" --file "*)

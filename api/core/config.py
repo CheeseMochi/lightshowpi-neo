@@ -41,6 +41,10 @@ class APIConfig:
         self.port = self._get_int('api', 'port', 8000)
         self.cloud_url = self._get_str('api', 'cloud_url', '')
         self.cloud_key = self._get_str('api', 'cloud_key', '')
+        # Show times for the public page when the show runs from cron (blank = unset)
+        self.public_show_start = self._get_str('api', 'public_show_start', '').strip()
+        self.public_show_stop = self._get_str('api', 'public_show_stop', '').strip()
+        self.public_show_days = self._get_str('api', 'public_show_days', '').strip()
         self.db_path = self._get_str('api', 'db_path', '')
         self.cors_origins = [o.strip().rstrip('/') for o in
                              self._get_str('api', 'cors_origins', '').split(',') if o.strip()]
