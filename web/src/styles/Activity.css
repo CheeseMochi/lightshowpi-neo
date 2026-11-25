@@ -1,0 +1,142 @@
+.activity,
+.insights {
+  min-height: 100vh;
+  padding: var(--spacing-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.activity-header,
+.insights-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.activity-header h1,
+.insights-header h1 {
+  color: var(--primary-color);
+  margin: 0;
+}
+
+.activity-note {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: var(--spacing-md);
+  color: var(--text-secondary);
+}
+
+.activity-filters,
+.insights-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.activity-filters select,
+.insights-filters select {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: 1rem;
+}
+
+.activity-count {
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.activity-table-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.activity-table-wrap {
+  overflow-x: auto;
+}
+
+.activity-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.activity-table th,
+.activity-table td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: top;
+}
+
+.activity-table th {
+  color: var(--text-secondary);
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+}
+
+.activity-table .nowrap {
+  white-space: nowrap;
+}
+
+.activity-table .details,
+.activity-table .variant {
+  color: var(--text-secondary);
+}
+
+.activity-empty {
+  padding: var(--spacing-lg);
+  color: var(--text-secondary);
+}
+
+.event-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.badge-error {
+  border-color: var(--danger-color);
+}
+
+.badge-show_start,
+.badge-show_stop {
+  border-color: var(--primary-color);
+}
+
+.activity-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  color: var(--text-secondary);
+}
+
+@media (max-width: 640px) {
+  .activity,
+  .insights {
+    padding: var(--spacing-md);
+  }
+}
