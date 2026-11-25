@@ -142,7 +142,8 @@ class TestFirstAdmin:
 PUBLIC_PATHS = {"/", "/api/health", "/api/auth/login"}
 # Routes that must be protected; guards against the audit passing vacuously
 KNOWN_PROTECTED = {"/api/lightshow/status", "/api/lightshow/start", "/api/schedules",
-                   "/api/buttons/status", "/api/test/status", "/api/auth/password"}
+                   "/api/buttons/status", "/api/test/status", "/api/auth/password",
+                   "/api/songs", "/api/songs/{index}/settings"}
 
 
 def operations():

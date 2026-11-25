@@ -33,6 +33,7 @@ from api.models.schemas import (
     UserLogin, PasswordChange, Token, SystemHealth, LightshowState
 )
 from api.routers import lightshow, schedules, buttons, test_mode, public
+from api.routers import songs
 from api.services.lightshow_manager import LightshowManager
 from api.services.scheduler import SchedulerService
 from api.services.button_manager import ButtonManagerService
@@ -101,6 +102,7 @@ async def lifespan(app: FastAPI):
     lightshow.set_manager(lightshow_manager)
     lightshow.set_database(db)
     public.set_config(api_config)
+    songs.set_config(api_config)
 
     # Initialize button manager from the [buttons] config section
     button_config = {
@@ -199,6 +201,7 @@ app.include_router(schedules.router)
 app.include_router(buttons.router)
 app.include_router(test_mode.router)
 app.include_router(public.router)
+app.include_router(songs.router)
 
 
 # Dependency to get database
