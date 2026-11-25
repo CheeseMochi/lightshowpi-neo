@@ -84,6 +84,51 @@ class StaleFileError(ConfigFileError):
     """The file changed since the client loaded it."""
 
 
+class ProtectedKeyError(ConfigFileError):
+    """The edit adds, changes or removes a key whose value the show runs as root."""
+
+
+# Keys whose values the show executes (as root under sudo/cron): a shell command
+# or a Python script it imports. The web editor can't set, change or remove them
+# in any section; edit them over SSH. Saving a file that already has them
+# unchanged is fine.
+PROTECTED_KEYS = frozenset({
+    "songname_command",       # os.system(...) on every song
+    "stream_command_string",  # subprocess.Popen in stream-in mode
+    "preshow_script",         # imported and run by prepostshow.py
+    "postshow_script",
+})
+
+
+def _protected_values(text: Optional[str]) -> Dict[tuple, Optional[str]]:
+    """{(section, key): value} for PROTECTED_KEYS in ``text`` (unparsable = none)."""
+    if not text:
+        return {}
+    try:
+        parser = parse_text(text)
+    except ParseError:
+        return {}
+    return {(section, key): (parser.get(section, key) or "").strip()
+            for section in parser.sections()
+            for key in parser.options(section) if key in PROTECTED_KEYS}
+
+
+def check_protected(old_text: Optional[str], new_text: str) -> None:
+    """
+    Refuse a change to any PROTECTED_KEYS value between ``old_text`` and ``new_text``.
+
+    Raises:
+        ProtectedKeyError: naming the keys that changed
+    """
+    old, new = _protected_values(old_text), _protected_values(new_text)
+    changed = sorted(f"[{sec}] {key}" for sec, key in set(old) | set(new)
+                     if old.get((sec, key)) != new.get((sec, key)))
+    if changed:
+        raise ProtectedKeyError(
+            "These settings run commands as root and can't be changed from the web: "
+            + ", ".join(changed) + ". Edit them over SSH on the Pi.")
+
+
 def sha256_text(text: Optional[str]) -> str:
     """sha256 hex digest of ``text`` as UTF-8 (``None`` means a missing file)."""
     return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
@@ -392,7 +437,7 @@ def write_file(config_dir: str, name: str, text: str, base_sha256: Optional[str]
         dict: name, sha256 of the new text, backup id (None for a new file), warnings
 
     Raises:
-        InvalidNameError, ReadOnlyError, ParseError, StaleFileError
+        InvalidNameError, ReadOnlyError, ParseError, StaleFileError, ProtectedKeyError
     """
     path = check_name(config_dir, name, write=True)
     if not text.endswith("\n"):
@@ -403,6 +448,7 @@ def write_file(config_dir: str, name: str, text: str, base_sha256: Optional[str]
         if base_sha256 is not None and base_sha256 != sha256_text(current):
             raise StaleFileError(
                 f"{name} changed since you loaded it. Reload, then re-apply your edits.")
+        check_protected(current, text)
         backup_id = _make_backup(config_dir, name, current) if current is not None else None
         _atomic_write(path, text)
     _record_config_change(name, user, backup_id, action)
