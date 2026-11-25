@@ -33,7 +33,7 @@ from api.core.rate_limit import RateLimiter, client_ip
 from api.models.schemas import (
     UserLogin, PasswordChange, Token, SystemHealth, LightshowState
 )
-from api.routers import lightshow, schedules, buttons, test_mode, public
+from api.routers import lightshow, schedules, buttons, test_mode, public, events
 from api.services.lightshow_manager import LightshowManager
 from api.services.scheduler import SchedulerService
 from api.services.button_manager import ButtonManagerService
@@ -205,6 +205,7 @@ app.include_router(schedules.router)
 app.include_router(buttons.router)
 app.include_router(test_mode.router)
 app.include_router(public.router)
+app.include_router(events.router)
 
 
 # Dependency to get database
