@@ -1,0 +1,38 @@
+# LightShowPi Neo public site: the Home page plus a cloud copy of /api/public.
+# One-time setup and deploy steps: deploy/README.md ("Cloud public page").
+# Deploy with `make cloud PUBLIC_HOST=... ADMIN_HOST=...` from the repo root.
+
+name = "lightshowpi-show"
+main = "src/index.js"
+compatibility_date = "2025-11-01"
+
+[assets]
+# Built by `make cloud` with VITE_PUBLIC_API_BASE=/api/public and
+# VITE_ADMIN_URL=https://<ADMIN_HOST>/admin. A separate folder from web/dist,
+# which Ansible syncs to the Pi and must keep the default /admin link.
+directory = "../../web/dist-cloud"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+# These paths reach the Worker; everything else is served from the assets
+# (unknown paths fall back to index.html for the React router).
+run_worker_first = ["/api/*", "/ingest", "/admin", "/admin/*"]
+
+[[kv_namespaces]]
+binding = "SHOW_KV"
+# Paste the id printed by `npx wrangler kv namespace create SHOW_KV`
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+# Informational defaults; `make cloud` passes the real hosts:
+#   --domain <PUBLIC_HOST>   attaches the Worker to that hostname (custom domain)
+#   --var ADMIN_HOST:<host>  where /admin redirects (https://<host>/admin)
+PUBLIC_HOST = ""
+ADMIN_HOST = ""
+# Set ADMIN_URL instead of ADMIN_HOST for a non-standard admin path.
+ADMIN_URL = ""
+
+# Secret (never in this file): npx wrangler secret put INGEST_KEY
+# It must equal [api] cloud_key on the Pi.
+
+[observability]
+enabled = true
