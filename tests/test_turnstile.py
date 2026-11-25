@@ -1,6 +1,7 @@
 """Tests for Cloudflare Turnstile on the admin login: tunnel detection,
 /api/auth/config, siteverify and the login flow. No real network."""
 
+import http.client
 import io
 import logging
 import socket
@@ -94,6 +95,11 @@ class TestIsTunnelRequest:
     def test_no_client(self):
         assert not is_tunnel_request(self.request(None, {"cf-connecting-ip": VISITOR_IP}))
 
+    def test_peer_rewritten_by_uvicorn_proxy_headers(self):
+        # uvicorn trusts X-Forwarded-For from 127.0.0.1 by default, so the
+        # peer becomes the visitor's IP, which matches CF-Connecting-IP
+        assert is_tunnel_request(self.request(VISITOR_IP, {"cf-connecting-ip": VISITOR_IP}))
+
 
 @pytest.mark.unit
 class TestKeys:
@@ -106,11 +112,13 @@ class TestKeys:
     def test_off(self, cfg):
         assert turnstile.keys(cfg) == ("", "")
 
-    def test_api_config_defaults_off(self):
+    def test_api_config_reads_keys(self, tmp_path):
         from api.core.config import APIConfig
-        cfg = APIConfig()
-        assert cfg.turnstile_site_key == ""
-        assert cfg.turnstile_secret_key == ""
+        override = tmp_path / "turnstile.cfg"
+        override.write_text(f"[api]\nturnstile_site_key = {SITE_KEY}\n"
+                            f"turnstile_secret_key = {SECRET}\n")
+        cfg = APIConfig(str(override))
+        assert turnstile.keys(cfg) == (SITE_KEY, SECRET)
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +155,8 @@ class TestVerify:
         assert SECRET not in caplog.text
 
     @pytest.mark.parametrize("error", [urllib.error.URLError("down"), socket.timeout("slow"),
-                                       ConnectionResetError()])
+                                       ConnectionResetError(),
+                                       http.client.IncompleteRead(b"")])
     def test_network_error_fails_closed(self, error, caplog):
         with caplog.at_level(logging.DEBUG), \
                 patch("urllib.request.urlopen", side_effect=error):
@@ -247,6 +256,13 @@ class TestLogin:
             assert login(tunnel, token="tok").status_code == 429
         # The limited attempt never reached siteverify
         assert verify.call_count == main.LOGIN_FAILURES_PER_MINUTE
+
+    def test_tunnel_behind_uvicorn_proxy_headers_needs_token(self, monkeypatch, database):
+        # Production uvicorn rewrites the loopback peer to the visitor's IP
+        client = make_client(monkeypatch, database, config(), VISITOR_IP)
+        assert client.get("/api/auth/config", headers=TUNNEL_HEADERS).json()["required"]
+        assert login(client).status_code == 400
+        main.login_limiter.reset()
 
     def test_local_login_without_header_needs_no_token(self, tunnel):
         # The button manager: loopback, no CF-Connecting-IP

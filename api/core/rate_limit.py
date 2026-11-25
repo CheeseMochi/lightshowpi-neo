@@ -40,15 +40,21 @@ def is_tunnel_request(request: Request) -> bool:
     """
     True when the request came in through the Cloudflare tunnel.
 
-    That is: the TCP peer is loopback (cloudflared on this Pi) *and* the
-    ``CF-Connecting-IP`` header is present. LAN clients (any non-loopback peer)
-    and local tools such as the button manager (loopback, no header) are not
-    tunnel requests.
+    That is: the ``CF-Connecting-IP`` header is present and the peer is
+    loopback (cloudflared on this Pi). LAN clients and local tools such as the
+    button manager (loopback, no header) are not tunnel requests.
+
+    The peer may also *equal* the header value: uvicorn's default proxy-header
+    handling trusts 127.0.0.1 and rewrites the peer from cloudflared's
+    ``X-Forwarded-For`` to the visitor's IP, so a tunnel request would otherwise
+    look like a LAN one and skip the check. A LAN client that forges the header
+    with its own IP only makes itself need a CAPTCHA.
     """
-    peer = request.client.host if request.client else ""
-    if peer not in TRUSTED_PROXY_PEERS:
+    forwarded = request.headers.get("cf-connecting-ip", "").strip()
+    if not forwarded:
         return False
-    return bool(request.headers.get("cf-connecting-ip", "").strip())
+    peer = request.client.host if request.client else ""
+    return peer in TRUSTED_PROXY_PEERS or peer == forwarded
 
 
 class RateLimiter:

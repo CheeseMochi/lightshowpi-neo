@@ -146,13 +146,16 @@ that come **through the tunnel**: the API sees them from cloudflared on loopback
    ```
 
 3. Open the admin login through the tunnel: the widget appears above **Log In**, which stays
-   disabled until the check passes. `curl https://<ADMIN_HOST>/api/auth/config` should show
-   `"required": true`; from the LAN it shows `false`.
+   disabled until the check passes. In the same (Access-logged-in) browser,
+   `https://<ADMIN_HOST>/api/auth/config` should show `"required": true`; from the LAN
+   (`http://<pi>:8000/api/auth/config`) it shows `false`. A plain `curl` to the admin host gets
+   the Access login page instead.
 
 The API verifies each token with Cloudflare (5 s timeout) before checking the password, and
 fails closed: no token, a rejected token or Cloudflare unreachable gives `400 Complete the CAPTCHA`.
 Failures count toward the 5-per-minute failed-login limit. The secret is never logged or sent to
-the browser, and the config editor masks it.
+the browser. The config editor's effective-config view masks it; the raw `overrides.cfg` view
+shows it to admins, as it does `cloud_key`.
 
 **Turn it off:** blank either key and restart the API.
 

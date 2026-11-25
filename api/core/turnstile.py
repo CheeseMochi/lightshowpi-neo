@@ -9,7 +9,6 @@ Only the stdlib is used so there is nothing extra to install on the Pis.
 
 import json
 import logging
-import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Optional, Tuple
@@ -54,7 +53,7 @@ def verify(secret: str, token: str, remoteip: Optional[str] = None) -> bool:
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
             body = json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, OSError, ValueError) as e:
+    except Exception as e:  # URLError, timeout, http.client errors, bad JSON: fail closed
         log.warning(f"Turnstile verification failed: {type(e).__name__}")
         return False
     if isinstance(body, dict) and body.get("success") is True:

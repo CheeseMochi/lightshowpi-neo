@@ -87,6 +87,7 @@ class TestDefaultsCfgValues:
 
     @pytest.mark.parametrize("section,key", [
         ("api", "cloud_url"), ("api", "cloud_key"),
+        ("api", "turnstile_site_key"), ("api", "turnstile_secret_key"),
         ("client", "client_id"), ("client", "client_key"),
     ])
     def test_blank_values_are_empty(self, section, key):
