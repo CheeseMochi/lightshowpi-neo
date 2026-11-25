@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **The API serves the built web UI**: after `npm run build` in `web/`, the
+  UI is served from the API's own port (one origin, so no CORS, and one tunnel
+  target). Client-side routes such as `/show` fall back to `index.html`;
+  unknown `/api/*` paths stay JSON 404s. Override the folder with
+  `[api] web_dist`. Without a build, `/` still returns API info.
 - **Public read-only API** for the public show page: `GET /api/public/now-playing`
   (on/off, song title, progress) and `GET /api/public/schedule` (tonight's show
   window, enabled schedules, and the free-text `[api] public_schedule` note for
@@ -117,6 +122,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejected ("registration has been deleted") and exited for good. The
   `gh_runner` Ansible role now starts the runner only after NTP sync
   (`systemd-time-wait-sync`) and restarts it if it exits.
+- **`bin/stop_music_and_lights` could not stop a cron-started show**: the
+  playlist loop runs as root, so its unprivileged `kill -0` check failed, the
+  loop was skipped and its pid file deleted; every later stop killed only the
+  current song and the loop started the next. It now checks with `sudo`, and
+  also finds playlist loops by name when the pid file is missing.
+- **LED strips over sACN work again without BiblioPixel.** BiblioPixel can't be
+  installed on Neo's Python, so `led_connection = SACN` with
+  `led_configuration = STRIP` (e.g. an ESPixelStick) was silently disabled. It
+  now runs natively (`py/led_module.py`, `py/led_colors.py`,
+  `py/driver_sacn.SacnSender`), with the same patterns, colour maps, hue table
+  and brightness maths as before. A network error on an LED send is now logged
+  (at most every 30 s) and retried on the next frame instead of raising. A
+  universe that's an exact multiple of `universe_boundary` no longer sends an
+  extra empty universe, and a `universe_boundary` that isn't a multiple of 3
+  logs a warning (use 510). SPI and SERIAL configs still need BiblioPixel
+  (`py/led_bibliopixel.py`). They now log a clear error and are skipped instead
+  of disabling every LED config.
+- **LED matrices over sACN work again without BiblioPixel.** A strip folded
+  zigzag into rows (`led_configuration = MATRIX`, e.g. 83 x 6 on an
+  ESPixelStick) now runs natively in `py/led_matrix.py`, with all seven matrix
+  patterns (SBARS, MBARS, IMAGE, PINWHEEL, CBARS, CIRCLES, BANNER) and the
+  same layout as before. `tests/test_led_matrix.py` checks every pattern frame
+  for frame against the legacy BiblioPixel code. IMAGE loads Pillow and the GIF
+  only when it's in `matrix_pattern_type`; if either is missing, IMAGE is
+  dropped with an error and the other patterns keep running. The plan is to move the LED
+  sender onto the maintained `sacn` library after the season (see ROADMAP.md).
 - sACN clients crashed on the first per-song override message from the server
   (`'SACNNetworking' object has no attribute 'get_overrides'`); they now honour
   `[network] get_overrides` like legacy clients. Found on the Pi bench.

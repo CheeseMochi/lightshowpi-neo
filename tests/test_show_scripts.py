@@ -110,3 +110,21 @@ def test_restart_replaces_the_previous_loop(home):
     assert first != second
     assert subprocess.run(["kill", "-0", first], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0, \
         "old playlist loop still running"
+
+
+def test_stop_kills_loop_without_pid_file(home):
+    """Regression: on the Pi the loop runs as root (cron), so the stop script's
+    `kill -0` liveness check failed for a normal user, the loop was skipped and
+    its pid file deleted; every later stop killed only the song and the loop
+    started the next one. Stop must find the loop by name, too."""
+    home, env = home
+    subprocess.run(["bash", str(home / "bin" / "start_music_and_lights")], env=env,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=True)
+    assert wait_for(lambda: len(runs(home)) >= 1)
+    (home / "logs" / "show_loop.pid").unlink()
+
+    subprocess.run(["bash", str(home / "bin" / "stop_music_and_lights")], env=env,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=True)
+    count = len(runs(home))
+    time.sleep(1.5)
+    assert len(runs(home)) == count, "loop kept starting songs after stop"

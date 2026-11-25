@@ -53,3 +53,8 @@ Pi-to-Pi sACN (`py/networking_sacn.py`) and the LED sACN driver (`py/driver_sacn
 - Its sender and receiver run their own threads with callbacks, so the client loop in `hardware_controller.receive_and_process` needs reworking, not just a swap
 - Not on conda-forge: install it with pip inside the conda env
 - Validate on the Pi 3 / Zero 2 W class hardware before switching production
+- LED strips: `driver_sacn.SacnSender.send()` is the one seam to swap. Use `manual_flush=True` and call `flush()` once per frame so show timing, not the library's own 30 fps thread, decides when packets go out. Set its universe size to match `universe_boundary` (it caps universes at 512 channels)
+
+### Finish removing BiblioPixel
+
+LED strips and matrices over sACN no longer need BiblioPixel (Nov 2026: `py/led_module.py`, `py/led_matrix.py`, `py/led_colors.py`, `py/led_font.py`). Only the SPI/SERIAL connections still go through `py/led_bibliopixel.py`, which can't run on Neo's Python. Decide whether SPI/SERIAL are worth keeping; if not, delete `led_bibliopixel.py` (keep `tests/fixtures/make_led_matrix_goldens.py` working, as it reads the legacy `write_matrix` from it, or freeze the goldens).

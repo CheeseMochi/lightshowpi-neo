@@ -44,6 +44,7 @@ class APIConfig:
         self.db_path = self._get_str('api', 'db_path', '')
         self.cors_origins = [o.strip().rstrip('/') for o in
                              self._get_str('api', 'cors_origins', '').split(',') if o.strip()]
+        self.web_dist = self._get_str('api', 'web_dist', '')
         self.test_mode_timeout_minutes = self._get_float('api', 'test_mode_timeout_minutes', 10.0)
         if self.test_mode_timeout_minutes <= 0:
             self.test_mode_timeout_minutes = 10.0

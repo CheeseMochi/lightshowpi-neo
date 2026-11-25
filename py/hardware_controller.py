@@ -115,25 +115,14 @@ class Hardware(object):
         self.led = None
         if self.cm.configs.led:
             if not LED_MODULE_AVAILABLE:
-                logging.warning("LED configuration found but led_module is not available. "
-                              "Install BiblioPixel to enable RGB LED support.")
+                logging.error("LED configuration found but led_module failed to import; "
+                              "LEDs are disabled (see the warning above).")
             else:
                 self.led = list()
                 if self.cm.configs.led_multiprocess:
                     LEDManager.register('LED', led_module.Led)
-                    for lc in self.cm.configs.led:
-                        self.cm.set_led(config_file=lc)
-                        self.ledmanager = LEDManager()
-                        self.ledmanager.start()
-                        self.cm.led.multiprocess = True
-                        self.led.append(self.ledmanager.LED(self.cm.led))
-                        self._add_led_output(self.led[-1], lc)
-                else:
-                    for lc in self.cm.configs.led:
-                        self.cm.set_led(config_file=lc)
-                        self.cm.led.multiprocess = False
-                        self.led.append(led_module.Led(self.cm.led))
-                        self._add_led_output(self.led[-1], lc)
+                for lc in self.cm.configs.led:
+                    self._add_led(lc)
 
         self._add_configured_outputs()
 
@@ -167,6 +156,29 @@ class Hardware(object):
                 continue
             self.outputs.append(ThreadedOutput(output))
             logging.info("output %s (%s) added", name, kind)
+
+    def _add_led(self, config_file):
+        """Load one LED config and add its Led and output.
+
+        A config that can't start (e.g. one that still needs BiblioPixel, or a
+        missing sacn_address) is logged and skipped, so the rest of the show
+        (GPIO, other outputs) still runs.
+        """
+        self.cm.set_led(config_file=config_file)
+        multiprocess = bool(self.cm.configs.led_multiprocess)
+        self.cm.led.multiprocess = multiprocess
+        try:
+            if multiprocess:
+                self.ledmanager = LEDManager()
+                self.ledmanager.start()
+                led = self.ledmanager.LED(self.cm.led)
+            else:
+                led = led_module.Led(self.cm.led)
+        except Exception as e:
+            logging.error("LED config %s disabled: %s", config_file, e)
+            return
+        self.led.append(led)
+        self._add_led_output(led, config_file)
 
     def _add_led_output(self, led, config_file):
         """Wrap a Led as an Output, using the LED config that was just loaded."""
