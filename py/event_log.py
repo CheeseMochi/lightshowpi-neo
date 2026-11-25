@@ -339,6 +339,26 @@ class SongTracker:
         except Exception as e:
             _warn("song start failed: %s", e)
 
+    def start_from_state(self, get_state, mode=None):
+        """``start()`` with the song keys the show wrote to state.cfg.
+
+        Args:
+            get_state: ``cm.get_state`` (name, default) -> str
+            mode: the show mode (playlist, ...)
+        """
+        try:
+            path = get_state("song_path", "") or None
+            title = get_state("song_title", "") or (os.path.basename(path) if path else None)
+            self.start(title, path=path, duration=get_state("song_duration", ""),
+                       mode=mode, variant=get_state("song_sequence", "") or None)
+        except Exception as e:
+            _warn("song start failed: %s", e)
+
+    @staticmethod
+    def end_reason(play_now):
+        """``skipped`` when the play loop ended on a play_now request, else ``completed``."""
+        return "skipped" if play_now else "completed"
+
     def end(self, reason):
         """Record ``song_end`` (reason completed|skipped|stopped) once."""
         try:
