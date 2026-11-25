@@ -6,6 +6,13 @@ Draft. See the [Unreleased] section of [CHANGELOG.md](CHANGELOG.md).
 
 ### ✨ Highlights
 
+- **Config editor** in the web UI: edit `overrides.cfg` and LED configs from
+  the browser, with a diff before saving, automatic backups you can restore,
+  and an effective-config view. A file that wouldn't parse is never saved.
+  Changes apply from the next song.
+- **Devices page**: every Pi, output (Nanoleaf, ESPixelStick) and relay
+  channel in one place, with a green/red reachability dot, friendly relay
+  names and On/Off test buttons.
 - **Show history and insights.** Every song play is now recorded: whether it
   was played out, skipped or stopped, and how much of it was heard. The web UI
   gains an **Activity** page (who started or stopped the show, button presses,
@@ -53,6 +60,11 @@ Draft. See the [Unreleased] section of [CHANGELOG.md](CHANGELOG.md).
 - Changing the admin password breaks the button manager's API login until
   `/etc/lightshowpi/buttons.env` is updated too.
 - Ambient mode and `set_array` scripts now light LED strips as well as GPIO.
+- The config editor writes to `config/` and `config/backups/` as the user the
+  API runs as. Saving keeps each file's permissions (and its owner when the
+  API runs as root).
+- The API now checks devices in the background every 60 s (`[devices]`; set
+  `enabled = False` to turn it off).
 
 ## Version 0.9.1 - Beta 2 (September 2026)
 

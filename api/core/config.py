@@ -53,6 +53,12 @@ class APIConfig:
         if self.test_mode_timeout_minutes <= 0:
             self.test_mode_timeout_minutes = 10.0
 
+        # Device status checks ([devices]); bounds are enforced by DeviceMonitor
+        self.devices_enabled = self._get_bool('devices', 'enabled', True)
+        self.devices_probe_interval = self._get_float('devices', 'probe_interval', 60.0)
+        self.devices_probe_timeout = self._get_float('devices', 'probe_timeout', 2.0)
+        self.devices_sync_on_start = self._get_bool('devices', 'sync_on_start', True)
+
         # Load client settings (for client Pis)
         self.client_id = self._get_str('client', 'client_id', '')
         self.client_key = self._get_str('client', 'client_key', '')

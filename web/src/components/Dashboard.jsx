@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { lightshow, schedules as schedulesApi, buttons } from '../services/api';
 import ScheduleManager from './ScheduleManager';
 import ChangePassword from './ChangePassword';
+import ConfigEditor from './ConfigEditor';
+import Devices from './Devices';
 import Activity from './Activity';
 import Insights from './Insights';
 import '../styles/Dashboard.css';
@@ -13,6 +15,8 @@ export default function Dashboard({ onLogout }) {
   const [error, setError] = useState('');
   const [showSchedules, setShowSchedules] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
+  const [showDevices, setShowDevices] = useState(false);
   const [showActivity, setShowActivity] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
   const [buttonStatus, setButtonStatus] = useState(null);
@@ -142,6 +146,14 @@ export default function Dashboard({ onLogout }) {
         onLogout={onLogout}
       />
     );
+  }
+
+  if (showConfig) {
+    return <ConfigEditor onBack={() => setShowConfig(false)} onLogout={onLogout} />;
+  }
+
+  if (showDevices) {
+    return <Devices onBack={() => setShowDevices(false)} onLogout={onLogout} />;
   }
 
   if (showActivity) {
@@ -288,6 +300,20 @@ export default function Dashboard({ onLogout }) {
               className="btn btn-secondary btn-large"
             >
               📅 Schedules
+            </button>
+
+            <button
+              onClick={() => setShowDevices(true)}
+              className="btn btn-secondary btn-large"
+            >
+              Devices
+            </button>
+
+            <button
+              onClick={() => setShowConfig(true)}
+              className="btn btn-secondary btn-large"
+            >
+              Config
             </button>
 
             <button

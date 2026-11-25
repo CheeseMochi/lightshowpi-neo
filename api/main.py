@@ -34,6 +34,9 @@ from api.models.schemas import (
     UserLogin, PasswordChange, Token, SystemHealth, LightshowState
 )
 from api.routers import lightshow, schedules, buttons, test_mode, public, events
+from api.routers import config_files, devices
+from api.services.device_monitor import DeviceMonitor
+from api.services.devices import DeviceStore
 from api.services.lightshow_manager import LightshowManager
 from api.services.scheduler import SchedulerService
 from api.services.button_manager import ButtonManagerService
@@ -55,6 +58,7 @@ lightshow_manager = None
 scheduler_service = None
 button_manager = None
 test_mode_manager = None
+device_monitor = None
 cloud_publisher = None
 
 # API version
@@ -76,7 +80,7 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown tasks.
     """
     global db, auth_manager, api_config, lightshow_manager, scheduler_service, button_manager
-    global test_mode_manager, cloud_publisher
+    global test_mode_manager, device_monitor, cloud_publisher
 
     # Startup
     log.info("Starting LightShowPi Neo API...")
@@ -109,6 +113,7 @@ async def lifespan(app: FastAPI):
     lightshow.set_manager(lightshow_manager)
     lightshow.set_database(db)
     public.set_config(api_config)
+    config_files.set_config_dir(api_config.cm.config_dir)
 
     # Initialize button manager from the [buttons] config section
     button_config = {
@@ -140,6 +145,24 @@ async def lifespan(app: FastAPI):
     scheduler_service.start()
     log.info("Scheduler service started")
 
+    # Devices: registry seeded from config, plus background status checks
+    device_store = DeviceStore(db)
+    devices.set_store(device_store)
+    if api_config.devices_sync_on_start:
+        try:
+            device_store.sync_from_config(api_config.cm.config_dir)
+        except Exception as e:
+            log.warning(f"Device sync from config failed: {e}")
+    device_monitor = DeviceMonitor(
+        device_store,
+        interval_s=api_config.devices_probe_interval,
+        timeout_s=api_config.devices_probe_timeout,
+        enabled=api_config.devices_enabled,
+        version=API_VERSION,
+        start_time=app.state.start_time,
+    )
+    devices.set_monitor(device_monitor)
+    device_monitor.start()
     # Push the public show data to the cloud page ([api] cloud_url; blank = off)
     cloud_publisher = start_cloud_publisher(api_config, lambda: scheduler_service)
 
@@ -150,6 +173,8 @@ async def lifespan(app: FastAPI):
     # Shutdown
     log.info("Shutting down LightShowPi Neo API...")
 
+    if device_monitor:
+        device_monitor.stop()
     if cloud_publisher:
         cloud_publisher.stop()
         cloud_publisher = None
@@ -214,6 +239,8 @@ app.include_router(schedules.router)
 app.include_router(buttons.router)
 app.include_router(test_mode.router)
 app.include_router(public.router)
+app.include_router(config_files.router)
+app.include_router(devices.router)
 app.include_router(events.router)
 
 

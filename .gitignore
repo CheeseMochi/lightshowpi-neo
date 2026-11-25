@@ -90,6 +90,9 @@ led[0-9].cfg
 config/overrides.cfg
 config/overrides*.cfg
 
+# Config editor backups (web UI)
+config/backups/
+
 # Temporary files
 *.tmp
 *.temp
