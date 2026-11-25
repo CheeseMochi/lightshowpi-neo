@@ -88,7 +88,7 @@ class TestStopStartSchedule:
     def test_stop_mode_stop_suspends_schedule(self, client, manager, scheduler):
         response = client.post("/api/lightshow/stop", json={"mode": "stop"})
         assert response.status_code == 200
-        manager.stop.assert_called_once_with(graceful=True)
+        manager.stop.assert_called_once_with(graceful=True, source="api", user="tester")
         scheduler.suspend.assert_called_once_with(by="tester")
 
     def test_stop_mode_pause_keeps_schedule(self, client, scheduler):
@@ -257,11 +257,11 @@ class TestManagerStatus:
         mgr = self._manager({})
         mgr.current_mode = "ambient"
         mgr.current_playlist = None
-        monkeypatch.setattr(mgr, "stop", lambda graceful=True: True)
+        monkeypatch.setattr(mgr, "stop", lambda graceful=True, **kw: True)
         monkeypatch.setattr(time, "sleep", lambda s: None)
         calls = {}
 
-        def fake_start(playlist=None, song=None, mode=None):
+        def fake_start(playlist=None, song=None, mode=None, **kw):
             calls.update(playlist=playlist, mode=mode)
             return True
 

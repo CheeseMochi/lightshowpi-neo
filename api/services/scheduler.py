@@ -163,7 +163,7 @@ class SchedulerService:
 
         log.info(f"Scheduled start triggered (mode: {mode})")
         try:
-            success = self.lightshow.start(mode=mode)
+            success = self.lightshow.start(mode=mode, source="schedule")
             if success:
                 log.info(f"Lightshow started successfully by scheduler in {mode} mode")
             else:
@@ -179,7 +179,7 @@ class SchedulerService:
 
         log.info("Scheduled stop triggered")
         try:
-            success = self.lightshow.stop(graceful=True)
+            success = self.lightshow.stop(graceful=True, source="schedule")
             if success:
                 log.info("Lightshow stopped successfully by scheduler")
             else:

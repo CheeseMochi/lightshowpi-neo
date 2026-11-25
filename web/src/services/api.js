@@ -246,6 +246,48 @@ export const buttons = {
 };
 
 // =============================================================================
+// Event log & analytics API
+// =============================================================================
+
+/**
+ * Build a query string, dropping empty values. Arrays become repeated keys.
+ */
+function query(params = {}) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === null || value === undefined || value === '') return;
+    if (Array.isArray(value)) {
+      value.forEach((v) => search.append(key, v));
+    } else {
+      search.append(key, value);
+    }
+  });
+  const text = search.toString();
+  return text ? `?${text}` : '';
+}
+
+export const events = {
+  /** Page through the event log, newest first. since/until: ISO strings. */
+  async list({ types, since, until, limit = 50, offset = 0 } = {}) {
+    return apiRequest(`/events${query({ type: types, since, until, limit, offset })}`);
+  }
+};
+
+export const analytics = {
+  async songs({ since, until, byVariant = false } = {}) {
+    return apiRequest(`/analytics/songs${query({ since, until, by_variant: byVariant || null })}`);
+  },
+
+  async hours({ since, until } = {}) {
+    return apiRequest(`/analytics/hours${query({ since, until })}`);
+  },
+
+  async summary({ since, until } = {}) {
+    return apiRequest(`/analytics/summary${query({ since, until })}`);
+  }
+};
+
+// =============================================================================
 // System API
 // =============================================================================
 

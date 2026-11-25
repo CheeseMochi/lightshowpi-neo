@@ -20,6 +20,8 @@ import time
 from threading import Event, Lock, Thread
 from typing import Any, Callable, Dict, List, Optional
 
+import event_log
+
 log = logging.getLogger(__name__)
 
 # Seconds to wait for the serve process to report it is ready
@@ -197,6 +199,10 @@ class TestModeManager:
             self.last_activity = self.clock()
             self._start_watchdog()
             log.info(f"Test mode active ({self.channel_count} channels)")
+            details = {"action": "enter", "channels": self.channel_count}
+            if by:
+                details["user"] = by
+            event_log.record("test_mode", source="api", **details)
             return self.status()
 
     def exit(self, reason: str = "requested") -> Dict[str, Any]:
@@ -341,6 +347,10 @@ class TestModeManager:
             log.error(f"Error stopping test mode process: {e}")
 
     def _reap(self, reason: str):
+        details = {"action": "exit", "reason": reason}
+        if self.entered_by:
+            details["user"] = self.entered_by
+        event_log.record("test_mode", source="api", **details)
         self._exiting_reason = None
         self.process = None
         self.channels = []

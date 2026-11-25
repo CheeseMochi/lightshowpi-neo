@@ -36,6 +36,35 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_hw)
 
 
+@pytest.fixture(autouse=True)
+def _isolated_event_log(tmp_path):
+    """Keep tests from writing to the repo's data/events.db.
+
+    The event log is off by default in tests; tests that check events call
+    the ``events_db`` fixture, which turns it on with a temp database.
+    """
+    import event_log
+    saved = dict(event_log._settings)
+    event_log.configure(enabled=False, db_path=str(tmp_path / "events.db"))
+    yield
+    # A test that re-configured the log from real config must not leave it
+    # writing to the repo's data/events.db
+    leaked = (event_log._settings["enabled"]
+              and not str(event_log._settings["db_path"]).startswith(str(tmp_path)))
+    assert not leaked, f"event log left enabled outside tmp_path: {event_log._settings}"
+    event_log._settings.update(saved)
+    event_log._ready_paths.clear()
+
+
+@pytest.fixture
+def events_db(tmp_path):
+    """Turn the event log on with a temp database; returns its path."""
+    import event_log
+    path = str(tmp_path / "events.db")
+    event_log.configure(enabled=True, db_path=path)
+    return path
+
+
 @pytest.fixture
 def temp_config_file():
     """Create a temporary config file for testing."""

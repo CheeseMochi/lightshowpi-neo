@@ -21,6 +21,7 @@ from typing import Optional
 
 from gpiozero import Button, LED
 import configuration_manager
+import event_log
 
 # Set up logging
 log = logging.getLogger(__name__)
@@ -339,14 +340,36 @@ def audio_toggle():
     log.info(f"Audio toggled: {status}")
 
 
-def playsong(songindex):
-    """Queue a song to play (-1 = next song)."""
+def log_button_press(name: str, via_api: bool = False) -> None:
+    """Record a physical button press in the event log.
+
+    Skipped when ``log_button_presses`` is off, or when the press went to the
+    API (``via_api``): the API logs those itself, so each press counts once.
+    """
+    if not LOG_BUTTON_PRESSES or via_api:
+        return
+    event_log.record("button_press", source="button", name=name, mode=BUTTON_MODE)
+
+
+def playsong(songindex, replay: bool = False) -> bool:
+    """Queue a song to play (-1 = next song).
+
+    Args:
+        songindex: playlist index, -1 for the next song
+        replay: True for repeat mode's automatic next song (not a press);
+            the API then leaves it out of the button_press events
+
+    Returns:
+        True if the API handled it, False if the state file was used.
+    """
     log.info(f"Queueing song: {songindex}")
+    via_api = False
 
     # Try API first if enabled
     if API_ENABLED:
-        if call_api("/buttons/skip"):
+        if call_api("/buttons/skip?repeat=true" if replay else "/buttons/skip"):
             log.debug("Skip triggered via API")
+            via_api = True
         else:
             log.error("⚠ API call failed for skip button - API may be down")
             if BUTTON_MODE == "auto":
@@ -359,6 +382,7 @@ def playsong(songindex):
         log.debug("Skip triggered via state file (direct mode)")
 
     audio_on()
+    return via_api
 
 
 def songbutton(button):
@@ -370,12 +394,16 @@ def songbutton(button):
 
     if button.pin.number == SKIP_PIN:
         log.info("Skip button pressed")
-        playsong(-1)
+        via_api = playsong(-1)
+        log_button_press("skip", via_api is True)
 
 
 def toggleRepeat():
     """Toggle repeat mode on/off."""
     global repeat_mode
+
+    if not API_ENABLED:
+        log_button_press("repeat")
 
     # Try API first if enabled
     if API_ENABLED:
@@ -389,6 +417,7 @@ def toggleRepeat():
                 log.info("Repeat mode DISABLED")
         else:
             log.error("⚠ API call failed for repeat toggle - API may be down")
+            log_button_press("repeat")
             if BUTTON_MODE == "auto":
                 log.warning("Falling back to direct mode for this action")
                 # Fall through to direct mode below
@@ -425,12 +454,14 @@ def audiobutton():
                 outlet.toggle()
             else:
                 log.error("⚠ API call failed for audio toggle - API may be down")
+                log_button_press("audio")
                 if BUTTON_MODE == "auto":
                     log.warning("Falling back to direct mode for this action")
                     audio_toggle()
                 # In api mode, don't fall back
         else:
             # Direct mode
+            log_button_press("audio")
             audio_toggle()
     else:
         log.debug(f"Audio button on cooldown ({audio_cooldown - time.time():.1f}s remaining)")
@@ -507,6 +538,9 @@ def main():
         log.warning("Using default values")
         # Keep the default values already set at module level
 
+    # Event log settings ([events]); recording never raises
+    event_log.configure(cm.config)
+
     # Handle cleanup mode
     if args.cleanup:
         doCleanup()
@@ -561,7 +595,7 @@ def main():
                     repeat_songs = 0
                 else:
                     log.debug(f"Repeat mode: Playing next song ({repeat_songs}/{REPEAT_MAX_ITERATIONS})")
-                    playsong(-1)
+                    playsong(-1, replay=True)
 
             # Sleep to reduce CPU usage
             time.sleep(5)

@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { lightshow, schedules as schedulesApi, buttons } from '../services/api';
 import ScheduleManager from './ScheduleManager';
 import ChangePassword from './ChangePassword';
+import Activity from './Activity';
+import Insights from './Insights';
 import '../styles/Dashboard.css';
 
 export default function Dashboard({ onLogout }) {
@@ -11,6 +13,8 @@ export default function Dashboard({ onLogout }) {
   const [error, setError] = useState('');
   const [showSchedules, setShowSchedules] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
   const [buttonStatus, setButtonStatus] = useState(null);
   const [buttonHealth, setButtonHealth] = useState(null);
   const [selectedMode, setSelectedMode] = useState('playlist');
@@ -138,6 +142,14 @@ export default function Dashboard({ onLogout }) {
         onLogout={onLogout}
       />
     );
+  }
+
+  if (showActivity) {
+    return <Activity onBack={() => setShowActivity(false)} />;
+  }
+
+  if (showInsights) {
+    return <Insights onBack={() => setShowInsights(false)} />;
   }
 
   const isRunning = ['playing', 'starting'].includes(status?.state);
@@ -276,6 +288,20 @@ export default function Dashboard({ onLogout }) {
               className="btn btn-secondary btn-large"
             >
               📅 Schedules
+            </button>
+
+            <button
+              onClick={() => setShowActivity(true)}
+              className="btn btn-secondary btn-large"
+            >
+              📜 Activity
+            </button>
+
+            <button
+              onClick={() => setShowInsights(true)}
+              className="btn btn-secondary btn-large"
+            >
+              📊 Insights
             </button>
           </div>
         </div>
