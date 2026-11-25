@@ -36,6 +36,21 @@ def client_ip(request: Request) -> str:
     return peer or "unknown"
 
 
+def is_tunnel_request(request: Request) -> bool:
+    """
+    True when the request may have come in through the Cloudflare tunnel.
+
+    Any non-blank ``CF-Connecting-IP`` header counts, whatever the peer address.
+    Cloudflare always sets it (and overwrites a client's copy), while LAN
+    clients and local tools such as the button manager never send it. Keying
+    on the header alone fails toward asking for the CAPTCHA: the peer address
+    can't be relied on, since uvicorn rewrites it from the proxy's
+    X-Forwarded-For (which a visitor can partly control), and a LAN client that
+    sends the header only makes itself solve a CAPTCHA.
+    """
+    return bool(request.headers.get("cf-connecting-ip", "").strip())
+
+
 class RateLimiter:
     """Sliding-window counter: at most ``max_events`` per ``window_s`` per key."""
 

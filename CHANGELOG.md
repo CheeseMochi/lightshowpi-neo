@@ -167,6 +167,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   second) instead of on every audio chunk.
 
 ### Security
+- **Cloudflare Turnstile on the admin login** (optional, off by default). With
+  `[api] turnstile_site_key` and `turnstile_secret_key` set, logins that come
+  through the Cloudflare tunnel (any request carrying Cloudflare's `CF-Connecting-IP` header) must pass
+  a Turnstile check, verified with Cloudflare before the password is tried. It
+  fails closed (400 "Complete the CAPTCHA") and failures count toward the
+  per-IP failed-login limit. LAN logins and the button manager are unchanged.
+  New unauthenticated `GET /api/auth/config` tells the login page whether to
+  show the widget; `POST /api/auth/login` accepts an optional `turnstile_token`.
+  See "Turnstile on the admin login" in `deploy/README.md`.
 - The web config editor refuses to add, change or remove `songname_command`,
   `stream_command_string`, `preshow_script` and `postshow_script` (any section),
   because the show runs them as root. Edit those over SSH; a file that already has

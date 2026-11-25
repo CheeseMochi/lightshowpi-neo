@@ -5,7 +5,7 @@ These models provide request/response validation and documentation
 for all API endpoints.
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -73,6 +73,17 @@ class UserLogin(BaseModel):
     """Request model for user login."""
     username: str
     password: str
+    # Cloudflare Turnstile response; required only for logins via the tunnel
+    # when Turnstile is configured
+    turnstile_token: Optional[str] = Field(None, max_length=2048)
+
+
+class AuthConfig(BaseModel):
+    """Public login settings for the login page (never includes secrets)."""
+    model_config = ConfigDict(extra="forbid")
+
+    turnstile_site_key: Optional[str] = None
+    required: bool = False
 
 
 class PasswordChange(BaseModel):

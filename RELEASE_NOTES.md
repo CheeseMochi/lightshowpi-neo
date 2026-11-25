@@ -36,6 +36,10 @@ Draft. See the [Unreleased] section of [CHANGELOG.md](CHANGELOG.md).
   set; see "Cloud public page" in `deploy/README.md`.
 - Cron-run shows can publish their times with `[api] public_show_start` /
   `public_show_stop` (and optionally `public_show_days`).
+- **Optional CAPTCHA on the admin login** from outside the house: set
+  `[api] turnstile_site_key` and `turnstile_secret_key` and logins through the
+  Cloudflare tunnel get a Cloudflare Turnstile check. Logins on your home
+  network don't. See "Turnstile on the admin login" in `deploy/README.md`.
 
 ### 🐛 Notable Fixes
 

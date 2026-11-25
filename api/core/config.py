@@ -49,6 +49,10 @@ class APIConfig:
         self.cors_origins = [o.strip().rstrip('/') for o in
                              self._get_str('api', 'cors_origins', '').split(',') if o.strip()]
         self.web_dist = self._get_str('api', 'web_dist', '')
+        # Cloudflare Turnstile on the admin login via the tunnel (blank = off).
+        # The secret is never logged.
+        self.turnstile_site_key = self._get_str('api', 'turnstile_site_key', '').strip()
+        self.turnstile_secret_key = self._get_str('api', 'turnstile_secret_key', '').strip()
         self.test_mode_timeout_minutes = self._get_float('api', 'test_mode_timeout_minutes', 10.0)
         if self.test_mode_timeout_minutes <= 0:
             self.test_mode_timeout_minutes = 10.0
