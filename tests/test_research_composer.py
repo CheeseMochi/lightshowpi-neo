@@ -783,3 +783,18 @@ class TestScheduler:
             light = stems.render_voice(mel, "hit", mel_t, times, 0.5, on, off, SR)
             n = len(safety.runs(light))
             assert (n >= len(kicks) - 1) if expect_all else (n < len(kicks) - 3)
+
+
+def test_every_variant_name_installs_on_the_pi():
+    """Bundle variant names must be valid sequence names on the Pi (reserved ones get a prefix)."""
+    import importlib.util
+    import sequence_select
+    from lspcompose.variants import VARIANTS
+    spec = importlib.util.spec_from_file_location(
+        "install_sequences", os.path.join(REPO, "tools", "install_sequences.py"))
+    installer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(installer)
+    for v in VARIANTS:
+        name = installer.target_name(v.name)
+        assert sequence_select.is_valid_variant_name(name), v.name
+        assert name not in sequence_select.RESERVED
