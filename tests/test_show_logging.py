@@ -37,3 +37,15 @@ class TestShowLogging:
     def test_log_level_from_cli(self, tmp_path, clean_root, name, level):
         show_logging.configure_show_logging(str(tmp_path), name)
         assert clean_root.level == level
+
+    def test_unwritable_log_file_falls_back_to_stderr(self, tmp_path, clean_root, capsys):
+        # A root-owned log file must not stop the show when the API runs it
+        # as a normal user (Pi, 2026-11-27).
+        logs = tmp_path / "logs"
+        (logs / show_logging.LOG_FILENAME).mkdir(parents=True)  # opening it fails
+        assert show_logging.configure_show_logging(str(logs), "debug") is None
+        assert clean_root.level == logging.DEBUG
+        logging.info("still logging")
+        err = capsys.readouterr().err
+        assert "Cannot write show log" in err
+        assert "still logging" in err
