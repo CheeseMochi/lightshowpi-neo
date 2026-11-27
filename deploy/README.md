@@ -95,12 +95,17 @@ One-time setup (laptop, repo root; needs Node 20+):
 ```bash
 cd cloud/worker && npm ci
 npx wrangler login                              # opens the browser once
-npx wrangler kv namespace create SHOW_KV        # paste the printed id into wrangler.toml
+npx wrangler kv namespace create SHOW_KV        # save the printed id: echo <id> > .kv-id
 openssl rand -hex 32                            # make the shared key; keep it for the next two steps
 npx wrangler secret put INGEST_KEY              # paste the key
 cd ../..
 make cloud PUBLIC_HOST=lightshow.example.com ADMIN_HOST=lights.example.com SHOW_NAME="Our Light Show"
 ```
+
+Deploy with your `wrangler login`, not the Terraform token. If `CLOUDFLARE_API_TOKEN` is
+still exported from `make tunnel`, wrangler uses it instead and fails with "No access to the
+specified service" (that token has no Workers permission): run
+`env -u CLOUDFLARE_API_TOKEN make cloud ...`. `make cloud` prints a note when the variable is set.
 
 `make cloud` builds the Home page into `web/dist-cloud` (with `VITE_PUBLIC_API_BASE=/api/public`,
 `VITE_ADMIN_URL=https://<ADMIN_HOST>/admin` and `VITE_SHOW_NAME`; `web/dist`, which goes to the Pi,

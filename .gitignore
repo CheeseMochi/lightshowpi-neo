@@ -126,6 +126,9 @@ crash.log
 web/node_modules/
 web/dist/
 web/dist-cloud/
+# Per-account Worker deploy settings (make cloud)
+cloud/worker/.kv-id
+cloud/worker/wrangler.deploy.toml
 web/.vite/
 npm-debug.log*
 yarn-debug.log*

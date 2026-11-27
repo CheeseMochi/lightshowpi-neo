@@ -229,6 +229,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stronger hit (on the samples with SSRs, the kick light fires 2.3x as often).
 
 ### Changed
+- **Dependencies**: the web app moves from `react-router-dom` 6 to `react-router` 7.18.7
+  (fixes GHSA-wrjc-x8rr-h8h6 and GHSA-337j-9hxr-rhxg; same routes, no behaviour change).
+  The Worker tests move from the deprecated `@cloudflare/vitest-pool-workers` to
+  `@cloudflare/vitest-plugin` 1.10, which clears the `undici`, `sharp` and `zod` advisories in
+  the test tooling. `npm audit` is clean in both. Nothing here shipped in the deployed Worker.
+- **`make cloud` takes the KV namespace id** from `KV_ID=...` or `cloud/worker/.kv-id`
+  (gitignored) and deploys from a generated `wrangler.deploy.toml`, so `wrangler.toml` stays a
+  template with no per-account id. It also warns when `CLOUDFLARE_API_TOKEN` is set, since
+  wrangler then uses that token instead of your login.
+- The Terraform provider lock file (`deploy/terraform/cloudflare/.terraform.lock.hcl`) is now
+  committed, so every `make tunnel` uses the same Cloudflare provider build.
 - Test patterns in `hardware_controller.py` moved into a `Patterns` class so the
   CLI and serve mode share them.
 - `py/gpio_adapter.py` no longer fails at import time when `lgpio` is missing; it

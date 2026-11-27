@@ -19,6 +19,10 @@ ADMIN_HOST    ?=
 SHOW_NAME     ?=
 # WWW=1 also attaches www.PUBLIC_HOST to the Worker (WWW=0 to skip)
 WWW           ?= 1
+# Workers KV namespace id for the public Worker (printed by
+# `npx wrangler kv namespace create SHOW_KV`). Pass KV_ID=... or save it once
+# in cloud/worker/.kv-id (gitignored), so wrangler.toml stays a clean template.
+KV_ID         ?= $(shell cat $(WORKER_DIR)/.kv-id 2>/dev/null)
 
 # ASK_VAULT=1 prompts for the ansible-vault password (if secrets.yml is encrypted)
 VAULT_FLAGS := $(if $(ASK_VAULT),--ask-vault-pass,)
@@ -69,12 +73,14 @@ tunnel-token: ## Save the tunnel token for Ansible (group_vars/show/tunnel.yml, 
 		> $(ANSIBLE_DIR)/group_vars/show/tunnel.yml
 	@echo "Wrote $(ANSIBLE_DIR)/group_vars/show/tunnel.yml (mode 600). Next: make provision HOST=show"
 
-cloud: ## Build the Home page for the cloud and deploy the public Worker (PUBLIC_HOST=... ADMIN_HOST=... [SHOW_NAME="..."] [WWW=0])
+cloud: ## Build the Home page for the cloud and deploy the public Worker (PUBLIC_HOST=... ADMIN_HOST=... [KV_ID=...] [SHOW_NAME="..."] [WWW=0])
 	@test -n "$(PUBLIC_HOST)" || { echo "ERROR: set PUBLIC_HOST=<public hostname>, e.g. make cloud PUBLIC_HOST=lightshow.example.com ADMIN_HOST=lights.example.com"; exit 1; }
 	@test -n "$(ADMIN_HOST)" || { echo "ERROR: set ADMIN_HOST=<admin hostname>; the gear icon and /admin go to https://ADMIN_HOST/admin"; exit 1; }
-	@! grep -q REPLACE_WITH_KV_NAMESPACE_ID $(WORKER_DIR)/wrangler.toml || { echo "ERROR: create the KV namespace and paste its id into $(WORKER_DIR)/wrangler.toml (deploy/README.md, Cloud public page)"; exit 1; }
+	@echo "$(KV_ID)" | grep -qE '^[0-9a-f]{32}$$' || { echo "ERROR: set KV_ID=<KV namespace id> or save it in $(WORKER_DIR)/.kv-id (npx wrangler kv namespace list shows it; deploy/README.md, Cloud public page)"; exit 1; }
+	@test -z "$$CLOUDFLARE_API_TOKEN" || echo "NOTE: CLOUDFLARE_API_TOKEN is set, so wrangler uses it instead of your wrangler login. If the deploy fails with 'No access', rerun with: env -u CLOUDFLARE_API_TOKEN make cloud ..."
 	cd web && npm ci && VITE_PUBLIC_API_BASE=/api/public VITE_ADMIN_URL=https://$(ADMIN_HOST)/admin VITE_SHOW_NAME='$(SHOW_NAME)' npx vite build --outDir dist-cloud --emptyOutDir
-	cd $(WORKER_DIR) && npm ci && npx wrangler deploy --domain $(PUBLIC_HOST) $(if $(filter 1,$(WWW)),--domain www.$(PUBLIC_HOST),) --var ADMIN_HOST:$(ADMIN_HOST) --var PUBLIC_HOST:$(PUBLIC_HOST)
+	sed 's/^id = ".*"/id = "$(KV_ID)"/' $(WORKER_DIR)/wrangler.toml > $(WORKER_DIR)/wrangler.deploy.toml
+	cd $(WORKER_DIR) && npm ci && npx wrangler deploy --config wrangler.deploy.toml --domain $(PUBLIC_HOST) $(if $(filter 1,$(WWW)),--domain www.$(PUBLIC_HOST),) --var ADMIN_HOST:$(ADMIN_HOST) --var PUBLIC_HOST:$(PUBLIC_HOST)
 
 cloud-test: ## Run the public Worker's tests (vitest in workerd)
 	cd $(WORKER_DIR) && npm ci && npm test
