@@ -94,6 +94,9 @@ class TestLightshowManagerEvents:
         monkeypatch.setenv("SONG_SECONDS", "0.1")
         monkeypatch.setenv("SONG_EXIT", "1")
         mgr.startup_check_seconds = 0.0
+        # Wide margin: Python startup on a Pi alone can exceed the fixture's
+        # 0.2s threshold, so a 0.1s song would never count as a fast failure.
+        mgr.min_run_seconds = 5.0
         mgr.start()
         deadline = time.time() + 10
         while mgr.state != LightshowState.ERROR and time.time() < deadline:
