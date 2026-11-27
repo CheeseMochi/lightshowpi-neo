@@ -33,6 +33,7 @@ The workflow from AGENTS.md applies:
 | `systemd/` | Unit files for the API and the button manager. Paths assume `/home/pi/lightshowpi` and a miniconda env. |
 | `bin/` | Start/stop helper scripts (`start_api.sh`, `start_frontend.sh`, `link_lgpio.sh`, …). |
 | `tests/` | pytest suite. `conftest.py` and `fixtures/` (including `test_tone.wav`). |
+| `research/` | Mac-only pattern composer and lab (`bundle.py`, `lspcompose/`, `lab/`, `patterns.toml`). Runs in its own conda env `lightshowpi-neo-lab` (`environment-lab.yml`); the Pi only plays the CSVs it writes. |
 
 ## Architecture notes
 
@@ -69,6 +70,13 @@ The following commands have not been run in a Claude session. Treat them as unve
 LSP_DEV=1 python -m api.main               # API on :8000, docs at /docs (dev: reload, throwaway JWT key)
 cd web && npm install && npm run dev       # frontend on :3000
 cd web && npm run build                    # production bundle to web/dist
+
+# Two Mac envs: dev (mirrors the Pi and CI) and lab (composer: librosa, Demucs, lab GUI)
+make dev-env                               # lightshowpi-neo-dev from environment-dev.yml
+make lab-env                               # lightshowpi-neo-lab from environment-lab.yml
+make lab                                   # pattern lab GUI on 127.0.0.1:8765
+make lab-test                              # composer + lab tests in the lab env
+
 black py/ api/ && flake8 py/ api/          # formatting and lint (in requirements-dev)
 
 # On the Pi (conda env "lightshowpi-neo", needs sudo for GPIO)

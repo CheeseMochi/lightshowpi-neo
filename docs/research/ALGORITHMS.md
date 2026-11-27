@@ -170,6 +170,10 @@ The takeaway is that the community automates **timing marks** and leaves placing
 
 ## 7. Recommendation: phased roadmap
 
+> **Update 2026-11-27:** Phase 1 is built (the composer and the pattern lab in `research/`), and
+> the Pi plays per-song variants. The current experiments and the iterate loop are in
+> [ROADMAP.md](ROADMAP.md).
+
 ### (a) Phase 1: offline composer → existing `song.csv` (zero runtime changes)
 
 **Step 0: prove the CSV path on the Pi first.** No test in `tests/` covers `sequence_type == 'csv'` (grep for `csv` and `sequence_type` finds nothing), so this legacy path is unproven in Neo, and phase 1 rests entirely on it. A 25 ms row rate also makes the playback loop, including `cm.load_state()` on every row, run about 4× as often as in FFT mode. That needs Pi validation and bears on open question 7. Smoke test with a hand-made alternating CSV, setting the column count to your `gpio_len`:
@@ -200,7 +204,7 @@ python research/compose.py music/song.mp3 --strategy beat_chase \
 - Analysis cache: `.song.mp3.features.npz` (beats, downbeats, onset envelopes, segments, stems RMS), keyed by a file hash plus analyzer versions.
 - Output: integer values `0..brightness_range`, one row per `N = int(sr·timing/1000)` frames, no header, no blank lines. Use `round(v)` for relays (0 or 255).
 - `--preview`: render the CSV plus audio to an MP4 (a row of circles per channel) on the Mac, so strategies can be reviewed without the Pi.
-- The Mac-side dependencies live in a separate `requirements-research.txt`. The Pi never imports them.
+- The Mac-side dependencies live in their own conda env, `environment-lab.yml` (`lightshowpi-neo-lab`). The Pi never imports them.
 
 ### (b) Evaluation method
 

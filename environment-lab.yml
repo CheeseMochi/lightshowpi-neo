@@ -1,0 +1,44 @@
+name: lightshowpi-neo-lab
+channels:
+  - conda-forge
+  - conda-pypi
+
+# ============================================================================
+# LightShowPi Neo - Pattern lab environment (Mac only)
+#
+# For composing light sequences on the Mac: research/bundle.py and the
+# pattern lab (python -m research.lab serve). The Pi never needs any of this;
+# it only plays the finished CSVs. Kept separate from environment-dev.yml,
+# which mirrors the Pi/CI dependencies.
+#
+#   make lab-env        # create or update this environment
+#   make lab            # start the lab GUI (http://127.0.0.1:8765)
+# ============================================================================
+
+dependencies:
+  - python>=3.12      # librosa 1.x needs 3.12+
+
+  # Audio analysis
+  - numpy>=2.0.0
+  - scipy>=1.11
+  - librosa>=1.0            # beats, onsets, mel spectrogram, sections
+  - pysoundfile>=0.12.1     # decodes mp3 when audioread has no backend
+  - audioread>=3.0.0        # the decoder the Pi uses, preferred when it works
+  - standard-aifc           # aifc/sunau left the stdlib in 3.13 (audioread needs them)
+  - standard-sunau
+
+  # Instrument separation for the 'stems' pattern (about 1 GB). Remove these
+  # two lines (and demucs below) to skip it; bundles then leave 'stems' out.
+  - pytorch>=2.0
+  - torchaudio>=2.0
+
+  # The lab GUI and its tests
+  - fastapi>=0.110
+  - uvicorn>=0.24
+  - httpx                   # FastAPI TestClient
+  - python-multipart        # the lab tests fake the Pi's upload endpoint
+  - pytest>=8
+
+  - pip:
+    - demucs>=4.1         # not on conda-forge (4.0.x pinned an old torchaudio)
+

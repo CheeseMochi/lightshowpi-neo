@@ -147,6 +147,11 @@ deploy/local/
 
 # Research composer (research/): generated sequences + song copies, and its venv
 research/out/
+research/patterns.local.toml
+research/ratings.jsonl
+research/layout.json
+research/lab.local.json
+# the old pip venv, replaced by the lightshowpi-neo-lab conda env (environment-lab.yml)
 .venv-research/
 
 # research/testbed.py writes this from overrides.cfg on every run

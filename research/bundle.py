@@ -3,8 +3,9 @@
 Build a test-bed bundle for a song: every show variant, full length and as a
 30-second clip, ready to copy to the Pi and compare with research/testbed.py.
 
-    .venv-research/bin/python research/bundle.py music/song.mp3 --channels 7 --dead 2
-    .venv-research/bin/python research/bundle.py a.mp3 b.mp3 --channels 7 --dead 2 --clip-start 62
+    conda activate lightshowpi-neo-lab        # environment-lab.yml (make lab-env)
+    python research/bundle.py music/song.mp3 --channels 7 --dead 2
+    python research/bundle.py a.mp3 b.mp3 --channels 7 --dead 2 --clip-start 62
 
 Writes research/out/<song>/:
     audio/full.wav, audio/clip.wav       the audio, decoded here (the Pi plays the same PCM)
@@ -33,9 +34,11 @@ from lspcompose import audio as audio_mod  # noqa: E402
 from lspcompose import baseline, csvio, metrics, preview, stems, strategies  # noqa: E402
 from lspcompose.preview import spans_by_channel  # noqa: E402
 from lspcompose.timing import frames_per_row, row_count, row_period  # noqa: E402
-from lspcompose.variants import BY_NAME, VARIANTS, Context  # noqa: E402
+from lspcompose import layout as layout_mod  # noqa: E402
+from lspcompose import variants as variants_mod  # noqa: E402
+from lspcompose.variants import VARIANTS, Context  # noqa: E402
 
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 
 
 def parse_channels(text):
@@ -46,10 +49,18 @@ def parse_channels(text):
 def build_parser():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("songs", nargs="+")
-    p.add_argument("--channels", type=int, required=True, help="CSV columns = the Pi's gpio_len")
+    p.add_argument("--channels", type=int, default=None,
+                   help="CSV columns = the Pi's gpio_len (or give --layout)")
+    p.add_argument("--layout", default=None,
+                   help="the Pi's /api/layout saved as JSON (sets the columns, virtual channels "
+                        "and per-output groups; `python -m research.lab pi layout` saves it)")
     p.add_argument("--dead", default="", help="1-based channels kept dark (always_off), e.g. 2")
-    p.add_argument("--variants", default="all",
-                   help="comma-separated subset of: " + ", ".join(v.name for v in VARIANTS))
+    p.add_argument("--variants", "--patterns", dest="variants", default="all",
+                   help="comma-separated pattern and mix names (default all), built-in: "
+                        + ", ".join(v.name for v in VARIANTS))
+    p.add_argument("--local-patterns", default=variants_mod.LOCAL_FILE,
+                   help="your own patterns and mixes (default research/patterns.local.toml; "
+                        "'' for none)")
     p.add_argument("--clip-start", type=float, default=None, help="seconds (default: loudest 30 s)")
     p.add_argument("--clip-seconds", type=float, default=30.0)
     p.add_argument("--timing-ms", type=int, default=25)
@@ -129,16 +140,22 @@ def bundle_one(song, args):
     audio = audio_mod.Audio(pcm.astype(np.float32).mean(axis=1) / 32768.0, int(sr), pcm.shape[0], "pcm16")
     feats = audio_mod.analyze_cached(song, audio, os.path.join(args.out_dir, ".cache"), args.tempo_scale)
 
+    pi_layout = args.pi_layout
     layout = strategies.Layout(args.channels, parse_channels(args.dead))
     if any(d >= args.channels for d in layout.dead):
         raise SystemExit(f"--dead {args.dead} is outside --channels {args.channels}")
     rows = row_count(audio.frames, sr, args.timing_ms)
     n = frames_per_row(sr, args.timing_ms)
 
+    # Today's FFT runs on the base channels; virtual columns mirror them (as on the Pi)
+    base = pi_layout.base_count
     mapping = [int(x) for x in args.fft_mapping.split(",") if x.strip()] or None
-    if mapping and len(mapping) != args.channels:
+    if mapping and len(mapping) != base:
         mapping = None
-    fft_chunks, _ = baseline.fft_levels(song, args.channels, args.fft_chunk, mapping)
+    fft_chunks, _ = baseline.fft_levels(song, base, args.fft_chunk, mapping)
+    if base < args.channels:
+        fft_chunks = np.hstack([fft_chunks] + [fft_chunks[:, [pi_layout.mirror_source(c)]]
+                                               for c in range(base, args.channels)])
     fft_grid = baseline.levels_on_csv_grid(fft_chunks, sr, args.fft_chunk, rows, args.timing_ms,
                                            layout.dead)
     stem_feats = None
@@ -169,10 +186,10 @@ def bundle_one(song, args):
     write_wav(os.path.join(out, "audio", "full.wav"), pcm, sr, fade_s=0)
     write_wav(os.path.join(out, "audio", "clip.wav"), pcm[k * n:(k + clip_rows) * n], sr)
 
-    chosen = VARIANTS if args.variants == "all" else [BY_NAME[v.strip()] for v in args.variants.split(",")]
+    chosen = args.chosen_variants
     skipped = [v.name for v in chosen if v.needs_stems and stem_feats is None]
     if skipped:
-        print(f"  skipping {', '.join(skipped)}: install demucs in .venv-research "
+        print(f"  skipping {', '.join(skipped)}: use the lightshowpi-neo-lab env (make lab-env) "
               "(see research/README.md) or drop --no-stems")
     summary = []
     for v in chosen:
@@ -189,7 +206,7 @@ def bundle_one(song, args):
                               args.timing_ms, args.min_on, args.min_off)
         m.update(ctx.extra.get(v.name, {}))
         summary.append({"name": v.name, "title": v.title, "description": v.description,
-                        "labels": ctx.labels.get(v.name), "metrics": {"full": m},
+                        "labels": ctx.labels.get(v.name), "recipe": v.spec, "metrics": {"full": m},
                         "spans": {p: spans_by_channel(lv, sr, args.timing_ms) for p, lv in parts.items()}})
 
     manifest = {
@@ -199,7 +216,8 @@ def bundle_one(song, args):
         "clip_start_s": round(k * n / sr, 3), "clip_seconds": round(clip_rows * n / sr, 3),
         "relays": args.relays, "min_on_s": args.min_on, "min_off_s": args.min_off,
         "tempo_bpm": round(feats.tempo, 1), "duration_s": round(rows * n / sr, 3),
-        "variants": [{k2: s[k2] for k2 in ("name", "title", "description", "labels")} |
+        "layout": pi_layout.to_dict(),
+        "variants": [{k2: s[k2] for k2 in ("name", "title", "description", "labels", "recipe")} |
                      {"metrics": s["metrics"]["full"]} for s in summary],
     }
     with open(os.path.join(out, "manifest.json"), "w") as f:
@@ -220,6 +238,29 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.relays not in strategies.RELAY_PRESETS:
         parser.error(f"--relays / LSP_RELAYS must be one of {sorted(strategies.RELAY_PRESETS)}")
+    if args.layout:
+        args.pi_layout = layout_mod.load(args.layout)
+        if args.channels not in (None, args.pi_layout.gpio_len):
+            parser.error(f"--channels {args.channels} disagrees with --layout "
+                         f"(gpio_len {args.pi_layout.gpio_len})")
+        args.channels = args.pi_layout.gpio_len
+    elif args.channels:
+        args.pi_layout = layout_mod.PiLayout.simple(args.channels)
+    else:
+        parser.error("give --channels N (the Pi's gpio_len) or --layout layout.json")
+    try:
+        library = variants_mod.load_library(variants_mod.BUILTIN_FILE, args.local_patterns or None)
+        everything = {v.name: v for v in variants_mod.library_variants(library)}
+        if args.variants == "all":
+            args.chosen_variants = list(everything.values())
+        else:
+            names = [x.strip() for x in args.variants.split(",") if x.strip()]
+            unknown = [x for x in names if x not in everything]
+            if unknown:
+                parser.error(f"unknown patterns/mixes {unknown}; have: {', '.join(everything)}")
+            args.chosen_variants = [everything[x] for x in names]
+    except variants_mod.PatternError as e:
+        parser.error(str(e))
     preset_on, preset_off = strategies.RELAY_PRESETS[args.relays]
     args.min_on = preset_on if args.min_on is None else args.min_on
     args.min_off = preset_off if args.min_off is None else args.min_off
@@ -238,8 +279,7 @@ def main(argv=None):
                   f"{m['toggles_per_channel_min_median']:8.0f} "
                   f"{m['short_on_violations'] + m['short_off_violations']:10.0f} {m['duty_mean']:6.2f}")
         print(f"  preview: open '{os.path.join(out, 'preview.html')}'")
-    print("\nCopy to the Pi:  ssh piserver-neo.local mkdir -p lightshowpi/research/out && "
-          "rsync -av --exclude .cache research/out/ piserver-neo.local:lightshowpi/research/out/")
+    print("\nCompare and push with the lab:  make lab   (or `python -m research.lab pi push <song>`)")
     return 0
 
 

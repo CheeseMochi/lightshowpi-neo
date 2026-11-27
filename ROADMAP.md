@@ -40,7 +40,8 @@ Many light ecosystems enable their own APIs for controlling their lights, which 
 
 Today the algorithm for creating shows is purely FFT based and separates channels by frequency bands. The goal is for this library to create more impactful shows that trigger on more than just frequency spikes in the music.
 
-- TBD
+- An offline composer and the pattern lab (`research/`, `python -m research.lab serve`) compose per-song sequences on the Mac. The Pi plays them per song (`sequence = <variant>|rotate:…`).
+- Experiments and the iterate loop: [docs/research/ROADMAP.md](docs/research/ROADMAP.md).
 
 ## After the 2026 Season
 

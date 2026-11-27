@@ -34,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `led_extend`, `virtual`), each output's channels, relay names from the
   device registry and config warnings (e.g. an output mapped past the last
   channel). Never returns hosts or tokens.
+- **Pattern lab (research)**: `make lab` (`python -m research.lab serve` in the new Mac-only
+  `lightshowpi-neo-lab` conda env, `environment-lab.yml`, created by `make lab-env`) runs a local browser GUI on the
+  Mac. You build songs with any patterns, compare and rate variants, audition them once on the
+  lights, push keepers to the Pi and set the song to rotate through them. The same commands
+  exist on the CLI. Patterns are now data: `research/patterns.toml` holds the built-ins and
+  `research/patterns.local.toml` your own. Mixes give each light source or channel group its
+  own pattern. Bundles record every variant's recipe (manifest v2) and can take the Pi's
+  layout (`--layout`).
 - **Song details on the public home page**: while a song plays, the status
   card shows its artist, album and year (from the audio file's tags), the light
   pattern in use (`fft` shows as "Live audio-reactive", a variant like
