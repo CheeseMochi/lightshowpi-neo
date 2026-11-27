@@ -575,9 +575,11 @@ def hysteresis(levels: np.ndarray, on_above: float = 0.6, off_below: float = 0.4
 
 
 def fft_safe(fft_levels_on_grid: np.ndarray, sample_rate: int, timing_ms: int = 25,
-             min_on: float = 0.20, min_off: float = 0.15) -> np.ndarray:
+             min_on: float = 0.20, min_off: float = 0.15, on_above: float = 0.6,
+             off_below: float = 0.4) -> np.ndarray:
     """The current FFT look, minus the flicker: hysteresis, then relay limits."""
-    return relay_safe(hysteresis(fft_levels_on_grid), sample_rate, timing_ms, min_on, min_off)
+    return relay_safe(hysteresis(fft_levels_on_grid, on_above, off_below), sample_rate,
+                      timing_ms, min_on, min_off)
 
 
 # ---------------------------------------------------------------------------

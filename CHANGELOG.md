@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Pattern lab (research)**: `python -m research.lab serve` runs a local browser GUI on the
+  Mac. You build songs with any patterns, compare and rate variants, audition them once on the
+  lights, push keepers to the Pi and set the song to rotate through them. The same commands
+  exist on the CLI. Patterns are now data: `research/patterns.toml` holds the built-ins and
+  `research/patterns.local.toml` your own. Mixes give each light source or channel group its
+  own pattern. Bundles record every variant's recipe (manifest v2) and can take the Pi's
+  layout (`--layout`).
 - **Per-song sequence variants**: a song's `.<song-file>.cfg` can set
   `[custom_lightshow] sequence = fft | csv | <variant> | rotate:<v1>,<v2>,… |
   random:<v1>,…`. Variant CSVs live in `<sequences_dir>/<song>/<variant>.csv`

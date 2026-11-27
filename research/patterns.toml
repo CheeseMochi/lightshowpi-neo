@@ -1,0 +1,117 @@
+# Built-in light patterns for the composer (research/bundle.py, research/lab).
+#
+# Each [patterns.<name>] is a named pattern: a base strategy plus its options.
+# The name becomes the variant (CSV) name on the Pi, so use letters, digits,
+# '-' and '_' only. To tweak or add patterns without editing this file, put
+# them in research/patterns.local.toml (git-ignored): same layout, and a name
+# that exists here replaces the built-in one.
+#
+# Bases and their options (anything not listed keeps its default):
+#   fft             today's show, simulated (no options)
+#   fft_safe        on_above, off_below            (hysteresis thresholds 0..1)
+#   onset_bands     threshold, floor, window, snap, max_per_beat, quiet_db, hold_beats,
+#                   dynamic, drop_db, drop_sustain, drop_window, scheduler, overflow
+#   onset_runs      the onset_bands options (dynamic + drop cut always on) plus sweeps
+#   stems           drop_db                        (needs Demucs on the Mac)
+#   beat_chase      min_step, gap_fraction, quiet_db, max_lit, beats_per_bar,
+#                   accent_level, bounce, pattern (chase|vu|ab|all|sparse), seed,
+#                   every_beats (1 = every beat, 2 = every other beat)
+#   sections        the beat_chase options (each section picks its own pattern)
+#   alternate       period (seconds)
+#
+# Every pattern also takes min_on / min_off (seconds) to override the relay preset.
+#
+# [mixes.<name>] combine patterns per light source or channel group, e.g.
+#   [mixes.hits_nanoleaf_alt]
+#   title = "Hits on relays, Nanoleaf alternating"
+#   groups = [ {channels = "1-7", pattern = "onset_dynamic", relays = "ssr"},
+#              {channels = "8-13", pattern = "test_alternate"} ]
+# Channels are 1-based, like always_off_channels ("1-3,5"). Columns no group
+# names stay dark.
+
+[patterns.fft]
+title = "Today's show (FFT)"
+description = "What plays now: one frequency band per channel, ON above a 0.5 threshold (simulated with the Pi's own fft.py and your chunk_size/mapping)."
+base = "fft"
+
+[patterns.fft_safe]
+title = "Today's show, relay-safe"
+description = "The same FFT levels with hysteresis (on > 0.6, off < 0.4) and minimum on/off times. Same look, far less flicker."
+base = "fft_safe"
+
+[patterns.onset_bands]
+title = "Hits per band"
+description = "Like today's one-band-per-channel idea, but channels fire on hits (drum, note attacks) in their band instead of loudness; hits snap to beats. (Your pick.)"
+base = "onset_bands"
+scheduler = "first"
+
+[patterns.onset_dynamic]
+title = "Hits per band, dynamic"
+description = "Hits per band, but how many channels may fire per beat follows loudness (sparse when quiet, full in big moments), and everything cuts to dark the instant the music drops 10 dB and stays down."
+base = "onset_bands"
+dynamic = true
+drop_db = 10.0
+
+[patterns.onset_smooth]
+title = "Hits per band, dynamic + long"
+description = "The dynamic version with each hit held a full beat: calmer, less blinking."
+base = "onset_bands"
+dynamic = true
+drop_db = 10.0
+hold_beats = 1.0
+
+[patterns.onset_sensitive]
+title = "Hits per band, dynamic + sensitive"
+description = "The dynamic version that also catches softer hits (for gentle songs) and cuts on smaller drops (6 dB)."
+base = "onset_bands"
+dynamic = true
+drop_db = 6.0
+threshold = 2.0
+floor = 0.08
+
+[patterns.onset_runs]
+title = "Hits + scale sweeps + starts"
+description = "Dynamic hits per band and the drop cut, plus: fast rising or falling scale runs light the display from one end to the other with the notes, and when the music crashes back in after a stop every light flashes on that hit."
+base = "onset_runs"
+drop_db = 10.0
+
+[patterns.stems]
+title = "Instrument per light"
+description = "Demucs splits the song into instruments; each light follows one: kick drum, snare/hats, bass, low voice, high voice, guitar, piano, other (whichever are present). Drums blink on hits; voices light per note while they sound."
+base = "stems"
+drop_db = 10.0
+
+[patterns.beat_chase]
+title = "Beat chase"
+description = "A group of adjacent channels steps along on every beat, bouncing at the ends; louder = bigger group, quiet = dark."
+base = "beat_chase"
+
+[patterns.beat_chase_calm]
+title = "Beat chase, calm"
+description = "The chase on every other beat with at most 3 channels lit: slower, easier on relays."
+base = "beat_chase"
+every_beats = 2
+max_lit = 3
+min_step = 0.6
+
+[patterns.vu_meter]
+title = "VU meter on the beat"
+description = "A bar graph from channel 1 up, refreshed on each beat: more channels when louder."
+base = "beat_chase"
+pattern = "vu"
+
+[patterns.beat_ab]
+title = "A/B on the beat"
+description = "Odd and even channels swap on every beat."
+base = "beat_chase"
+pattern = "ab"
+
+[patterns.sections]
+title = "Sections"
+description = "A different look per song section (sparse, A/B, chase, all-pulse by loudness), the same look when a section repeats; a blackout and flash into louder sections."
+base = "sections"
+
+[patterns.test_alternate]
+title = "Test pattern"
+description = "Odd/even swap every 0.5 s regardless of the music: checks the CSV path and audio/light sync."
+base = "alternate"

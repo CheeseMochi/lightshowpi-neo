@@ -1,15 +1,83 @@
-# Offline composer and test bed (research)
+# Pattern lab: compose, compare and push light patterns (research)
 
-The Mac analyses a song and writes `song.csv` sequences that the Pi already knows how to
-play. A CSV beside an audio file replaces that song's FFT show. **No show code changes**,
-so it's safe to try during the freeze. Background and design:
-[docs/research/ALGORITHMS.md](../docs/research/ALGORITHMS.md).
+The Mac analyses a song and writes light sequences (headerless CSVs, one row per 25 ms) that
+the show Pi plays per song from `music/sequences/<song>/<variant>.csv`. Composing needs
+librosa (and Demucs for `stems`), so it stays on the Mac. The Pi only plays the CSVs.
+Background and design: [docs/research/ALGORITHMS.md](../docs/research/ALGORITHMS.md).
+What to try next: [docs/research/ROADMAP.md](../docs/research/ROADMAP.md).
 
-1. **Mac:** `research/bundle.py` builds one folder per song with every show variant, as the
-   full song and as a 30 s clip, plus a browser preview.
-2. **Copy** `research/out/` to the Pi.
-3. **Pi, over ssh:** `research/testbed.py` plays the variants on the real lights through the
-   normal show engine. You choose one at a time from a menu, or play them all back to back.
+## Quick start: the lab GUI
+
+```bash
+python -m venv .venv-research
+.venv-research/bin/pip install -r research/requirements-research.txt
+.venv-research/bin/pip install demucs              # optional, for the 'stems' pattern
+export LSP_RELAYS=ssr                              # your props are on solid-state relays
+
+.venv-research/bin/python -m research.lab serve    # then open http://127.0.0.1:8765
+```
+
+**The loop:**
+1. **Pi tab:** log in (`http://piserver-neo.local:8000`, your admin user), then **Fetch layout**.
+   Builds then use the Pi's exact column count and light sources (GPIO relays, Nanoleaf, …).
+2. **Build:** pick songs (from `music/`), patterns and mixes, the relay preset and clip, then
+   **Build**.
+3. **Compare & rate:** play the 30 s clip or the full song in the preview, switch variants, and
+   star them. Notes are kept with the stars (`research/ratings.jsonl`).
+4. **Audition on lights:** plays that song next on the Pi with that variant, once. Its saved
+   setting doesn't change. The show must be running a playlist.
+5. **Push** the keepers (or **Push rated ★4+**), then **Set the song to rotate through ★4+**.
+   That writes `sequence = rotate:…` on the Pi.
+6. **Tweak:**
+   - **Patterns tab:** change any option (drop threshold, hold, sensitivity, relay limits …)
+     and save it under a new name.
+   - **Mixes tab:** give each light source or channel group its own pattern.
+
+   Rebuild, compare, repeat.
+
+**Patterns are data:**
+- Built-ins live in `research/patterns.toml`.
+- Yours go in `research/patterns.local.toml` (git-ignored, written by the Patterns and Mixes
+  tabs; you can hand-edit it too). A local pattern with a built-in's name replaces it.
+- Every bundle records each variant's recipe in `manifest.json`, so a look can be rebuilt
+  later.
+
+**Mixes** combine patterns per light source or channel group, e.g. hits on the relays while
+Nanoleaf alternates:
+
+```toml
+[mixes.hits_nanoleaf_alt]
+title = "Hits on relays, Nanoleaf alternating"
+groups = [ {channels = "1-7", pattern = "onset_dynamic", relays = "ssr"},
+           {channels = "8-13", pattern = "test_alternate"} ]
+```
+
+Giving Nanoleaf columns of its own needs `[hardware] virtual_channels` on the Pi (e.g. 6, with
+`[output:nanoleaf] channels = 7,8,9,10,11,12`). Without it, Nanoleaf mirrors relay channels and
+a mix can only split the relay channels themselves.
+
+**The same from the command line** (scripts, or without the GUI):
+
+```bash
+LAB=".venv-research/bin/python -m research.lab"
+$LAB pi login                       # once; the token is cached in ~/.config/lightshowpi/
+$LAB pi layout --save               # research/layout.json, used by builds via --layout
+$LAB build music/WizardsInWinter.mp3 --layout research/layout.json --variants onset_dynamic,onset_runs
+$LAB rate WizardsInWinter onset_runs 5 --note "sweeps land"
+$LAB pi push WizardsInWinter --variants onset_runs          # --as "<Pi song name>" if it differs
+$LAB pi play WizardsInWinter --variant onset_runs           # audition once on the lights
+$LAB pi set WizardsInWinter --sequence "rotate:onset_runs,onset_dynamic"
+$LAB patterns                                               # list patterns and mixes
+```
+
+`--pi URL` or `$LSP_PI` points at another Pi.
+
+**Needs on the Pi** (merged and deployed): the variant upload/audition API (`sequence-upload`).
+For per-output mixes it also needs `virtual_channels` and `/api/layout` (`output-channels`).
+Over the Cloudflare tunnel, the login needs Turnstile, so use the LAN address.
+
+**Alternative without the API:** `research/testbed.py` on the Pi (below) plays bundles over
+ssh. That's useful for 30 s A/B clips back to back.
 
 ## Variants
 
@@ -55,7 +123,7 @@ dropping a hit that arrives while its light is still on:
 Variant 3 keeps the original "first hit wins" placement for comparison. The beat variants put
 every switch-on on a beat.
 
-## 1. Mac: build the bundles
+## Bundles in detail (`research/bundle.py`)
 
 ```bash
 python -m venv .venv-research
@@ -81,7 +149,7 @@ open research/out/evilwezil_carol-of-the-bells/preview.html     # every variant 
 - The audio is decoded on the Mac and saved as WAV. The Pi plays exactly the samples the CSVs were
   timed against, so there's no decoder offset between them.
 
-## 2. Copy to the Pi
+## Test bed over ssh: copy bundles to the Pi
 
 ```bash
 ssh piserver-neo.local mkdir -p lightshowpi/research/out
@@ -92,7 +160,7 @@ The test bed itself is in the repo (`research/testbed.py`). Merge the `research-
 and run `make deploy HOST=piserver-neo`. Don't rsync `research/` code into the Pi's checkout:
 the deploy's `git` step won't overwrite untracked files, and the next deploy would fail.
 
-## 3. Pi: run the test bed
+## Test bed over ssh: run it on the Pi
 
 ```bash
 ssh piserver-neo.local
@@ -140,7 +208,7 @@ superseded by `bundle.py` for testing on the lights.
 ## Tests
 
 ```bash
-SYNCHRONIZED_LIGHTS_HOME=$(pwd) .venv-research/bin/python -m pytest -q -p no:cacheprovider tests/test_research_composer.py
+SYNCHRONIZED_LIGHTS_HOME=$(pwd) .venv-research/bin/python -m pytest -q -p no:cacheprovider tests/test_research_composer.py tests/test_research_lab.py
 ```
 
 CI and the dev env run the same file; the librosa tests skip there.

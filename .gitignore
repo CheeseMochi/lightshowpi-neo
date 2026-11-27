@@ -147,6 +147,9 @@ deploy/local/
 
 # Research composer (research/): generated sequences + song copies, and its venv
 research/out/
+research/patterns.local.toml
+research/ratings.jsonl
+research/layout.json
 .venv-research/
 
 # research/testbed.py writes this from overrides.cfg on every run

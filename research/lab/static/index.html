@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pattern lab</title>
+<style>
+  :root { --bg:#0b1020; --panel:#141b2e; --fg:#e8ecf4; --muted:#8a93a8; --line:#26304a;
+          --accent:#ffd36b; --ok:#6bd39a; --bad:#ff8080; --btn:#1d2640; --sel:#3a4a7a; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui,-apple-system,sans-serif; }
+  header { padding:12px 16px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; }
+  nav button { margin-right:4px; }
+  main { padding:16px; max-width:1200px; }
+  section { display:none; } section.on { display:block; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:14px; }
+  h2 { font-size:16px; margin:0 0 8px; } h3 { font-size:14px; margin:12px 0 6px; color:var(--muted); font-weight:600; }
+  button { background:var(--btn); color:var(--fg); border:1px solid #2c3550; border-radius:6px; padding:6px 10px; font:inherit; cursor:pointer; }
+  button.primary { background:#3b4f8f; border-color:#6b84d3; } button.sel { background:var(--sel); border-color:#6b84d3; }
+  button:disabled { opacity:.5; cursor:default; }
+  input, select, textarea { background:#0f1526; color:var(--fg); border:1px solid #2c3550; border-radius:6px; padding:5px 8px; font:inherit; }
+  input[type=checkbox] { padding:0; }
+  .muted { color:var(--muted); } .ok { color:var(--ok); } .bad { color:var(--bad); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:4px 16px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:6px 0; }
+  .list { max-height:340px; overflow:auto; border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  label.chk { display:flex; gap:6px; align-items:flex-start; padding:2px 0; }
+  pre { background:#0f1526; border:1px solid var(--line); border-radius:6px; padding:8px; max-height:260px; overflow:auto; white-space:pre-wrap; font-size:12px; }
+  table { border-collapse:collapse; width:100%; font-size:14px; }
+  td, th { text-align:left; padding:4px 8px 4px 0; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:500; }
+  .stars button { padding:0 3px; background:none; border:none; color:#56607a; font-size:18px; }
+  .stars button.on { color:var(--accent); }
+  iframe { width:100%; height:640px; border:1px solid var(--line); border-radius:8px; background:#0b1020; }
+  .tag { font-size:11px; border:1px solid var(--line); border-radius:10px; padding:0 6px; color:var(--muted); }
+  #toast { position:fixed; bottom:16px; right:16px; max-width:480px; padding:10px 14px; border-radius:8px; background:#22304f; border:1px solid #3b4f8f; display:none; }
+  #toast.bad { background:#4a1f26; border-color:#8a3340; }
+</style></head><body>
+<header>
+  <h1>🎄 Pattern lab</h1>
+  <nav>
+    <button data-tab="build" class="sel">1 · Build</button>
+    <button data-tab="compare">2 · Compare &amp; rate</button>
+    <button data-tab="patterns">Patterns</button>
+    <button data-tab="mixes">Mixes</button>
+    <button data-tab="pi">Pi</button>
+  </nav>
+  <span id="pistatus" class="muted"></span>
+</header>
+<main>
+
+<section id="tab-build" class="on">
+  <div class="panel">
+    <h2>Songs <span class="muted" id="musicdir"></span></h2>
+    <div class="row"><input id="songfilter" placeholder="filter…" size="30"></div>
+    <div class="list" id="songlist"></div>
+  </div>
+  <div class="panel">
+    <h2>Patterns and mixes to build</h2>
+    <div class="row"><button id="allpat">all</button><button id="nonepat">none</button>
+      <span class="muted">Stems needs Demucs (first run per song ≈ 20 s per minute of audio).</span></div>
+    <div class="grid" id="patlist"></div>
+  </div>
+  <div class="panel">
+    <h2>Options</h2>
+    <div class="row">
+      Relays <select id="relays"></select>
+      Clip start (s) <input id="clipstart" size="6" placeholder="auto">
+      Clip length <input id="clipsec" size="4" value="30">
+      Channels <input id="channels" size="4" placeholder="layout">
+      Sweep order <input id="order" size="14" placeholder="1,2,3,…">
+      <label class="chk"><input type="checkbox" id="nostems"> skip stems</label>
+    </div>
+    <div class="muted" id="layoutnote"></div>
+    <div class="row"><button class="primary" id="build">Build</button><span id="buildstate"></span></div>
+    <pre id="buildlog" style="display:none"></pre>
+  </div>
+</section>
+
+<section id="tab-compare">
+  <div class="panel">
+    <div class="row">Song <select id="bundlesel"></select>
+      <span class="muted" id="bundleinfo"></span></div>
+  </div>
+  <iframe id="preview" title="preview"></iframe>
+  <div class="panel">
+    <h2>Rate, push and audition</h2>
+    <table id="ratetable"><thead><tr><th>Variant</th><th>Rating</th><th>Note</th><th>On the Pi</th></tr></thead><tbody></tbody></table>
+    <div class="row"><button id="pushrated">Push rated ★4+ to the Pi</button>
+      <label class="chk"><input type="checkbox" id="replace"> replace existing</label>
+      <input id="assong" placeholder="Pi song name (if different)" size="28"></div>
+    <div class="row"><button id="rotate">Set the song to rotate through ★4+</button>
+      <span class="muted">Writes <code>sequence = rotate:…</code> on the Pi.</span></div>
+  </div>
+</section>
+
+<section id="tab-patterns">
+  <div class="panel">
+    <h2>Patterns</h2>
+    <p class="muted">Built-in patterns come from <code>research/patterns.toml</code>. Yours are saved to
+      <code>research/patterns.local.toml</code>; saving a built-in name there replaces it.</p>
+    <div class="row">Edit <select id="patsel"></select> <span id="patsrc" class="tag"></span></div>
+    <div class="row">Name <input id="patname" size="24"> Base <select id="patbase"></select></div>
+    <div class="row">Title <input id="pattitle" size="40"></div>
+    <div class="row">Description <input id="patdesc" size="80"></div>
+    <h3>Options (blank = default)</h3>
+    <div class="grid" id="patopts"></div>
+    <div class="row"><button class="primary" id="patsave">Save</button><button id="patdel">Delete mine</button></div>
+  </div>
+</section>
+
+<section id="tab-mixes">
+  <div class="panel">
+    <h2>Mixes: a pattern per light source or channel group</h2>
+    <p class="muted" id="mixlayout"></p>
+    <div class="row">Edit <select id="mixsel"></select></div>
+    <div class="row">Name <input id="mixname" size="24"> Title <input id="mixtitle" size="40"></div>
+    <table id="mixgroups"><thead><tr><th>Channels (1-based)</th><th>Pattern</th><th>Relays</th><th>Label</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="row"><button id="mixadd">Add group</button><button id="mixfromlayout">One group per light source</button></div>
+    <div class="row"><button class="primary" id="mixsave">Save</button><button id="mixdel">Delete</button></div>
+  </div>
+</section>
+
+<section id="tab-pi">
+  <div class="panel">
+    <h2>Show Pi</h2>
+    <div class="row">URL <input id="piurl" size="36"> User <input id="piuser" value="admin" size="10">
+      Password <input id="pipass" type="password" size="16"><button class="primary" id="pilogin">Log in</button>
+      <button id="pilogout">Log out</button></div>
+    <div class="row"><button id="pilayout">Fetch and save the Pi's channel layout</button>
+      <span class="muted">Builds then use the Pi's column count and light sources.</span></div>
+  </div>
+  <div class="panel">
+    <h2>Playlist on the Pi</h2>
+    <button id="pisongs">Refresh</button>
+    <table id="pisongtable"><thead><tr><th>#</th><th>Song</th><th>Sequence</th><th>Variants</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+</main>
+<div id="toast"></div>
+<script>
+let S = null;                 // /api/state
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function toast(msg, bad) {
+  const t = $('toast'); t.textContent = msg; t.className = bad ? 'bad' : ''; t.style.display = 'block';
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', bad ? 9000 : 4000);
+}
+async function api(method, path, body) {
+  const r = await fetch(path, { method, headers: body !== undefined ? {'Content-Type':'application/json'} : {},
+                                body: body !== undefined ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) { const d = data.detail; throw new Error(typeof d === 'string' ? d : JSON.stringify(d || r.status)); }
+  return data;
+}
+async function refresh() {
+  S = await api('GET', '/api/state');
+  $('musicdir').textContent = S.music_dir;
+  $('pistatus').innerHTML = S.pi.logged_in ? `<span class="ok">● ${esc(S.pi.url)}</span>` : `<span class="muted">○ not logged in to ${esc(S.pi.url)}</span>`;
+  $('piurl').value = $('piurl').value || S.pi.url;
+  renderSongs(); renderPatternPicker(); renderRelays(); renderLayoutNote();
+  renderBundles(); renderPatternEditor(); renderMixes();
+}
+
+// ---- tabs ---------------------------------------------------------------
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('sel', x === b));
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === 'tab-' + b.dataset.tab));
+  if (b.dataset.tab === 'compare') loadPreview();
+});
+
+// ---- build ----------------------------------------------------------------
+const picked = new Set();
+function renderSongs() {
+  const f = $('songfilter').value.toLowerCase();
+  const built = new Set(Object.keys(S.bundles));
+  $('songlist').innerHTML = S.songs.filter(s => s.toLowerCase().includes(f)).map(s => {
+    const stem = s.split('/').pop().replace(/\.[^.]+$/, '');
+    return `<label class="chk"><input type="checkbox" data-song="${esc(s)}" ${picked.has(s) ? 'checked' : ''}>
+      ${esc(s)} ${built.has(stem) ? '<span class="tag">built</span>' : ''}</label>`;
+  }).join('') || '<span class="muted">No audio files found.</span>';
+  $('songlist').querySelectorAll('input').forEach(i => i.onchange = () =>
+    i.checked ? picked.add(i.dataset.song) : picked.delete(i.dataset.song));
+}
+$('songfilter').oninput = renderSongs;
+const pickedPat = new Set();
+function renderPatternPicker() {
+  const items = [...S.patterns, ...S.mixes.map(m => ({...m, base: 'mix'}))];
+  if (!pickedPat.size) items.forEach(p => pickedPat.add(p.name));
+  $('patlist').innerHTML = items.map(p => `<label class="chk"><input type="checkbox" data-p="${esc(p.name)}" ${pickedPat.has(p.name) ? 'checked' : ''}>
+    <span>${esc(p.title || p.name)} <span class="tag">${esc(p.base)}${p.source === 'local' ? ' · yours' : ''}</span></span></label>`).join('');
+  $('patlist').querySelectorAll('input').forEach(i => i.onchange = () =>
+    i.checked ? pickedPat.add(i.dataset.p) : pickedPat.delete(i.dataset.p));
+}
+$('allpat').onclick = () => { [...S.patterns, ...S.mixes].forEach(p => pickedPat.add(p.name)); renderPatternPicker(); };
+$('nonepat').onclick = () => { pickedPat.clear(); pickedPat.add('__none__'); renderPatternPicker(); };
+function renderRelays() {
+  if ($('relays').options.length) return;
+  $('relays').innerHTML = Object.entries(S.relay_presets).map(([k, v]) =>
+    `<option value="${k}" ${k === 'ssr' ? 'selected' : ''}>${k} (${v[0]}/${v[1]} s)</option>`).join('');
+}
+function renderLayoutNote() {
+  const L = S.layout;
+  $('layoutnote').textContent = L && !L.error
+    ? `Using the Pi's saved layout: ${L.gpio_len} columns — ` + L.groups.map(g => `${g.label} ${g.channels.map(c => c + 1).join(',')}`).join(' · ')
+    : 'No Pi layout saved yet (Pi tab → Fetch layout); builds use 7 channels unless you set Channels.';
+}
+$('build').onclick = async () => {
+  const songs = [...picked];
+  const variants = [...pickedPat].filter(p => p !== '__none__');
+  if (!songs.length) return toast('Pick at least one song', true);
+  if (!variants.length) return toast('Pick at least one pattern', true);
+  const body = { songs, variants, relays: $('relays').value, clip_seconds: +$('clipsec').value || 30,
+                 order: $('order').value.trim(), no_stems: $('nostems').checked };
+  if ($('clipstart').value.trim()) body.clip_start = +$('clipstart').value;
+  if ($('channels').value.trim()) body.channels = +$('channels').value;
+  try {
+    const { job } = await api('POST', '/api/build', body);
+    $('build').disabled = true; $('buildstate').textContent = 'building…'; $('buildlog').style.display = 'block';
+    const poll = async () => {
+      const j = await api('GET', '/api/jobs/' + job);
+      $('buildlog').textContent = j.log || '(working…)';
+      if (j.state === 'running') return setTimeout(poll, 1500);
+      $('build').disabled = false;
+      $('buildstate').innerHTML = j.state === 'done' ? '<span class="ok">done — see Compare</span>' : '<span class="bad">failed (log below)</span>';
+      await refresh();
+    };
+    poll();
+  } catch (e) { toast(e.message, true); }
+};
+
+// ---- compare ----------------------------------------------------------------
+function renderBundles() {
+  const sel = $('bundlesel'), cur = sel.value;
+  sel.innerHTML = Object.keys(S.bundles).map(b => `<option ${b === cur ? 'selected' : ''}>${esc(b)}</option>`).join('');
+  renderRatings();
+}
+$('bundlesel').onchange = () => { loadPreview(); renderRatings(); };
+function loadPreview() {
+  const b = $('bundlesel').value;
+  if (!b) return;
+  const src = `/bundles/${encodeURIComponent(b)}/preview.html`;
+  if ($('preview').dataset.src !== src) { $('preview').src = src; $('preview').dataset.src = src; }
+  const m = S.bundles[b];
+  $('bundleinfo').textContent = m ? `${m.variants.length} variants · ${m.channels} ch · ${m.relays || ''} · built ${new Date(m.built_at * 1000).toLocaleString()}` : '';
+}
+function renderRatings() {
+  const b = $('bundlesel').value, m = S.bundles[b];
+  const tb = $('ratetable').querySelector('tbody');
+  if (!m) { tb.innerHTML = ''; return; }
+  const R = (S.ratings[b] || {});
+  tb.innerHTML = m.variants.map(v => {
+    const r = R[v.name] || {}, stars = r.stars || 0;
+    return `<tr><td>${esc(v.title)}<br><span class="muted">${esc(v.name)}</span></td>
+      <td class="stars" data-v="${esc(v.name)}">${[1,2,3,4,5].map(n => `<button data-n="${n}" class="${n <= stars ? 'on' : ''}">★</button>`).join('')}</td>
+      <td><input data-note="${esc(v.name)}" value="${esc(r.note || '')}" size="24" placeholder="note"></td>
+      <td><button data-push="${esc(v.name)}">Push</button> <button data-play="${esc(v.name)}">Audition</button></td></tr>`;
+  }).join('');
+  tb.querySelectorAll('.stars button').forEach(btn => btn.onclick = async () => {
+    const v = btn.parentElement.dataset.v, n = +btn.dataset.n;
+    const cur = ((S.ratings[b] || {})[v] || {}).stars || 0;
+    const note = tb.querySelector(`[data-note="${CSS.escape(v)}"]`).value;
+    await api('POST', '/api/rate', { song: b, variant: v, stars: n === cur ? 0 : n, note });
+    S = await api('GET', '/api/state'); renderRatings();
+  });
+  tb.querySelectorAll('[data-note]').forEach(inp => inp.onchange = async () => {
+    const v = inp.dataset.note, stars = ((S.ratings[b] || {})[v] || {}).stars || 0;
+    if (!stars) return toast('Give it stars first; the note is saved with the rating');
+    await api('POST', '/api/rate', { song: b, variant: v, stars, note: inp.value });
+  });
+  tb.querySelectorAll('[data-push]').forEach(btn => btn.onclick = () => push([btn.dataset.push]));
+  tb.querySelectorAll('[data-play]').forEach(btn => btn.onclick = async () => {
+    try { const r = await api('POST', '/api/pi/play', { song: b, variant: btn.dataset.play, as_song: $('assong').value || null });
+          toast(`Playing ${r.playing} next with ${r.variant} (once)`); } catch (e) { toast(e.message, true); }
+  });
+}
+const keepers = () => Object.entries(S.ratings[$('bundlesel').value] || {}).filter(([, r]) => r.stars >= 4).map(([v]) => v);
+async function push(variants) {
+  try {
+    const r = await api('POST', '/api/pi/push', { song: $('bundlesel').value, variants, replace: $('replace').checked, as_song: $('assong').value || null });
+    const bad = r.results.filter(x => !x.ok);
+    toast(`→ ${r.song.name}: ` + r.results.map(x => (x.ok ? '✓ ' : '✗ ') + x.variant + (x.ok ? '' : ` (${x.error})`)).join(', '), bad.length > 0);
+  } catch (e) { toast(e.message, true); }
+}
+$('pushrated').onclick = () => keepers().length ? push(keepers()) : toast('Rate some variants ★4 or more first', true);
+$('rotate').onclick = async () => {
+  const k = keepers();
+  if (!k.length) return toast('Rate some variants ★4 or more first', true);
+  const names = k.map(v => ['fft', 'csv', 'rotate', 'random'].includes(v) ? 'research_' + v : v);
+  const seq = names.length === 1 ? names[0] : 'rotate:' + names.join(',');
+  try { const r = await api('POST', '/api/pi/set', { song: $('bundlesel').value, sequence: seq, as_song: $('assong').value || null });
+        toast(`${r.song}: sequence = ${r.sequence}`); } catch (e) { toast(e.message, true); }
+};
+
+// ---- patterns -----------------------------------------------------------------
+function renderPatternEditor() {
+  const sel = $('patsel'), cur = sel.value;
+  sel.innerHTML = '<option value="">(new)</option>' + S.patterns.map(p => `<option ${p.name === cur ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+  $('patbase').innerHTML = Object.keys(S.bases).map(b => `<option>${b}</option>`).join('');
+  loadPattern();
+}
+function loadPattern() {
+  const p = S.patterns.find(x => x.name === $('patsel').value);
+  $('patname').value = p ? p.name : ''; $('pattitle').value = p ? p.title || '' : '';
+  $('patdesc').value = p ? p.description || '' : ''; $('patsrc').textContent = p ? p.source : 'new';
+  if (p) $('patbase').value = p.base;
+  renderOptions(p);
+}
+const CHOICES = { scheduler: ['smart', 'first'] };
+function renderOptions(p) {
+  const base = $('patbase').value, B = S.bases[base];
+  CHOICES.pattern = S.chase_patterns;
+  $('patopts').innerHTML = Object.entries(B.types).map(([k, t]) => {
+    const val = p && k in p ? p[k] : '', def = B.defaults[k];
+    const ph = def === undefined || def === null ? 'default' : String(def);
+    if (t.includes('bool')) {
+      return `<label class="chk">${k} <select data-opt="${k}" data-t="bool"><option value="">(${esc(ph)})</option>
+        <option value="true" ${val === true ? 'selected' : ''}>true</option><option value="false" ${val === false ? 'selected' : ''}>false</option></select></label>`;
+    }
+    if (CHOICES[k]) {
+      return `<label class="chk">${k} <select data-opt="${k}" data-t="str"><option value="">(${esc(ph)})</option>` +
+        CHOICES[k].map(c => `<option ${val === c ? 'selected' : ''}>${c}</option>`).join('') + '</select></label>';
+    }
+    const kind = t.includes('str') && !t.includes('float') ? 'str' : (t.includes('float') ? 'float' : 'int');
+    return `<label class="chk">${k} <input data-opt="${k}" data-t="${kind}" size="8" value="${esc(val)}" placeholder="${esc(ph)}"></label>`;
+  }).join('') || '<span class="muted">This base has no options.</span>';
+}
+$('patsel').onchange = loadPattern;
+$('patbase').onchange = () => renderOptions(null);
+$('patsave').onclick = async () => {
+  const name = $('patname').value.trim();
+  if (!name) return toast('Give the pattern a name', true);
+  const options = {};
+  $('patopts').querySelectorAll('[data-opt]').forEach(el => {
+    const v = el.value.trim(); if (v === '') return;
+    const t = el.dataset.t;
+    options[el.dataset.opt] = t === 'bool' ? v === 'true' : t === 'float' ? parseFloat(v) : t === 'int' ? parseInt(v, 10) : v;
+  });
+  try { await api('PUT', '/api/patterns/' + encodeURIComponent(name), { base: $('patbase').value, title: $('pattitle').value, description: $('patdesc').value, options });
+        toast('Saved ' + name); $('patsel').value = name; await refresh(); } catch (e) { toast(e.message, true); }
+};
+$('patdel').onclick = async () => {
+  const name = $('patname').value.trim();
+  try { await api('DELETE', '/api/patterns/' + encodeURIComponent(name)); toast('Deleted ' + name); $('patsel').value = ''; await refresh(); }
+  catch (e) { toast(e.message, true); }
+};
+
+// ---- mixes ------------------------------------------------------------------
+let groups = [];
+function layoutGroups() {
+  const L = S.layout && !S.layout.error ? S.layout : null;
+  return L ? L.groups : [];
+}
+function ranges(chans) {           // [0,1,2,5] -> "1-3,6"
+  const s = chans.map(c => c + 1).sort((a, b) => a - b), out = [];
+  for (let i = 0; i < s.length; i++) { let j = i; while (j + 1 < s.length && s[j + 1] === s[j] + 1) j++;
+    out.push(i === j ? `${s[i]}` : `${s[i]}-${s[j]}`); i = j; }
+  return out.join(',');
+}
+function renderMixes() {
+  const LG = layoutGroups();
+  $('mixlayout').textContent = LG.length ? 'Pi layout: ' + LG.map(g => `${g.label} = channels ${ranges(g.channels)}`).join(' · ')
+    : 'No Pi layout saved (Pi tab → Fetch layout). Type channel ranges yourself, e.g. 1-7 for the relays.';
+  const sel = $('mixsel'), cur = sel.value;
+  sel.innerHTML = '<option value="">(new)</option>' + S.mixes.map(m => `<option ${m.name === cur ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
+  loadMix();
+}
+function loadMix() {
+  const m = S.mixes.find(x => x.name === $('mixsel').value);
+  $('mixname').value = m ? m.name : ''; $('mixtitle').value = m ? m.title || '' : '';
+  groups = m ? m.groups.map(g => ({...g})) : (groups.length ? groups : []);
+  drawGroups();
+}
+function drawGroups() {
+  const pats = S.patterns.map(p => p.name);
+  $('mixgroups').querySelector('tbody').innerHTML = groups.map((g, i) => `<tr>
+    <td><input data-g="${i}" data-k="channels" value="${esc(g.channels || '')}" size="10"></td>
+    <td><select data-g="${i}" data-k="pattern">${pats.map(p => `<option ${p === g.pattern ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></td>
+    <td><select data-g="${i}" data-k="relays"><option value="">(build setting)</option>${Object.keys(S.relay_presets).map(r => `<option ${r === g.relays ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
+    <td><input data-g="${i}" data-k="label" value="${esc(g.label || '')}" size="14"></td>
+    <td><button data-del="${i}">✕</button></td></tr>`).join('');
+  $('mixgroups').querySelectorAll('[data-g]').forEach(el => el.onchange = () => { groups[+el.dataset.g][el.dataset.k] = el.value; });
+  $('mixgroups').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { groups.splice(+b.dataset.del, 1); drawGroups(); });
+}
+$('mixsel').onchange = () => { groups = []; loadMix(); };
+$('mixadd').onclick = () => { groups.push({ channels: '', pattern: S.patterns[0].name }); drawGroups(); };
+$('mixfromlayout').onclick = () => {
+  const LG = layoutGroups();
+  if (!LG.length) return toast('Fetch the Pi layout first (Pi tab)', true);
+  groups = LG.map(g => ({ channels: ranges(g.channels), pattern: 'onset_dynamic', label: g.label,
+                          relays: g.kind === 'relays' ? '' : 'ssr' }));
+  drawGroups();
+};
+$('mixsave').onclick = async () => {
+  const name = $('mixname').value.trim();
+  if (!name) return toast('Give the mix a name', true);
+  try { await api('PUT', '/api/mixes/' + encodeURIComponent(name), { title: $('mixtitle').value, groups });
+        toast('Saved ' + name); $('mixsel').value = name; await refresh(); } catch (e) { toast(e.message, true); }
+};
+$('mixdel').onclick = async () => {
+  try { await api('DELETE', '/api/mixes/' + encodeURIComponent($('mixname').value.trim())); toast('Deleted'); $('mixsel').value = ''; groups = []; await refresh(); }
+  catch (e) { toast(e.message, true); }
+};
+
+// ---- Pi -------------------------------------------------------------------------
+$('pilogin').onclick = async () => {
+  try { await api('POST', '/api/pi/login', { url: $('piurl').value.trim(), username: $('piuser').value, password: $('pipass').value });
+        $('pipass').value = ''; toast('Logged in'); await refresh(); } catch (e) { toast(e.message, true); }
+};
+$('pilogout').onclick = async () => { await api('POST', '/api/pi/logout', {}); await refresh(); };
+$('pilayout').onclick = async () => {
+  try { await api('POST', '/api/pi/layout', {}); toast('Saved the Pi layout'); await refresh(); } catch (e) { toast(e.message, true); }
+};
+$('pisongs').onclick = async () => {
+  try {
+    const songs = await api('GET', '/api/pi/songs');
+    $('pisongtable').querySelector('tbody').innerHTML = songs.map(s => `<tr><td>${s.index}</td><td>${esc(s.name)}</td>
+      <td><input data-seq="${s.index}" value="${esc(s.sequence || '')}" placeholder="default" size="24"></td>
+      <td>${esc((s.variants || []).join(', ') || '-')}</td><td><button data-set="${s.index}" data-name="${esc(s.name)}">Save</button></td></tr>`).join('');
+    $('pisongtable').querySelectorAll('[data-set]').forEach(b => b.onclick = async () => {
+      const seq = $('pisongtable').querySelector(`[data-seq="${b.dataset.set}"]`).value.trim();
+      try { const r = await api('POST', '/api/pi/set', { song: b.dataset.name, as_song: b.dataset.name, sequence: seq });
+            toast(`${r.song}: sequence = ${r.sequence || '(default)'}`); } catch (e) { toast(e.message, true); }
+    });
+  } catch (e) { toast(e.message, true); }
+};
+
+refresh().catch(e => toast(e.message, true));
+</script>
+</body></html>

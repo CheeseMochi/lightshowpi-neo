@@ -4,5 +4,9 @@ librosa>=1.0
 soundfile>=0.12      # decodes mp3 when audioread has no backend (Mac without ffmpeg)
 audioread>=3.0       # same decoder the Pi uses, preferred when it works
 pytest
+httpx                # FastAPI TestClient for the lab tests
+python-multipart     # the lab tests fake the Pi's upload endpoint
+fastapi>=0.110        # the pattern lab GUI (python -m research.lab serve)
+uvicorn>=0.24
 # Optional: instrument separation for the "stems" variant (pulls in torch, ~1 GB)
 # demucs>=4.0
