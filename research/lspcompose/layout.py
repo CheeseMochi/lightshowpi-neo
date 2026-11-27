@@ -65,7 +65,8 @@ def from_api(data: dict) -> PiLayout:
     Tolerant of optional keys: ``gpio_len`` is required; ``physical``,
     ``led_extend`` and ``virtual`` are [start, end) spans (or null);
     ``outputs`` is a list of {name, type, channels}; ``virtual_channel_source``
-    optionally lists the FFT mirror source per virtual column.
+    (or ``virtual_sources``, as the Pi's API names it) lists the FFT mirror
+    source per virtual column.
     """
     if "gpio_len" not in data:
         raise ValueError("layout has no gpio_len")
@@ -81,15 +82,24 @@ def from_api(data: dict) -> PiLayout:
         groups.append(Group("LED strip channels", list(range(*led)), "led"))
     for out in data.get("outputs") or []:
         chans = [int(c) for c in out.get("channels") or [] if 0 <= int(c) < gpio_len]
-        if chans:
-            label = out.get("name") or out.get("type") or "output"
-            groups.append(Group(str(label), chans, "output"))
+        if not chans:
+            continue
+        label = str(out.get("name") or out.get("type") or "output")
+        # An output that only mirrors channels already in a group (e.g. an LED
+        # strip in MIRROR mode on the relay channels) isn't a separate source:
+        # name it on that group instead of adding an overlapping one.
+        host = next((g for g in groups if set(chans) <= set(g.channels)), None)
+        if host is not None:
+            host.label += f" + {label}"
+            continue
+        groups.append(Group(label, chans, "output"))
     if virtual and virtual[1] > virtual[0]:
         claimed = {c for g in groups if g.kind == "output" for c in g.channels}
         rest = [c for c in range(*virtual) if c not in claimed]
         if rest:
             groups.append(Group("Virtual channels", rest, "virtual"))
-    source = [int(x) for x in data.get("virtual_channel_source") or []]
+    source = [int(x) for x in (data.get("virtual_sources")
+                               or data.get("virtual_channel_source") or [])]
     return PiLayout(gpio_len, base, groups, source)
 
 

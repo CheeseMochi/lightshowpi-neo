@@ -155,6 +155,18 @@ LAYOUT = {"gpio_len": 13, "physical": [0, 7], "led_extend": None, "virtual": [7,
 
 class TestLayout:
 
+    def test_the_pis_real_layout_shape(self):
+        """As /api/layout returns it on piserver-neo (output-channels branch)."""
+        L = layout_mod.from_api({
+            "gpio_len": 13, "physical": [0, 7], "led_extend": None, "virtual": [7, 13],
+            "virtual_sources": [0, 1, 2, 3, 4, 5],
+            "outputs": [{"name": "led:led2.cfg", "type": "led", "channels": [0, 1, 2, 3, 4, 5, 6]},
+                        {"name": "nanoleaf", "type": "nanoleaf", "channels": [7, 8, 9, 10, 11, 12]}],
+            "channel_labels": {"1": "Snowflake"}, "warnings": []})
+        assert [(g.label, g.channels) for g in L.groups] == [
+            ("GPIO relays + led:led2.cfg", list(range(7))), ("nanoleaf", list(range(7, 13)))]
+        assert L.mirror_source(12) == 5
+
     def test_groups_from_the_api(self):
         L = layout_mod.from_api(LAYOUT)
         assert L.gpio_len == 13 and L.base_count == 7 and L.virtual == list(range(7, 13))
@@ -503,3 +515,70 @@ def test_cli_reports_pi_errors_without_a_traceback(capsys, tmp_path, monkeypatch
                         (pi_mod.DEFAULT_URL, str(tmp_path / "t.json"), 30.0, None))
     assert lab_main(["--pi", "http://pi.test:1", "pi", "songs"]) == 2
     assert "not logged in" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Integration: the lab client against the real songs API (once it has variants)
+# ---------------------------------------------------------------------------
+
+def _real_songs_router():
+    pytest.importorskip("bcrypt", reason="the API's dependencies aren't in this environment")
+    from api.routers import songs as songs_router
+    if not any("/variants/" in getattr(r, "path", "") for r in songs_router.router.routes):
+        pytest.skip("the songs API has no variant upload yet (sequence-upload not merged)")
+    return songs_router
+
+
+def test_lab_client_against_the_real_songs_api(tmp_path):
+    songs_router = _real_songs_router()
+    from unittest.mock import Mock
+    from api.core.auth import get_current_user, require_admin
+    from api.services.lightshow_manager import LightshowManager
+    from api.services.songs import SongLibrary
+
+    music = tmp_path / "music"
+    music.mkdir()
+    (music / "WizardsInWinter.mp3").write_bytes(b"")
+    (music / ".playlist").write_text("Wizards In Winter\tmusic/WizardsInWinter.mp3\n")
+    (tmp_path / "config").mkdir()
+    library = SongLibrary(playlist_path=str(music / ".playlist"), home_dir=str(tmp_path),
+                          sequences_dir=str(tmp_path / "sequences"), gpio_len=7)
+    manager = Mock(spec=LightshowManager)
+    manager.is_running.return_value = True
+    manager.current_playlist = library.playlist_path
+    manager.config = Mock()
+    app = FastAPI()
+    app.include_router(songs_router.router)
+    app.dependency_overrides[songs_router.get_library] = lambda: library
+    app.dependency_overrides[songs_router.get_manager] = lambda: manager
+    app.dependency_overrides[require_admin] = lambda: {"username": "tester", "id": 1}
+    app.dependency_overrides[get_current_user] = lambda: {"username": "tester", "id": 1}
+
+    client = pi_mod.PiClient("http://pi.test:8000", token_file=str(tmp_path / "t.json"),
+                             opener=opener_for(app))
+    client._save_token("any")                       # auth is overridden above
+    out = str(tmp_path / "out")
+    make_bundle(out)                                # 7-column CSVs: onset_dynamic, fft
+
+    result = store.push(client, "WizardsInWinter", out_dir=out)
+    assert all(r["ok"] for r in result["results"]), result
+    on_disk = sorted(os.listdir(tmp_path / "sequences" / "WizardsInWinter"))
+    assert on_disk == ["onset_dynamic.csv", "research_fft.csv"]
+    again = store.push(client, "WizardsInWinter", ["onset_dynamic"], out_dir=out)
+    assert again["results"][0]["status"] == 409
+    assert store.push(client, "WizardsInWinter", ["onset_dynamic"], replace=True,
+                      out_dir=out)["results"][0]["ok"]
+
+    client.play(0, "onset_dynamic")                 # the one-shot audition
+    writes = [c.args for c in manager.config.update_state.call_args_list]
+    assert ("sequence_once", "WizardsInWinter|onset_dynamic") in writes
+    assert writes[-1] == ("play_now", "1")
+    client.set_sequence(0, "rotate:onset_dynamic,research_fft")
+    assert client.songs()[0]["sequence"] == "rotate:onset_dynamic,research_fft"
+
+    bad = str(tmp_path / "bad")
+    make_bundle(bad)
+    with open(os.path.join(bad, "WizardsInWinter", "full", "fft", "full.csv"), "w") as f:
+        f.write("0,255\n")                          # wrong column count: the Pi refuses it
+    r = store.push(client, "WizardsInWinter", ["fft"], replace=True, out_dir=bad)["results"][0]
+    assert not r["ok"] and r["status"] == 422
