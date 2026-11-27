@@ -83,3 +83,31 @@ export function offMessage(schedule, now = new Date()) {
   }
   return { headline: 'The lights are resting', detail: 'Check back after dark!' };
 }
+
+/**
+ * "Artist · Album · 2013" from whichever of the song's tag details are known;
+ * '' when there are none.
+ */
+export function songByline(song, { album = true } = {}) {
+  if (!song) return '';
+  return [song.artist, album ? song.album : null, song.year].filter(Boolean).join(' · ');
+}
+
+function times(n) {
+  return n === 1 ? 'once' : `${n} times`;
+}
+
+/**
+ * Short, friendly lines for the current song's play counts (all time). The
+ * count includes the play happening now. Returns [] when there are no stats.
+ */
+export function statLines(stats) {
+  if (!stats || !(stats.plays > 0)) return [];
+  if (stats.plays === 1) return [{ icon: '🌟', text: 'First time on the show!' }];
+  const lines = [{ icon: '🎵', text: `Played ${stats.plays} times` }];
+  if (stats.completions > 0) lines.push({ icon: '🎉', text: `Heard to the end ${times(stats.completions)}` });
+  lines.push(stats.skips > 0
+    ? { icon: '⏭️', text: `Skipped ${times(stats.skips)}` }
+    : { icon: '💯', text: 'Never skipped' });
+  return lines;
+}

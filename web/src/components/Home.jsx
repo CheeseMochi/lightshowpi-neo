@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { publicApi } from '../services/api';
 import { ADMIN_URL, SHOW_NAME } from '../config';
-import { formatClock, offMessage } from '../utils/showStatus';
+import { formatClock, offMessage, songByline, statLines } from '../utils/showStatus';
 import '../styles/Home.css';
 
 // Now-playing changes with every song; times and the playlist rarely do.
@@ -92,11 +92,14 @@ function StatusCard({ nowPlaying, fetchedAt, schedule, offline }) {
         nowPlaying.elapsed_s + (Date.now() - fetchedAt) / 1000);
       pct = Math.max(0, Math.min(100, (elapsed / nowPlaying.duration_s) * 100));
     }
+    const byline = songByline(nowPlaying);
+    const facts = statLines(nowPlaying.stats);
     return (
       <section className="home-card home-status is-on" aria-live="polite">
         <p className="home-status-label"><span className="home-live-dot" aria-hidden="true" /> The show is on!</p>
         <p className="home-now-label">Now playing</p>
         <h2 className="home-now-title">{nowPlaying.title || 'Live music'}</h2>
+        {byline && <p className="home-now-byline">{byline}</p>}
         {hasProgress && (
           <div className="home-progress">
             <div className="home-progress-track" role="progressbar" aria-label="Song progress"
@@ -109,6 +112,16 @@ function StatusCard({ nowPlaying, fetchedAt, schedule, offline }) {
               <span>{formatClock(nowPlaying.duration_s)}</span>
             </div>
           </div>
+        )}
+        {(facts.length > 0 || nowPlaying.pattern) && (
+          <ul className="home-song-facts" aria-label="About this song">
+            {nowPlaying.pattern && (
+              <li><span aria-hidden="true">✨</span> Lights: {nowPlaying.pattern}</li>
+            )}
+            {facts.map((fact) => (
+              <li key={fact.text}><span aria-hidden="true">{fact.icon}</span> {fact.text}</li>
+            ))}
+          </ul>
         )}
       </section>
     );
@@ -137,6 +150,7 @@ function Playlist({ playlist, isPlaying }) {
   const songs = (playlist && playlist.songs) || [];
   if (songs.length === 0) return null;
   const current = isPlaying ? playlist.current : null;
+  const details = playlist.details || [];
   return (
     <section className="home-card home-playlist">
       <h2 className="home-section-title">Tonight’s songs</h2>
@@ -145,7 +159,12 @@ function Playlist({ playlist, isPlaying }) {
           <li key={`${i}-${title}`} className={i === current ? 'is-current' : undefined}
             aria-current={i === current ? 'true' : undefined}>
             <span className="home-song-num">{i + 1}</span>
-            <span className="home-song-title">{title}</span>
+            <span className="home-song-text">
+              <span className="home-song-title">{title}</span>
+              {songByline(details[i], { album: false }) && (
+                <span className="home-song-meta">{songByline(details[i], { album: false })}</span>
+              )}
+            </span>
             {i === current && <span className="home-song-badge">Playing</span>}
           </li>
         ))}

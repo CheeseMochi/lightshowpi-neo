@@ -220,6 +220,30 @@
   overflow-wrap: anywhere;
 }
 
+.home-now-byline {
+  margin-top: 0.3rem;
+  color: var(--home-gold);
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.home-song-facts {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 1rem;
+}
+
+.home-song-facts li {
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--home-card-border);
+  font-size: 0.85rem;
+  color: var(--home-text);
+}
+
 .home-status-detail {
   margin-top: 0.6rem;
   color: var(--home-muted);
@@ -284,8 +308,21 @@
   font-size: 0.9rem;
 }
 
-.home-song-title {
+.home-song-text {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.home-song-title {
+  overflow-wrap: anywhere;
+}
+
+.home-song-meta {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--home-muted);
   overflow-wrap: anywhere;
 }
 

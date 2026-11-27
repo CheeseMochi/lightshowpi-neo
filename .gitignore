@@ -144,3 +144,10 @@ data/*.db-shm
 
 # Per-host deployment files (converted configs etc.); never commit
 deploy/local/
+
+# Research composer (research/): generated sequences + song copies, and its venv
+research/out/
+.venv-research/
+
+# research/testbed.py writes this from overrides.cfg on every run
+config/testbed.cfg

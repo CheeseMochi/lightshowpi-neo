@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sequence_once = <song>|<variant>` before `play_now`, and the show uses it for
   that one play and clears it. New `[lightshow] allow_sequence_audition`
   (default `True`); set it to `False` to turn auditions off.
+- **Song details on the public home page**: while a song plays, the status
+  card shows its artist, album and year (from the audio file's tags), the light
+  pattern in use (`fft` shows as "Live audio-reactive", a variant like
+  `onset_bands` as "Onset bands") and, from the event log, how many times it has
+  played, been heard to the end and been skipped. The playlist shows each
+  song's artist and year. New `[api] public_song_stats` (default `true`) hides
+  the counts. `/api/public/now-playing` gains `artist`, `album`, `year`,
+  `pattern` and `stats`; `/api/public/playlist` gains `details` (parallel to
+  `songs`). The cloud Worker accepts and serves the new fields and still
+  accepts payloads from a Pi without them, so deploy the Worker (`make cloud`)
+  before the Pi.
 - **Per-song sequence variants**: a song's `.<song-file>.cfg` can set
   `[custom_lightshow] sequence = fft | csv | <variant> | rotate:<v1>,<v2>,… |
   random:<v1>,…`. Variant CSVs live in `<sequences_dir>/<song>/<variant>.csv`
@@ -165,6 +176,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tools/sacn_monitor.py`: watches sACN packets arriving on a Pi (packets/s,
   sequence gaps, sender, levels) with a pass/fail mode, and
   `docs/bench/SACN_BENCH.md`, the Pi-to-Pi sACN bench procedure for the D9 go/no-go.
+- **Offline composer (research)**: `research/compose.py` analyses a song on the
+  Mac (librosa beat tracking and loudness) and writes the headerless `song.csv`
+  the Pi already plays, so it needs no show-code changes. `beat_chase` puts every
+  relay edge on a beat with minimum on/off times for mechanical relays, and goes
+  dark in quiet passages. Each run also scores today's FFT show on the same song
+  and writes an HTML preview (song plus lamps). See `research/README.md`.
+- **Show test bed (research)**: `research/bundle.py` builds every show variant
+  (today's FFT, relay-safe FFT, beat chase, calm chase, VU meter, A/B, hits per
+  band, sections, test pattern) for a song, full length and as a row-aligned
+  30 s clip. `research/testbed.py` runs on the show Pi over ssh with a menu
+  (play one, all back to back, or loop) and plays each variant through the
+  normal show engine with the pre-show and postshow off.
+- **Composer: dynamic "hits per band" and instrument-per-light (research)**:
+  `onset_dynamic`/`onset_smooth`/`onset_sensitive` scale how many channels fire
+  with loudness and cut to dark the instant the music drops (a sustained 10 dB
+  or 6 dB fall, located on the loudness cliff); `stems` uses Demucs
+  (htdemucs_6s) to give each light one instrument (kick, snare/hats, bass,
+  low/high voice, guitar, piano, other). The test-bed menu and preview label
+  each light with its instrument. Clips default to the song's biggest drop.
+- **Composer: scale sweeps and dramatic starts (research)**: `onset_runs` adds,
+  on top of dynamic hits per band, sweeps that light the display end to end
+  with fast rising/falling scale runs (pitch from a CQT of the harmonic part;
+  each light switches once per run) and a full flash on the first hit after
+  every stop. `--order` sets the display's physical end-to-end channel order.
+- **Composer: relay presets and syncopation (research)**: `--relays
+  mechanical|ssr` (or `LSP_RELAYS`) sets the minimum on/off times (0.20/0.15 s
+  or 0.05/0.05 s). A hit scheduler keeps close-together hits by shortening the
+  previous pulse, overflowing to a neighbouring band's light, or keeping the
+  stronger hit (on the samples with SSRs, the kick light fires 2.3x as often).
 
 ### Changed
 - Test patterns in `hardware_controller.py` moved into a `Patterns` class so the
