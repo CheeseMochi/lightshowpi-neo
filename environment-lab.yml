@@ -1,6 +1,7 @@
 name: lightshowpi-neo-lab
 channels:
   - conda-forge
+  - conda-pypi
 
 # ============================================================================
 # LightShowPi Neo - Pattern lab environment (Mac only)
@@ -15,7 +16,7 @@ channels:
 # ============================================================================
 
 dependencies:
-  - python>=3.12,<3.14      # librosa 1.x needs 3.12+
+  - python>=3.12      # librosa 1.x needs 3.12+
 
   # Audio analysis
   - numpy>=2.0.0
@@ -38,6 +39,6 @@ dependencies:
   - python-multipart        # the lab tests fake the Pi's upload endpoint
   - pytest>=8
 
-  - pip
   - pip:
-      - demucs>=4.1         # not on conda-forge (4.0.x pinned an old torchaudio)
+    - demucs>=4.1         # not on conda-forge (4.0.x pinned an old torchaudio)
+
