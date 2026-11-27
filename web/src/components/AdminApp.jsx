@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route } from 'react-router';
 import Login from './Login';
 import Dashboard from './Dashboard';
 import { auth, AUTH_EXPIRED_EVENT } from '../services/api';

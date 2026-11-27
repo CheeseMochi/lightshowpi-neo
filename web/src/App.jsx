@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
 import Home from './components/Home';
 import AdminApp from './components/AdminApp';
 import { ADMIN_URL } from './config';

@@ -19,7 +19,8 @@ run_worker_first = ["/api/*", "/ingest", "/admin", "/admin/*"]
 
 [[kv_namespaces]]
 binding = "SHOW_KV"
-# Paste the id printed by `npx wrangler kv namespace create SHOW_KV`
+# Leave the placeholder: `make cloud` fills in your namespace id from KV_ID=...
+# or cloud/worker/.kv-id (gitignored) when it writes wrangler.deploy.toml.
 id = "REPLACE_WITH_KV_NAMESPACE_ID"
 
 [vars]
