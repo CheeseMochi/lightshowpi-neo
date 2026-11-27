@@ -57,7 +57,9 @@ def build_payload(api_config, scheduler=None, now: Optional[float] = None) -> Di
     def read():
         return state
 
-    now_playing = public.now_playing_snapshot(read if state is not None else None)
+    now_playing = public.now_playing_snapshot(read if state is not None else None,
+                                              public.config_home_dir(api_config),
+                                              public.config_song_stats(api_config))
     # The Worker advances elapsed time from this (corrected by sent_at for clock skew)
     started = None
     if now_playing.state == "playing" and now_playing.elapsed_s is not None:

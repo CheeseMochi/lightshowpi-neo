@@ -198,7 +198,9 @@ class TestPayload:
         assert set(body["now_playing"]) == set(public.PublicNowPlaying.model_fields)
         assert body["now_playing"]["title"] == "Deck the Halls"
         assert body["song_started_at"] == pytest.approx(now - 20)
-        assert body["playlist"] == {"songs": ["Carol", "Deck"], "current": 1}
+        assert body["playlist"]["songs"] == ["Carol", "Deck"]
+        assert body["playlist"]["current"] == 1
+        assert len(body["playlist"]["details"]) == 2
         assert body["schedule"]["note"] == "Nightly"
         assert body["schedule"]["shows"][0]["start"] == "17:30"
         text = json.dumps(body)

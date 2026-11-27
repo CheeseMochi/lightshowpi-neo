@@ -265,7 +265,7 @@ def _row_to_dict(row):
 
 
 def fetch_events(types=None, since=None, until=None, limit=None, offset=0,
-                 newest_first=True, db_path=None):
+                 newest_first=True, db_path=None, song=None):
     """Read events. Returns ``(events, total)``; ``([], 0)`` if there is no database.
 
     Args:
@@ -274,6 +274,7 @@ def fetch_events(types=None, since=None, until=None, limit=None, offset=0,
         limit/offset: paging (limit None = all)
         newest_first: sort order by ts
         db_path: override the configured path
+        song: only events for this exact song title (None = all songs)
 
     Raises:
         sqlite3.Error on a corrupt or unreadable database (callers in the API
@@ -294,6 +295,9 @@ def fetch_events(types=None, since=None, until=None, limit=None, offset=0,
     if until is not None:
         where.append("ts < ?")
         params.append(float(until))
+    if song is not None:
+        where.append("song = ?")
+        params.append(str(song))
     clause = (" WHERE " + " AND ".join(where)) if where else ""
 
     conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_S)

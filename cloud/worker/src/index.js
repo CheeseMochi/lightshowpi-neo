@@ -20,7 +20,7 @@
 export const SNAPSHOT_KEY = 'snapshot';
 export const STALE_AFTER_S = 15 * 60;   // no heartbeat for this long: the show is off
 export const STALE_GRACE_S = 60;        // same grace as the Pi after a song should have ended
-export const MAX_BODY_BYTES = 64 * 1024;
+export const MAX_BODY_BYTES = 256 * 1024;
 export const CACHE_SECONDS = 5;
 const MEMO_MS = CACHE_SECONDS * 1000;   // per-isolate copy of the snapshot (saves KV reads)
 
@@ -31,10 +31,18 @@ const MAX_TITLE = 200;
 const MAX_NOTE = 500;
 const MAX_SONGS = 1000;
 const MAX_SHOWS = 50;
+const MAX_DETAIL = 200;  // the Pi caps at 120 characters; JS counts some as 2
+const MAX_COUNT = 1e9;
 
-export const OFF = Object.freeze({ state: 'off', title: null, elapsed_s: null, duration_s: null });
+// Song detail keys that follow the basics in now_playing (all optional, so a
+// Pi running older code still validates)
+const DETAIL_KEYS = ['artist', 'album', 'year', 'pattern'];
+export const OFF = Object.freeze({
+  state: 'off', title: null, elapsed_s: null, duration_s: null,
+  artist: null, album: null, year: null, pattern: null, stats: null,
+});
 export const EMPTY_SCHEDULE = Object.freeze({ note: null, tonight: null, shows: [] });
-export const EMPTY_PLAYLIST = Object.freeze({ songs: [], current: null });
+export const EMPTY_PLAYLIST = Object.freeze({ songs: [], current: null, details: [] });
 
 // ---------------------------------------------------------------------------
 // Payload validation: only the exact public shapes are stored
@@ -65,6 +73,31 @@ function optString(v, max, where) {
   return v;
 }
 
+function count(v, where) {
+  if (v === undefined || v === null) return 0;
+  if (!Number.isInteger(v) || v < 0 || v > MAX_COUNT) throw new Invalid(`${where} must be a count`);
+  return v;
+}
+
+function songStats(v, where) {
+  if (v === undefined || v === null) return null;
+  onlyKeys(v, ['plays', 'completions', 'skips'], where);
+  return {
+    plays: count(v.plays, `${where}.plays`),
+    completions: count(v.completions, `${where}.completions`),
+    skips: count(v.skips, `${where}.skips`),
+  };
+}
+
+function songInfo(v, where) {
+  if (v === undefined || v === null) return { artist: null, year: null };
+  onlyKeys(v, ['artist', 'year'], where);
+  return {
+    artist: optString(v.artist, MAX_DETAIL, `${where}.artist`),
+    year: optString(v.year, MAX_DETAIL, `${where}.year`),
+  };
+}
+
 function showTime(v, where) {
   onlyKeys(v, ['days', 'start', 'stop'], where);
   if (!Array.isArray(v.days) || v.days.length > 7 || !v.days.every((d) => DAYS.has(d))) {
@@ -88,7 +121,7 @@ export function validatePayload(body) {
   }
 
   const np = body.now_playing;
-  onlyKeys(np, ['state', 'title', 'elapsed_s', 'duration_s'], 'now_playing');
+  onlyKeys(np, ['state', 'title', 'elapsed_s', 'duration_s', ...DETAIL_KEYS, 'stats'], 'now_playing');
   if (!STATES.has(np.state)) throw new Invalid('now_playing.state must be playing, ambient or off');
   const nowPlaying = {
     state: np.state,
@@ -96,6 +129,10 @@ export function validatePayload(body) {
     elapsed_s: optNumber(np.elapsed_s, 'now_playing.elapsed_s'),
     duration_s: optNumber(np.duration_s, 'now_playing.duration_s'),
   };
+  for (const key of DETAIL_KEYS) {
+    nowPlaying[key] = optString(np[key], MAX_DETAIL, `now_playing.${key}`);
+  }
+  nowPlaying.stats = songStats(np.stats, 'now_playing.stats');
 
   const sentAt = optNumber(body.sent_at, 'sent_at');
   if (sentAt === null) throw new Invalid('sent_at must be a number');
@@ -111,7 +148,7 @@ export function validatePayload(body) {
   };
 
   const pl = body.playlist;
-  onlyKeys(pl, ['songs', 'current'], 'playlist');
+  onlyKeys(pl, ['songs', 'current', 'details'], 'playlist');
   const songs = pl.songs === undefined ? [] : pl.songs;
   if (!Array.isArray(songs) || songs.length > MAX_SONGS) throw new Invalid('playlist.songs must be a list');
   songs.forEach((s, i) => {
@@ -119,6 +156,11 @@ export function validatePayload(body) {
       throw new Invalid(`playlist.songs[${i}] must be a string up to ${MAX_TITLE}`);
     }
   });
+  const rawDetails = pl.details === undefined || pl.details === null ? [] : pl.details;
+  if (!Array.isArray(rawDetails) || rawDetails.length > songs.length) {
+    throw new Invalid('playlist.details must be a list no longer than songs');
+  }
+  const details = rawDetails.map((d, i) => songInfo(d, `playlist.details[${i}]`));
   let current = null;
   if (pl.current !== undefined && pl.current !== null) {
     if (!Number.isInteger(pl.current) || pl.current < 0 || pl.current >= songs.length) {
@@ -131,7 +173,7 @@ export function validatePayload(body) {
     now_playing: nowPlaying,
     song_started_at: optNumber(body.song_started_at, 'song_started_at'),
     schedule,
-    playlist: { songs: [...songs], current },
+    playlist: { songs: [...songs], current, details },
     sent_at: sentAt,
   };
 }
@@ -166,12 +208,16 @@ export function nowPlayingFrom(snapshot, nowS) {
     elapsed = Math.max(0, elapsed);
     if (duration != null) elapsed = Math.min(elapsed, duration);
   }
-  return {
+  const view = {
+    ...OFF,
     state: 'playing',
     title: np.title ?? null,
     elapsed_s: elapsed == null ? null : round1(elapsed),
     duration_s: duration == null ? null : round1(duration),
   };
+  for (const key of DETAIL_KEYS) view[key] = np[key] ?? null;
+  view.stats = np.stats ? { ...np.stats } : null;
+  return view;
 }
 
 export function scheduleFrom(snapshot) {
@@ -179,7 +225,10 @@ export function scheduleFrom(snapshot) {
 }
 
 export function playlistFrom(snapshot) {
-  return (snapshot && snapshot.playlist) || { ...EMPTY_PLAYLIST, songs: [] };
+  const pl = snapshot && snapshot.playlist;
+  if (!pl) return { ...EMPTY_PLAYLIST, songs: [], details: [] };
+  // Snapshots stored before details existed have none
+  return { ...pl, details: pl.details || [] };
 }
 
 // ---------------------------------------------------------------------------
