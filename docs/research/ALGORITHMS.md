@@ -204,7 +204,7 @@ python research/compose.py music/song.mp3 --strategy beat_chase \
 - Analysis cache: `.song.mp3.features.npz` (beats, downbeats, onset envelopes, segments, stems RMS), keyed by a file hash plus analyzer versions.
 - Output: integer values `0..brightness_range`, one row per `N = int(sr·timing/1000)` frames, no header, no blank lines. Use `round(v)` for relays (0 or 255).
 - `--preview`: render the CSV plus audio to an MP4 (a row of circles per channel) on the Mac, so strategies can be reviewed without the Pi.
-- The Mac-side dependencies live in a separate `requirements-research.txt`. The Pi never imports them.
+- The Mac-side dependencies live in their own conda env, `environment-lab.yml` (`lightshowpi-neo-lab`). The Pi never imports them.
 
 ### (b) Evaluation method
 

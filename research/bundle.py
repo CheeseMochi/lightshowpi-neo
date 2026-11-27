@@ -3,8 +3,9 @@
 Build a test-bed bundle for a song: every show variant, full length and as a
 30-second clip, ready to copy to the Pi and compare with research/testbed.py.
 
-    .venv-research/bin/python research/bundle.py music/song.mp3 --channels 7 --dead 2
-    .venv-research/bin/python research/bundle.py a.mp3 b.mp3 --channels 7 --dead 2 --clip-start 62
+    conda activate lightshowpi-neo-lab        # environment-lab.yml (make lab-env)
+    python research/bundle.py music/song.mp3 --channels 7 --dead 2
+    python research/bundle.py a.mp3 b.mp3 --channels 7 --dead 2 --clip-start 62
 
 Writes research/out/<song>/:
     audio/full.wav, audio/clip.wav       the audio, decoded here (the Pi plays the same PCM)
@@ -188,7 +189,7 @@ def bundle_one(song, args):
     chosen = args.chosen_variants
     skipped = [v.name for v in chosen if v.needs_stems and stem_feats is None]
     if skipped:
-        print(f"  skipping {', '.join(skipped)}: install demucs in .venv-research "
+        print(f"  skipping {', '.join(skipped)}: use the lightshowpi-neo-lab env (make lab-env) "
               "(see research/README.md) or drop --no-stems")
     summary = []
     for v in chosen:
@@ -278,8 +279,7 @@ def main(argv=None):
                   f"{m['toggles_per_channel_min_median']:8.0f} "
                   f"{m['short_on_violations'] + m['short_off_violations']:10.0f} {m['duty_mean']:6.2f}")
         print(f"  preview: open '{os.path.join(out, 'preview.html')}'")
-    print("\nCompare and push with the lab:  .venv-research/bin/python -m research.lab serve"
-          "   (or `research.lab pi push <song>`)")
+    print("\nCompare and push with the lab:  make lab   (or `python -m research.lab pi push <song>`)")
     return 0
 
 

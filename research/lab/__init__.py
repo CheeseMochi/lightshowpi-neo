@@ -1,8 +1,9 @@
 """
 Pattern lab: build, compare, rate and push light patterns from the Mac.
 
-    .venv-research/bin/python -m research.lab serve        # the GUI (browser)
-    .venv-research/bin/python -m research.lab --help       # the CLI
+    make lab                                  # the GUI (browser), in lightshowpi-neo-lab
+    conda activate lightshowpi-neo-lab
+    python -m research.lab --help             # the CLI
 
 See research/README.md. The lab composes on the Mac (librosa, Demucs) and
 talks to the show Pi only through its API (upload, audition, set).

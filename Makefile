@@ -4,6 +4,9 @@
 ANSIBLE_DIR   := deploy/ansible
 TF_DIR        := deploy/terraform/cloudflare
 CONDA_DEV_ENV ?= lightshowpi-neo-dev
+# Mac-only env for composing light patterns (research/, the pattern lab)
+CONDA_LAB_ENV ?= lightshowpi-neo-lab
+LAB_PORT      ?= 8765
 HOST          ?=
 TOKEN         ?=
 ARGS          ?=
@@ -21,7 +24,7 @@ PLAYBOOK    := ansible-playbook site.yml $(VAULT_FLAGS)
 
 .DEFAULT_GOAL := help
 .PHONY: help deploy-deps provision deploy media runner tunnel tunnel-token test lint-deploy \
-        cloud cloud-test _require-host _require-inventory
+        cloud cloud-test dev-env lab-env lab lab-test _require-host _require-inventory
 
 help: ## Show this help
 	@echo "LightShowPi Neo deployment"
@@ -73,6 +76,23 @@ cloud: ## Build the Home page for the cloud and deploy the public Worker (PUBLIC
 
 cloud-test: ## Run the public Worker's tests (vitest in workerd)
 	cd $(WORKER_DIR) && npm ci && npm test
+
+dev-env: ## Create or update the dev conda env (environment-dev.yml; mirrors the Pi and CI)
+	@if conda env list | grep -qE '^$(CONDA_DEV_ENV)[[:space:]]'; then \
+		conda env update -n $(CONDA_DEV_ENV) -f environment-dev.yml --prune; \
+	else conda env create -n $(CONDA_DEV_ENV) -f environment-dev.yml; fi
+
+lab-env: ## Create or update the pattern-lab conda env (environment-lab.yml; Mac only, ~2 GB with Demucs)
+	@if conda env list | grep -qE '^$(CONDA_LAB_ENV)[[:space:]]'; then \
+		conda env update -n $(CONDA_LAB_ENV) -f environment-lab.yml --prune; \
+	else conda env create -n $(CONDA_LAB_ENV) -f environment-lab.yml; fi
+
+lab: ## Start the pattern lab GUI on http://127.0.0.1:8765 (LAB_PORT=..., ARGS="--music DIR")
+	conda run --no-capture-output -n $(CONDA_LAB_ENV) python -m research.lab serve --port $(LAB_PORT) $(ARGS)
+
+lab-test: ## Run the composer and lab tests in the lab env
+	SYNCHRONIZED_LIGHTS_HOME=$(CURDIR) conda run -n $(CONDA_LAB_ENV) pytest -q -p no:cacheprovider \
+		tests/test_research_composer.py tests/test_research_lab.py
 
 test: ## Run the Python test suite locally (conda env lightshowpi-neo-dev; override CONDA_DEV_ENV=...)
 	SYNCHRONIZED_LIGHTS_HOME=$(CURDIR) conda run -n $(CONDA_DEV_ENV) pytest -q

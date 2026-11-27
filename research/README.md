@@ -8,14 +8,18 @@ What to try next: [docs/research/ROADMAP.md](../docs/research/ROADMAP.md).
 
 ## Quick start: the lab GUI
 
-```bash
-python -m venv .venv-research
-.venv-research/bin/pip install -r research/requirements-research.txt
-.venv-research/bin/pip install demucs              # optional, for the 'stems' pattern
-export LSP_RELAYS=ssr                              # your props are on solid-state relays
+The composer has its own conda env, `lightshowpi-neo-lab` (`environment-lab.yml`: librosa,
+Demucs/torch, FastAPI for the GUI). It's Mac only and kept apart from `lightshowpi-neo-dev`
+(`environment-dev.yml`), which mirrors the Pi and CI.
 
-.venv-research/bin/python -m research.lab serve    # then open http://127.0.0.1:8765
+```bash
+make lab-env                     # once (and after environment-lab.yml changes); ~2 GB with Demucs
+export LSP_RELAYS=ssr            # your props are on solid-state relays (put it in ~/.zshrc)
+make lab                         # then open http://127.0.0.1:8765
 ```
+
+Or activate the env and run the lab directly:
+`conda activate lightshowpi-neo-lab && python -m research.lab serve`.
 
 **The loop:**
 1. **Pi tab:** log in (`http://piserver-neo.local:8000`, your admin user), then **Fetch layout**.
@@ -59,7 +63,8 @@ a mix can only split the relay channels themselves.
 **The same from the command line** (scripts, or without the GUI):
 
 ```bash
-LAB=".venv-research/bin/python -m research.lab"
+conda activate lightshowpi-neo-lab
+LAB="python -m research.lab"
 $LAB pi login                       # once; the token is cached in ~/.config/lightshowpi/
 $LAB pi layout --save               # research/layout.json, used by builds via --layout
 $LAB build music/WizardsInWinter.mp3 --layout research/layout.json --variants onset_dynamic,onset_runs
@@ -126,12 +131,8 @@ every switch-on on a beat.
 ## Bundles in detail (`research/bundle.py`)
 
 ```bash
-python -m venv .venv-research
-.venv-research/bin/pip install -r research/requirements-research.txt
-.venv-research/bin/pip install demucs        # optional, for the 'stems' variant (pulls in torch)
-# (inside a Claude Code sandbox, add --use-deprecated=legacy-certs)
-
-.venv-research/bin/python research/bundle.py music/sample/evilwezil_carol-of-the-bells.mp3 \
+conda activate lightshowpi-neo-lab               # make lab-env creates it
+python research/bundle.py music/sample/evilwezil_carol-of-the-bells.mp3 \
     music/sample/ovenrake_deck-the-halls.mp3 --channels 7
 open research/out/evilwezil_carol-of-the-bells/preview.html     # every variant in the browser
 ```
@@ -208,7 +209,8 @@ superseded by `bundle.py` for testing on the lights.
 ## Tests
 
 ```bash
-SYNCHRONIZED_LIGHTS_HOME=$(pwd) .venv-research/bin/python -m pytest -q -p no:cacheprovider tests/test_research_composer.py tests/test_research_lab.py
+make lab-test        # the composer and lab tests in lightshowpi-neo-lab
+make test            # the whole suite in lightshowpi-neo-dev (as CI runs it)
 ```
 
-CI and the dev env run the same file; the librosa tests skip there.
+CI and the dev env run the same files; the librosa and Demucs tests skip there.

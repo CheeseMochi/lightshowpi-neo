@@ -2,8 +2,9 @@
 """
 Compose a LightShowPi sequence (song.csv) for a song, offline, on the Mac.
 
-    .venv-research/bin/python research/compose.py music/song.mp3 --channels 7 --dead 3
-    .venv-research/bin/python research/compose.py song.mp3 --channels 7 --strategy alternate
+    conda activate lightshowpi-neo-lab        # environment-lab.yml (make lab-env)
+    python research/compose.py music/song.mp3 --channels 7 --dead 3
+    python research/compose.py song.mp3 --channels 7 --strategy alternate
 
 Writes research/out/<song>-<strategy>/ with a copy of the song, <song>.csv beside it (so the
 Pi plays the CSV instead of the FFT when given that file), preview.html and
