@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Variant CSV upload, delete and audition** on the Songs page (Settings →
+  Variants) and in the API: `GET /api/songs/{index}/variants`,
+  `PUT /api/songs/{index}/variants/{name}` (multipart `file`, up to 5 MB, every
+  row checked against the channel count the show uses; `?replace=true` to
+  overwrite) and `DELETE /api/songs/{index}/variants/{name}` (refused while the
+  song's `sequence` setting uses it). Uploads and deletes are logged as
+  `sequence_upload` / `sequence_delete` events. `POST /api/songs/{index}/play`
+  takes an optional `{"variant": "<name>"}` to play the song once with that
+  variant without changing its saved setting: the API sets state
+  `sequence_once = <song>|<variant>` before `play_now`, and the show uses it for
+  that one play and clears it. New `[lightshow] allow_sequence_audition`
+  (default `True`); set it to `False` to turn auditions off.
+- **Virtual show channels** so outputs like Nanoleaf can run their own
+  pattern instead of mirroring the relays: `[hardware] virtual_channels = N`
+  appends N non-physical show channels after the GPIO and LED EXTEND
+  channels. GPIO and LED strips never see them; `[output:<name>] channels`
+  can map to them (e.g. 7 relays, `virtual_channels = 6`,
+  `[output:nanoleaf] channels = 7,8,9,10,11,12`). CSV sequences then need
+  `gpio_len + N` columns. In FFT mode only the base channels are analysed
+  (FFT bins and `.sync` caches are unchanged) and virtual channel i copies
+  base channel `virtual_channel_source[i]` (default `i mod base`). Network
+  servers send the full frame. Default `0` changes nothing.
+- `GET /api/layout` (login required): the show's channel ranges (`physical`,
+  `led_extend`, `virtual`), each output's channels, relay names from the
+  device registry and config warnings (e.g. an output mapped past the last
+  channel). Never returns hosts or tokens.
 - **Pattern lab (research)**: `python -m research.lab serve` runs a local browser GUI on the
   Mac. You build songs with any patterns, compare and rate variants, audition them once on the
   lights, push keepers to the Pi and set the song to rotate through them. The same commands

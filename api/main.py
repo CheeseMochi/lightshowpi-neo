@@ -37,7 +37,7 @@ from api.models.schemas import (
     UserLogin, AuthConfig, PasswordChange, Token, SystemHealth, LightshowState
 )
 from api.routers import lightshow, schedules, buttons, test_mode, public, events
-from api.routers import config_files, devices, songs
+from api.routers import config_files, devices, layout, songs
 from api.services.device_monitor import DeviceMonitor
 from api.services.devices import DeviceStore
 from api.services.lightshow_manager import LightshowManager
@@ -246,6 +246,7 @@ app.include_router(public.router)
 app.include_router(songs.router)
 app.include_router(config_files.router)
 app.include_router(devices.router)
+app.include_router(layout.router)
 app.include_router(events.router)
 
 

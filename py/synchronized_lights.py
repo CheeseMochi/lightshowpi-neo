@@ -93,6 +93,7 @@ import networking
 from prepostshow import PrePostShow
 import RunningStats
 import sequence_select
+import virtual_channels
 
 
 # ============================================================================
@@ -269,15 +270,21 @@ class Lightshow(object):
 
         self.output = lambda raw_data: None
 
-        self.mean = np.array([12.0 for _ in range(cm.hardware.gpio_len)], dtype='float32')
-        self.std = np.array([1.5 for _ in range(cm.hardware.gpio_len)], dtype='float32')
+        # FFT analyses only the base channels (GPIO + LED EXTEND); virtual
+        # channels ([hardware] virtual_channels) mirror them in update_lights.
+        # Without virtual channels the base count is gpio_len.
+        self.fft_channel_count = virtual_channels.base_channel_count(cm.hardware)
+        self.virtual_sources = virtual_channels.mirror_sources(cm.hardware)
+
+        self.mean = np.array([12.0 for _ in range(self.fft_channel_count)], dtype='float32')
+        self.std = np.array([1.5 for _ in range(self.fft_channel_count)], dtype='float32')
 
         self.attenuate_pct = cm.lightshow.attenuate_pct
         self.sd_low = cm.lightshow.SD_low
         self.sd_high = cm.lightshow.SD_high
 
         self.decay_factor = cm.lightshow.decay_factor
-        self.decay = np.zeros(cm.hardware.gpio_len, dtype='float32')
+        self.decay = np.zeros(self.fft_channel_count, dtype='float32')
         self.physical_gpio_len = cm.hardware.physical_gpio_len
         self.network = hc.network
         self.server = networking.is_server_mode(self.network.networking)
@@ -395,6 +402,12 @@ class Lightshow(object):
         if not hasattr(brightness, "__len__"):
             brightness = np.array([brightness])
 
+        # FFT frames cover the base channels only: append the virtual channels,
+        # each mirroring its source channel (CSV rows already have every column)
+        if self.sequence_type == 'auto' and self.virtual_sources \
+                and len(brightness) == self.fft_channel_count:
+            brightness = virtual_channels.append_mirrored(brightness, self.virtual_sources)
+
         # GPIO channels, network clients and every output (LEDs, ...)
         hc.set_array(brightness,True)
 
@@ -483,13 +496,13 @@ class Lightshow(object):
         # preload running_stats to avoid errors, and give us a show that looks
         # good right from the start
         count = 2
-        running_stats = RunningStats.Stats(cm.hardware.gpio_len)
+        running_stats = RunningStats.Stats(self.fft_channel_count)
         running_stats.preload(self.mean, self.std, count)
 
         hc.initialize()
         fft_calc = fft.FFT(self.chunk_size,
                            self.sample_rate,
-                           cm.hardware.gpio_len,
+                           self.fft_channel_count,
                            cm.audio_processing.min_frequency,
                            cm.audio_processing.max_frequency,
                            cm.audio_processing.custom_channel_mapping,
@@ -551,7 +564,7 @@ class Lightshow(object):
                 audio_max = np.abs(np.frombuffer(data, dtype=np.int16)).max()
                 if audio_max < 250:
                     # we will fill the matrix with zeros and turn the lights off
-                    matrix = np.zeros(cm.hardware.gpio_len, dtype="float32")
+                    matrix = np.zeros(self.fft_channel_count, dtype="float32")
                     log.debug("below threshold: '" + str(audio_max) + "', turning the lights off")
                 else:
                     matrix = fft_calc.calculate_levels(data)
@@ -756,7 +769,7 @@ class Lightshow(object):
 
         self.fft_calc = fft.FFT(self.chunk_size,
                                 self.sample_rate,
-                                cm.hardware.gpio_len,
+                                self.fft_channel_count,
                                 cm.audio_processing.min_frequency,
                                 cm.audio_processing.max_frequency,
                                 cm.audio_processing.custom_channel_mapping,
@@ -783,8 +796,8 @@ class Lightshow(object):
         loading them from a file if it exists, otherwise create empty arrays to be filled
         :raise IOError:
         """
-        # create empty array for the cache_matrix
-        self.cache_matrix = np.empty(shape=[0, cm.hardware.gpio_len])
+        # create empty array for the cache_matrix (FFT columns: base channels)
+        self.cache_matrix = np.empty(shape=[0, self.fft_channel_count])
         self.cache_found = False
 
         # The values 12 and 1.5 are good estimates for first time playing back
@@ -800,7 +813,7 @@ class Lightshow(object):
                 self.cache_found = self.fft_calc.compare_config(self.cache_filename)
                 if not self.cache_found:
                     # create empty array for the cache_matrix
-                    self.cache_matrix = np.empty(shape=[0, cm.hardware.gpio_len])
+                    self.cache_matrix = np.empty(shape=[0, self.fft_channel_count])
                     raise IOError()
                 else:
                     # load cache from file using numpy loadtxt
@@ -827,10 +840,10 @@ class Lightshow(object):
         Save matrix, std, and mean to cache_filename for use during future playback
         """
         # Compute the standard deviation and mean values for the cache
-        mean = np.empty(cm.hardware.gpio_len, dtype='float32')
-        std = np.empty(cm.hardware.gpio_len, dtype='float32')
+        mean = np.empty(self.fft_channel_count, dtype='float32')
+        std = np.empty(self.fft_channel_count, dtype='float32')
 
-        for pin in range(0, cm.hardware.gpio_len):
+        for pin in range(0, self.fft_channel_count):
             std[pin] = np.std([item for item in self.cache_matrix[:, pin] if item > 0])
             mean[pin] = np.mean([item for item in self.cache_matrix[:, pin] if item > 0])
 
@@ -916,6 +929,17 @@ class Lightshow(object):
         # Per-song "[custom_lightshow] sequence" picks FFT, the legacy CSV or a
         # variant CSV; without it the original behaviour below is unchanged.
         sequence_setting = sequence_select.read_sequence_setting(self.config_filename)
+        # A one-shot audition from the API ("play now with variant") overrides
+        # the saved setting for this play only. Always taken (and cleared) so a
+        # stale request can't fire later; ignored when auditions are off.
+        try:
+            once = sequence_select.take_once(filename, cm.get_state, cm.update_state)
+        except Exception as error:
+            log.warning("One-shot sequence check failed (%s)", error)
+            once = None
+        if once and getattr(cm.lightshow, 'allow_sequence_audition', False):
+            log.info("Auditioning sequence '%s' for this play", once)
+            sequence_setting = once
         if sequence_setting is None:
             self.sequence_filename = filename.rsplit('.',1)[0] + '.csv'
             if os.path.isfile(self.sequence_filename):

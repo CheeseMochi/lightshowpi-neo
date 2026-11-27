@@ -45,6 +45,11 @@ VARIANT_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$')
 # lower-cased by configparser, so sanitize to [a-z0-9_]).
 ROTATION_PREFIX = 'seq_rot_'
 
+# One-shot audition: the API sets ``sequence_once = <song stem>|<variant>``
+# before ``play_now``; the next get_song() takes (and always clears) it.
+ONCE_KEY = 'sequence_once'
+ONCE_SEP = '|'
+
 Selection = namedtuple('Selection', 'sequence_type filename name')
 """sequence_type is 'auto' (FFT) or 'csv'; filename is the CSV to play or None;
 name is what played: 'fft', 'csv' (legacy file) or the variant name."""
@@ -176,6 +181,41 @@ def check_csv(path, channel_count, full=True):
     if rows == 0:
         return 'empty file'
     return None
+
+
+def once_value(song_path, variant):
+    """State value for a one-shot audition of ``variant`` on this song."""
+    return song_stem(song_path) + ONCE_SEP + variant
+
+
+def take_once(song_path, get_state, update_state):
+    """Return the one-shot audition variant for this song, or None.
+
+    Reads state ``sequence_once`` (``<song stem>|<variant>``, see once_value).
+    Whenever the key is set it is cleared, matched or not, so a stale request
+    (for another song, or with a bad name) never sticks. Never raises.
+    """
+    try:
+        value = get_state(ONCE_KEY, '') or ''
+    except Exception as error:  # never let state stop the show
+        log.warning("Could not read %s: %s", ONCE_KEY, error)
+        return None
+    if not value:
+        return None
+    try:
+        update_state(ONCE_KEY, '')
+    except Exception as error:
+        log.warning("Could not clear %s: %s", ONCE_KEY, error)
+    # A stem may contain the separator; a variant name never does
+    stem, sep, variant = value.rpartition(ONCE_SEP)
+    if not sep or stem != song_stem(song_path):
+        log.info("Ignoring one-shot sequence '%s' (not for %s)", value,
+                 os.path.basename(song_path))
+        return None
+    if variant.lower() in RESERVED or not is_valid_variant_name(variant):
+        log.warning("Ignoring one-shot sequence with invalid variant '%s'", variant)
+        return None
+    return variant
 
 
 def rotation_key(song_path):

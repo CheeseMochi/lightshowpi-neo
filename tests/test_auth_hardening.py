@@ -145,7 +145,8 @@ KNOWN_PROTECTED = {"/api/lightshow/status", "/api/lightshow/start", "/api/schedu
                    "/api/buttons/status", "/api/test/status", "/api/auth/password",
                    "/api/songs", "/api/songs/{index}/settings",
                    "/api/config/files", "/api/config/files/{name}", "/api/config/effective",
-                   "/api/devices", "/api/devices/status", "/api/devices/heartbeat"}
+                   "/api/devices", "/api/devices/status", "/api/devices/heartbeat",
+                   "/api/layout"}
 
 
 def operations():
@@ -185,7 +186,7 @@ class TestRouteAudit:
     # covers them).
     @pytest.mark.parametrize("path", ["/api/lightshow/status", "/api/schedules", "/api/events",
                                       "/api/analytics/songs", "/api/analytics/hours",
-                                      "/api/analytics/summary"])
+                                      "/api/analytics/summary", "/api/layout"])
     def test_missing_token_is_401(self, client, path):
         res = client.get(path)
         assert res.status_code == 401

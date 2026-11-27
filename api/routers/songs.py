@@ -1,6 +1,7 @@
 """
-Songs API: the playlist (order, names, enable/disable), per-song settings and
-"play now".
+Songs API: the playlist (order, names, enable/disable), per-song settings,
+variant sequence CSVs (list, upload, delete) and "play now" (optionally
+auditioning one variant for that play).
 
 Every route needs a login; anything that changes files or the show needs an
 admin. See api/services/songs.py for the file formats and locking.
@@ -10,14 +11,22 @@ import logging
 import os
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
+import event_log  # py/ is on sys.path (api/core/config.py, pytest pythonpath)
+import sequence_select
 from api.core.auth import get_current_user, require_admin
 from api.services.lightshow_manager import LightshowManager, get_lightshow_manager
-from api.services.songs import SongError, SongLibrary, SETTINGS_KEYS
+from api.services.songs import (MAX_VARIANT_BYTES, SETTINGS_KEYS, SongError, SongLibrary,
+                                expected_channels)
 
 log = logging.getLogger(__name__)
+
+# Multipart boundaries and headers on top of the file itself
+_MULTIPART_OVERHEAD = 64 * 1024
 
 router = APIRouter(prefix="/api/songs", tags=["Songs"])
 
@@ -41,7 +50,9 @@ def get_library(_user: dict = Depends(get_current_user)) -> SongLibrary:
     cm = _config.cm
     return SongLibrary(playlist_path=cm.lightshow.playlist_path,
                        home_dir=cm.home_dir or '',
-                       sequences_dir=cm.lightshow.sequences_dir)
+                       sequences_dir=cm.lightshow.sequences_dir,
+                       gpio_len=expected_channels(cm),
+                       allow_audition=bool(getattr(cm.lightshow, 'allow_sequence_audition', True)))
 
 
 def get_manager() -> LightshowManager:
@@ -141,12 +152,101 @@ def put_song_settings(index: int, body: SongSettings,
     return result
 
 
+def _record(event_type: str, user: dict, song: str, variant: str, **details) -> None:
+    """Write a sequence_upload / sequence_delete event (never raises)."""
+    try:
+        event_log.record(event_type, source="api", song=song, variant=variant,
+                         user=(user or {}).get("username"), **details)
+    except Exception:  # the event log must never break a request
+        log.debug("%s event not recorded", event_type, exc_info=True)
+
+
+@router.get("/{index}/variants")
+def list_song_variants(index: int, library: SongLibrary = Depends(get_library),
+                       current_user: dict = Depends(get_current_user)):
+    """The song's variant CSVs (name, size, rows, columns, mtime, problem) and ``gpio_len``."""
+    return _run(library.list_variant_info, index)
+
+
+_UPLOAD_BODY = {
+    "requestBody": {
+        "required": True,
+        "content": {"multipart/form-data": {"schema": {
+            "type": "object", "required": ["file"],
+            "properties": {"file": {"type": "string", "format": "binary"}},
+        }}},
+    }
+}
+
+
+@router.put("/{index}/variants/{name}", openapi_extra=_UPLOAD_BODY)
+async def upload_song_variant(index: int, name: str, request: Request, replace: bool = False,
+                              library: SongLibrary = Depends(get_library),
+                              current_user: dict = Depends(require_admin)):
+    """Upload a variant CSV (multipart field ``file``, at most 5 MB).
+
+    Every row must have ``gpio_len`` numeric columns. An existing variant
+    is a 409 unless ``?replace=true``. Returns the variant's info.
+    """
+    _run(library.check_variant_name, name)
+    # Refuse a big body before the multipart parser spools it
+    length = request.headers.get("content-length")
+    if length is None or not length.isdigit():
+        raise HTTPException(status_code=status.HTTP_411_LENGTH_REQUIRED,
+                            detail="Content-Length required")
+    if int(length) > MAX_VARIANT_BYTES + _MULTIPART_OVERHEAD:
+        raise HTTPException(status_code=422,
+                            detail="File is larger than %d MB" % (MAX_VARIANT_BYTES // (1024 * 1024)))
+    form = await request.form(max_files=1, max_fields=1)
+    try:
+        upload = form.get("file")
+        if not isinstance(upload, StarletteUploadFile):
+            raise HTTPException(status_code=422,
+                                detail="Send the CSV as multipart form field 'file'")
+        info = await run_in_threadpool(_run, library.save_variant, index, name,
+                                       upload.file, replace)
+    finally:
+        await form.close()
+    song = _run(library.row, index)[0]
+    _record("sequence_upload", current_user, song, name, replaced=info["replaced"],
+            rows=info["rows"], size=info["size"])
+    log.info("%s uploaded sequence variant %s for song %d (%s)",
+             current_user.get("username"), name, index, song)
+    return info
+
+
+@router.delete("/{index}/variants/{name}")
+def delete_song_variant(index: int, name: str, library: SongLibrary = Depends(get_library),
+                        current_user: dict = Depends(require_admin)):
+    """Delete a variant CSV; 409 if the song's saved ``sequence`` setting uses it."""
+    song = _run(library.row, index)[0]
+    _run(library.delete_variant, index, name)
+    _record("sequence_delete", current_user, song, name)
+    log.info("%s deleted sequence variant %s of song %d (%s)",
+             current_user.get("username"), name, index, song)
+    return {"success": True, "index": index, "name": name}
+
+
+class PlayRequest(BaseModel):
+    """Optional body of play now: audition ``variant`` for this play only."""
+    model_config = ConfigDict(extra="forbid")
+    variant: Optional[str] = None
+
+
 @router.post("/{index}/play")
-def play_song_now(index: int, library: SongLibrary = Depends(get_library),
+def play_song_now(index: int, body: Optional[PlayRequest] = None,
+                  library: SongLibrary = Depends(get_library),
                   manager: LightshowManager = Depends(get_manager),
                   current_user: dict = Depends(require_admin)):
-    """Interrupt the running show and play this song next (state ``play_now``)."""
+    """Interrupt the running show and play this song next (state ``play_now``).
+
+    With ``{"variant": name}`` that variant CSV is used for this one play
+    (state ``sequence_once = <song stem>|<variant>``, written before
+    ``play_now``); the saved ``sequence`` setting is unchanged.
+    """
     row = _run(library.row, index)
+    variant = (body.variant or '').strip() if body else ''
+    once = _run(library.audition_value, index, variant) if variant else None
     if not manager.is_running():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="The show isn't running; start it first")
@@ -159,7 +259,11 @@ def play_song_now(index: int, library: SongLibrary = Depends(get_library),
             os.path.realpath(library.playlist_path):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="The show is playing a different playlist")
+    # sequence_once first: once the show sees play_now it also sees the variant
+    if once:
+        manager.config.update_state(sequence_select.ONCE_KEY, once)
     # The show plays songs[play_now - 1]
     manager.config.update_state('play_now', str(index + 1))
-    log.info("%s asked to play song %d (%s) now", current_user.get("username"), index, row[0])
-    return {"success": True, "index": index, "name": row[0]}
+    log.info("%s asked to play song %d (%s) now%s", current_user.get("username"), index, row[0],
+             " with variant %s" % variant if once else "")
+    return {"success": True, "index": index, "name": row[0], "variant": variant or None}

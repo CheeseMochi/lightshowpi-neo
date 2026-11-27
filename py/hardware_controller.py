@@ -39,6 +39,7 @@ from collections import defaultdict
 import configuration_manager
 import networking
 import networking_sacn
+import virtual_channels
 from outputs.led import LedOutput
 from outputs.threaded import ThreadedOutput
 from outputs.nanoleaf import NanoleafOutput
@@ -124,6 +125,11 @@ class Hardware(object):
                 for lc in self.cm.configs.led:
                     self._add_led(lc)
 
+        # Virtual show channels go after every GPIO and LED EXTEND channel
+        # ([hardware] virtual_channels, default 0 = nothing changes)
+        if self.cm.add_virtual_channels():
+            self._bound_led_extend(self.cm.hardware.base_channel_count)
+
         self._add_configured_outputs()
 
         self.create_lights()
@@ -192,6 +198,13 @@ class Hardware(object):
         if getattr(self.cm.led, 'threaded', False):
             output = ThreadedOutput(output, max_fps=getattr(self.cm.led, 'max_fps', 0) or None)
         self.outputs.append(output)
+
+    def _bound_led_extend(self, end):
+        """Keep LED EXTEND strips off the virtual channels that follow them."""
+        for output in self.outputs:
+            inner = getattr(output, 'inner', output)
+            if isinstance(inner, LedOutput):
+                inner.extend_end = end
 
     def write_outputs(self, levels):
         """Send one frame of channel levels to every output.
@@ -303,13 +316,13 @@ class Hardware(object):
                 channel + 1 in cm.lightshow.invert_channels)
 
     def set_pins_as_outputs(self):
-        """Set all the configured pins as outputs."""
-        for pin in range(cm.hardware.gpio_len):
+        """Set all the configured pins as outputs (virtual channels have no pin)."""
+        for pin in range(virtual_channels.base_channel_count(cm.hardware)):
             self.set_pin_as_output(pin)
 
     def set_pins_as_inputs(self):
-        """Set all the configured pins as inputs."""
-        for pin in range(cm.hardware.gpio_len):
+        """Set all the configured pins as inputs (virtual channels have no pin)."""
+        for pin in range(virtual_channels.base_channel_count(cm.hardware)):
             self.set_pin_as_input(pin)
 
     def set_pin_as_output(self, pin):
@@ -438,7 +451,7 @@ class Hardware(object):
         # scripts that use set_array light them too
         self.write_outputs(brightnesses)
 
-        if len(brightnesses) != cm.hardware.physical_gpio_len:
+        if len(brightnesses) not in (cm.hardware.physical_gpio_len, cm.hardware.gpio_len):
             logging.warning("brightnesses length %s not equal to physical_gpio_length %s", len(brightnesses), cm.hardware.physical_gpio_len)
         for pin in range(min(len(brightnesses),cm.hardware.physical_gpio_len)):
             self.channels[pin].set_action(use_overrides, brightnesses[pin])

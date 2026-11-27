@@ -139,6 +139,73 @@
   gap: var(--spacing-sm);
 }
 
+/* Variant CSVs (list, upload, play now with) */
+.variants-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.variants-panel .songs-message {
+  margin: 0;
+}
+
+.variants-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  align-items: baseline;
+}
+
+.variants-header label {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.variants-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.variants-table th,
+.variants-table td {
+  padding: 4px var(--spacing-sm);
+  border-bottom: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.variants-table th {
+  color: var(--text-secondary);
+  font-weight: normal;
+}
+
+.variant-problem {
+  color: var(--danger-color);
+  font-size: 0.8rem;
+}
+
+.variants-upload,
+.variants-audition {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+.variants-upload input[type="text"],
+.variants-audition select {
+  padding: var(--spacing-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.variants-upload input[type="file"] {
+  max-width: 100%;
+}
+
 .disabled-songs {
   list-style: none;
   padding: 0;

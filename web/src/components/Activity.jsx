@@ -12,7 +12,7 @@ const TYPE_FILTERS = [
   { value: 'songs', label: 'Songs', types: ['song_start', 'song_end'] },
   { value: 'skips', label: 'Skips', types: ['skip'] },
   { value: 'buttons', label: 'Button presses', types: ['button_press'] },
-  { value: 'admin', label: 'Admin actions', types: ['api_action', 'config_change'] },
+  { value: 'admin', label: 'Admin actions', types: ['api_action', 'config_change', 'sequence_upload', 'sequence_delete'] },
   { value: 'test', label: 'Test mode', types: ['test_mode'] },
   { value: 'errors', label: 'Errors', types: ['error'] }
 ];
@@ -26,6 +26,8 @@ const TYPE_LABELS = {
   button_press: 'Button',
   api_action: 'Admin action',
   config_change: 'Config change',
+  sequence_upload: 'Sequence upload',
+  sequence_delete: 'Sequence delete',
   test_mode: 'Test mode',
   error: 'Error'
 };
@@ -49,6 +51,10 @@ function describe(event) {
       return `${d.method || ''} ${d.route || d.path || ''}`.trim();
     case 'test_mode':
       return [d.action, d.reason].filter(Boolean).join(' · ');
+    case 'sequence_upload':
+      return [d.user, d.replaced ? 'replaced' : 'new', d.rows && `${d.rows} rows`].filter(Boolean).join(' · ');
+    case 'sequence_delete':
+      return d.user || '';
     case 'error':
       return [d.action, d.message].filter(Boolean).join(': ');
     default:
