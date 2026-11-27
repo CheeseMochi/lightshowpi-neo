@@ -364,6 +364,12 @@ class TestPlay:
     def test_unknown_index_is_404(self, client):
         assert client.post("/api/songs/7/play").status_code == 404
 
+    def test_no_body_with_json_content_type(self, client, manager):
+        """What the web UI's plain Play button sends."""
+        res = client.post("/api/songs/2/play", headers={"Content-Type": "application/json"})
+        assert res.status_code == 200
+        manager.config.update_state.assert_called_once_with("play_now", "3")
+
     def test_empty_body_plays_without_variant(self, client, manager):
         res = client.post("/api/songs/1/play", json={})
         assert res.status_code == 200 and res.json()["variant"] is None
@@ -468,6 +474,13 @@ class TestVariants:
     def test_not_csv_is_422(self, client, home, data):
         assert upload(client, 0, "bad", data).status_code == 422
         assert list((home / "sequences" / "a").iterdir()) == []
+
+    def test_upload_over_one_mb_at_real_cap(self, client, home):
+        data = b"255,128,0\n" * 300_000  # ~3 MB, above starlette's 1 MB part default
+        res = upload(client, 0, "large", data)
+        assert res.status_code == 200, res.text
+        assert res.json()["rows"] == 300_000
+        assert (home / "sequences" / "a" / "large.csv").stat().st_size == len(data)
 
     def test_too_big_is_422(self, client, home, monkeypatch):
         monkeypatch.setattr(songs_service, "MAX_VARIANT_BYTES", 100)
