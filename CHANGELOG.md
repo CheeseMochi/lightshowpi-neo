@@ -20,6 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sequence_once = <song>|<variant>` before `play_now`, and the show uses it for
   that one play and clears it. New `[lightshow] allow_sequence_audition`
   (default `True`); set it to `False` to turn auditions off.
+- **Virtual show channels** so outputs like Nanoleaf can run their own
+  pattern instead of mirroring the relays: `[hardware] virtual_channels = N`
+  appends N non-physical show channels after the GPIO and LED EXTEND
+  channels. GPIO and LED strips never see them; `[output:<name>] channels`
+  can map to them (e.g. 7 relays, `virtual_channels = 6`,
+  `[output:nanoleaf] channels = 7,8,9,10,11,12`). CSV sequences then need
+  `gpio_len + N` columns. In FFT mode only the base channels are analysed
+  (FFT bins and `.sync` caches are unchanged) and virtual channel i copies
+  base channel `virtual_channel_source[i]` (default `i mod base`). Network
+  servers send the full frame. Default `0` changes nothing.
+- `GET /api/layout` (login required): the show's channel ranges (`physical`,
+  `led_extend`, `virtual`), each output's channels, relay names from the
+  device registry and config warnings (e.g. an output mapped past the last
+  channel). Never returns hosts or tokens.
 - **Song details on the public home page**: while a song plays, the status
   card shows its artist, album and year (from the audio file's tags), the light
   pattern in use (`fft` shows as "Live audio-reactive", a variant like

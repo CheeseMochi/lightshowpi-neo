@@ -579,6 +579,23 @@ class TestExpectedChannels:
         cm.configs.led = ["missing.cfg"]
         assert songs_service.expected_channels(cm) == 8
 
+    @staticmethod
+    def with_virtual(cm, value):
+        import configparser
+        cm.config = configparser.RawConfigParser()
+        cm.config.read_string(f"[hardware]\nvirtual_channels = {value}\n")
+        return cm
+
+    def test_virtual_channels_are_added_after_everything(self, tmp_path):
+        """With Nanoleaf on 6 virtual columns, uploads need gpio_len + 6 columns."""
+        assert songs_service.expected_channels(self.with_virtual(self.cm(tmp_path, []), 6)) == 14
+        cm = self.with_virtual(self.cm(tmp_path, [("SACN", "EXTEND", 10)]), 3)
+        assert songs_service.expected_channels(cm) == 21
+
+    @pytest.mark.parametrize("value", ["", "x", "-2", "0"])
+    def test_virtual_channels_off_or_invalid_add_nothing(self, tmp_path, value):
+        assert songs_service.expected_channels(self.with_virtual(self.cm(tmp_path, []), value)) == 8
+
 
 @pytest.mark.unit
 def test_routes_require_auth():

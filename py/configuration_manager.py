@@ -29,6 +29,8 @@ import shlex
 import argparse
 from collections import defaultdict
 
+import virtual_channels
+
 log = logging.getLogger(__name__)
 
 # The home directory and configuration directory for the application.
@@ -317,7 +319,81 @@ class Configuration(object):
         else:
             hrdwr["active_low_mode"] = [self.config._convert_to_boolean(temp[0]) for _ in range(self.gpio_len)]
 
+        # Virtual channels are added later by add_virtual_channels(), after the
+        # LED configs (which may EXTEND gpio_len) are loaded. Until then the
+        # base count is simply gpio_len (base_channel_count is set there; read
+        # it as getattr(hardware, 'base_channel_count', hardware.gpio_len)).
+        hrdwr["virtual_channel_count"] = 0
+        hrdwr["virtual_channel_sources"] = []
+        hrdwr["virtual_channels_added"] = False
+
         self.hardware = Section(hrdwr)
+
+    def add_virtual_channels(self):
+        """Append ``[hardware] virtual_channels`` non-physical show channels.
+
+        Call once after every LED config has been loaded (LED EXTEND changes
+        gpio_len first). Virtual channels come after all other columns, get
+        placeholder pins 2000+i (EXTEND uses 1000+) and are never driven by
+        GPIO. Records ``base_channel_count`` (gpio_len before) and
+        ``virtual_channel_count``; ``physical_gpio_len`` is unchanged.
+
+        Idempotent: later calls change nothing. With ``virtual_channels = 0``
+        (the default) no hardware list is touched.
+
+        :return: number of virtual channels
+        :rtype: int
+        """
+        hw = self.hardware
+        if getattr(hw, "virtual_channels_added", False):
+            return hw.virtual_channel_count
+
+        base = hw.gpio_len
+        count = virtual_channels.parse_count(
+            self.config.get('hardware', 'virtual_channels', fallback=''))
+        sources = virtual_channels.parse_sources(
+            self.config.get('hardware', 'virtual_channel_source', fallback=''), count, base)
+
+        hw.set_value("base_channel_count", base)
+        hw.set_value("virtual_channel_count", count)
+        hw.set_value("virtual_channel_sources", sources)
+        hw.set_value("virtual_channels_added", True)
+        if not count:
+            return 0
+
+        def extended(values, fill, virtual):
+            """First ``base`` entries (padded with ``fill``), then one per virtual channel."""
+            values = list(values)[:base]
+            values += [fill] * (base - len(values))
+            return values + [virtual(i) for i in range(count)]
+
+        hw.set_value("gpio_pins", extended(hw.gpio_pins, -1,
+                                           lambda i: virtual_channels.PIN_BASE + i))
+        hw.set_value("pin_modes", extended(hw.pin_modes, "pwm", lambda i: "pwm"))
+        hw.set_value("is_pin_pwm", extended(hw.is_pin_pwm, True, lambda i: True))
+        # EXTEND does not extend active_low_mode, so pad it to the full length
+        hw.set_value("active_low_mode", extended(hw.active_low_mode, False, lambda i: False))
+        hw.set_value("gpio_len", base + count)
+        log.info("Added %d virtual show channels (%d-%d), mirroring %s in FFT mode",
+                 count, base, base + count - 1, sources)
+        return count
+
+    def channel_layout(self):
+        """Ranges of show channels by kind, as half-open ``[start, end)`` lists.
+
+        ``physical``: GPIO channels; ``led_extend``: channels after them up to
+        the base count (LED EXTEND, or LEDONLY's LED channels), else None;
+        ``virtual``: channels added by add_virtual_channels(), else None.
+        """
+        hw = self.hardware
+        physical = hw.physical_gpio_len
+        base = getattr(hw, "base_channel_count", hw.gpio_len)
+        return {
+            "gpio_len": hw.gpio_len,
+            "physical": [0, physical],
+            "led_extend": [physical, base] if base > physical else None,
+            "virtual": [base, hw.gpio_len] if hw.gpio_len > base else None,
+        }
 
     def set_terminal(self):
         """
@@ -759,6 +835,49 @@ def read_playlist(path, on_invalid=None):
         finally:
             fcntl.lockf(playlist_fp, fcntl.LOCK_UN)
     return songs
+
+
+def load_channel_config(config_dir, load_leds=True):
+    """Resolve show channels from a config dir the way Hardware does, read-only.
+
+    Reads defaults.cfg + overrides.cfg, loads every ``[configs] led_config``
+    (when ``load_leds``: Hardware only loads them when led_module imports; a
+    strip that later fails to start still counts, as in Hardware), then adds
+    the virtual channels. Never touches state.cfg, so the API can call it on
+    every request without the in-process Configuration growing gpio_len.
+
+    :param config_dir: directory holding defaults.cfg
+    :param load_leds: whether the LED configs extend the channels
+    :return: (Configuration, LED entries, LED config error strings). Each LED
+        entry is {name, channel_configuration, physical_gpio_len, gpio_len}
+        as they stood right after that config loaded (what LedOutput gets).
+    """
+    c = Configuration.__new__(Configuration)
+    c.gpio_len = None
+    c.param_config = None
+    c.config_dir = os.path.join(config_dir, "")
+    c.home_dir = os.path.dirname(os.path.normpath(config_dir))
+    c.config = configparser.RawConfigParser(allow_no_value=True)
+    c.load_config()
+    c.led = None
+    c.outputs = []
+    c.set_hardware()
+    c.set_configs()
+    c.set_outputs()
+    leds, errors = [], []
+    if load_leds:
+        for lc in c.configs.led:
+            try:
+                c.set_led(config_file=lc)
+            except Exception as error:  # Hardware would not start with this config
+                errors.append("%s: %s" % (lc, error))
+                continue
+            leds.append({"name": lc,
+                         "channel_configuration": c.led.led_channel_configuration,
+                         "physical_gpio_len": c.hardware.physical_gpio_len,
+                         "gpio_len": c.hardware.gpio_len})
+    c.add_virtual_channels()
+    return c, leds, errors
 
 
 class Section(object):

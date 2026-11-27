@@ -401,7 +401,9 @@ def expected_channels(cm) -> Optional[int]:
     SPI/SERIAL/SACN LED config with ``led_channel_configuration`` EXTEND adds
     ``led_channel_count`` channels and LEDONLY replaces the count with it
     (MIRROR keeps it). This mirrors that arithmetic read-only; set_led itself
-    mutates the Configuration, so it is never called here. Limitation: if the
+    mutates the Configuration, so it is never called here. Virtual channels
+    (``[hardware] virtual_channels``) are appended after all of those, as
+    Hardware.add_virtual_channels does. Limitation: if the
     show can't import led_module it skips the LED configs and uses plain
     gpio_pins. Any error reading an LED config falls back to gpio_pins.
     """
@@ -429,8 +431,19 @@ def expected_channels(cm) -> Optional[int]:
                 count = leds
     except Exception as error:
         log.warning("Could not work out LED channels (%s); using gpio_pins (%d)", error, base)
-        return base
-    return count
+        count = base
+    return count + _virtual_channel_count(cm)
+
+
+def _virtual_channel_count(cm) -> int:
+    """``[hardware] virtual_channels`` as the show parses it (0 if unset or invalid)."""
+    try:
+        import virtual_channels
+        return virtual_channels.parse_count(cm.config.get('hardware', 'virtual_channels',
+                                                          fallback=''))
+    except Exception as error:
+        log.warning("Could not read virtual_channels (%s); assuming 0", error)
+        return 0
 
 
 def _parse_rows(text: str) -> List[List[str]]:
