@@ -272,3 +272,77 @@ class TestHelpers:
             cfg.config.set("lightshow", "sequences_dir", override)
         cfg.set_lightshow()
         assert cfg.lightshow.sequences_dir == expected
+
+    @pytest.mark.parametrize("override,expected", [
+        (None, True), ("False", False), ("no", False), ("True", True),
+    ])
+    def test_config_allow_sequence_audition(self, override, expected):
+        import configparser
+        import os
+        import configuration_manager
+
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cfg = configuration_manager.Configuration.__new__(configuration_manager.Configuration)
+        cfg.home_dir = "/home/x"
+        cfg.config = configparser.RawConfigParser(allow_no_value=True)
+        cfg.config.read(os.path.join(repo, "config", "defaults.cfg"))
+        if override is not None:
+            cfg.config.set("lightshow", "allow_sequence_audition", override)
+        cfg.set_lightshow()
+        assert cfg.lightshow.allow_sequence_audition is expected
+
+    def test_config_allow_sequence_audition_missing_key_defaults_on(self):
+        import configparser
+        import os
+        import configuration_manager
+
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cfg = configuration_manager.Configuration.__new__(configuration_manager.Configuration)
+        cfg.home_dir = "/home/x"
+        cfg.config = configparser.RawConfigParser(allow_no_value=True)
+        cfg.config.read(os.path.join(repo, "config", "defaults.cfg"))
+        cfg.config.remove_option("lightshow", "allow_sequence_audition")
+        cfg.set_lightshow()
+        assert cfg.lightshow.allow_sequence_audition is True
+
+
+class TestTakeOnce:
+
+    def test_match_returns_variant_and_clears(self, song):
+        state = State(sequence_once="Carol Bells|onset_bands")
+        assert ss.take_once(str(song), state.get, state.set) == "onset_bands"
+        assert state.values["sequence_once"] == ""
+
+    def test_once_value_round_trips(self, song):
+        state = State(sequence_once=ss.once_value(str(song), "stems"))
+        assert ss.take_once(str(song), state.get, state.set) == "stems"
+
+    def test_stem_containing_separator(self, tmp_path):
+        song = tmp_path / "a|b.mp3"
+        state = State(sequence_once=ss.once_value(str(song), "v1"))
+        assert ss.take_once(str(song), state.get, state.set) == "v1"
+
+    def test_other_song_returns_none_and_clears(self, song):
+        state = State(sequence_once="Other|onset_bands")
+        assert ss.take_once(str(song), state.get, state.set) is None
+        assert state.values["sequence_once"] == ""
+
+    @pytest.mark.parametrize("value", ["Carol Bells|fft", "Carol Bells|../x", "Carol Bells|",
+                                       "no separator"])
+    def test_bad_value_returns_none_and_clears(self, song, value):
+        state = State(sequence_once=value)
+        assert ss.take_once(str(song), state.get, state.set) is None
+        assert state.values["sequence_once"] == ""
+
+    def test_absent_returns_none_without_writing(self, song):
+        state = State()
+        writes = []
+        assert ss.take_once(str(song), state.get, lambda k, v: writes.append(k)) is None
+        assert writes == []
+
+    def test_state_errors_never_raise(self, song):
+        def boom(*args):
+            raise OSError("locked")
+        assert ss.take_once(str(song), boom, boom) is None
+        state = State(sequence_once="Carol Bells|a")
+        assert ss.take_once(str(song), state.get, boom) == "a"

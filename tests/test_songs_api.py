@@ -5,9 +5,11 @@ Everything runs on a temp playlist, music folder and sequences folder.
 
 import configparser
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import pytest
+
+import sequence_select
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -45,7 +47,8 @@ def home(tmp_path):
 def library(home):
     return SongLibrary(playlist_path=str(home / "music" / ".playlist"),
                        home_dir=str(home),
-                       sequences_dir=str(home / "sequences"))
+                       sequences_dir=str(home / "sequences"),
+                       gpio_len=3)
 
 
 @pytest.fixture
@@ -361,6 +364,208 @@ class TestPlay:
     def test_unknown_index_is_404(self, client):
         assert client.post("/api/songs/7/play").status_code == 404
 
+    def test_empty_body_plays_without_variant(self, client, manager):
+        res = client.post("/api/songs/1/play", json={})
+        assert res.status_code == 200 and res.json()["variant"] is None
+        manager.config.update_state.assert_called_once_with("play_now", "2")
+
+    def test_variant_sets_sequence_once_before_play_now(self, client, manager):
+        res = client.post("/api/songs/1/play", json={"variant": "stems"})
+        assert res.status_code == 200 and res.json()["variant"] == "stems"
+        assert manager.config.update_state.call_args_list == [
+            call("sequence_once", "b|stems"), call("play_now", "2")]
+
+    def test_written_value_is_what_the_show_takes(self, client, manager, home):
+        """The API's state value round-trips through sequence_select.take_once."""
+        client.post("/api/songs/1/play", json={"variant": "onset_bands"})
+        state = {k: v for (k, v), _ in manager.config.update_state.call_args_list}
+        song = str(home / "music" / "b.mp3")
+        assert sequence_select.take_once(song, state.get, state.__setitem__) == "onset_bands"
+        assert state["sequence_once"] == ""
+
+    def test_missing_variant_is_404(self, client, manager):
+        assert client.post("/api/songs/1/play", json={"variant": "nope"}).status_code == 404
+        manager.config.update_state.assert_not_called()
+
+    @pytest.mark.parametrize("variant", ["fft", "FFT", "../x", "a b"])
+    def test_bad_variant_is_422(self, client, manager, variant):
+        assert client.post("/api/songs/1/play", json={"variant": variant}).status_code == 422
+        manager.config.update_state.assert_not_called()
+
+    def test_unusable_variant_is_422(self, client, manager, home):
+        (home / "sequences" / "b" / "wide.csv").write_text("1,2,3,4\n")
+        res = client.post("/api/songs/1/play", json={"variant": "wide"})
+        assert res.status_code == 422 and "columns" in res.json()["detail"]
+        manager.config.update_state.assert_not_called()
+
+    def test_auditions_off_is_409(self, client, manager, library):
+        library.allow_audition = False
+        assert client.post("/api/songs/1/play", json={"variant": "stems"}).status_code == 409
+        manager.config.update_state.assert_not_called()
+
+    def test_variant_with_show_stopped_is_409(self, client, manager):
+        manager.is_running.return_value = False
+        assert client.post("/api/songs/1/play", json={"variant": "stems"}).status_code == 409
+        manager.config.update_state.assert_not_called()
+
+
+def upload(client, index, name, data, replace=None, filename="x.csv"):
+    params = {"replace": replace} if replace is not None else None
+    return client.put(f"/api/songs/{index}/variants/{name}", params=params,
+                      files={"file": (filename, data, "text/csv")})
+
+
+class TestVariants:
+
+    def test_list(self, client, home):
+        res = client.get("/api/songs/1/variants")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["gpio_len"] == 3 and data["folder"] == "sequences/b"
+        names = [v["name"] for v in data["variants"]]
+        assert names == ["onset_bands", "stems"]
+        first = data["variants"][0]
+        assert first["rows"] == 1 and first["columns"] == 3 and first["size"] == 8
+        assert first["problem"] is None and first["mtime"] > 0
+
+    def test_list_flags_problem(self, client, home):
+        (home / "sequences" / "b" / "wide.csv").write_text("1,2,3,4\n")
+        wide = [v for v in client.get("/api/songs/1/variants").json()["variants"]
+                if v["name"] == "wide"][0]
+        assert "columns" in wide["problem"]
+
+    def test_list_empty(self, client):
+        assert client.get("/api/songs/0/variants").json()["variants"] == []
+
+    def test_upload_creates_folder(self, client, home):
+        res = upload(client, 0, "new_one", b"0,1,2\n3,4,5\n")
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert body["name"] == "new_one" and body["rows"] == 2 and body["replaced"] is False
+        path = home / "sequences" / "a" / "new_one.csv"
+        assert path.read_bytes() == b"0,1,2\n3,4,5\n"
+        assert oct(path.stat().st_mode & 0o777) == oct(0o644)
+        assert [p.name for p in path.parent.iterdir()] == ["new_one.csv"]  # no temp left
+
+    def test_uploaded_variant_is_selectable(self, client, home):
+        upload(client, 0, "mine", b"0,1,2\n")
+        res = client.put("/api/songs/0/settings", json={"sequence": "mine"})
+        assert res.status_code == 200
+
+    @pytest.mark.parametrize("name", ["fft", "CSV", "rotate", "random", "-x", "a.b", "a" * 65])
+    def test_bad_or_reserved_name_is_422(self, client, home, name):
+        res = upload(client, 0, name, b"0,1,2\n")
+        assert res.status_code == 422
+        assert not (home / "sequences" / "a").exists()
+
+    def test_wrong_columns_is_422(self, client, home):
+        res = upload(client, 0, "wide", b"0,1,2\n0,1,2,3\n")
+        assert res.status_code == 422
+        assert "row 2" in res.json()["detail"]
+        assert list((home / "sequences" / "a").iterdir()) == []
+
+    @pytest.mark.parametrize("data", [b"", b"a,b,c\n", b"\xff\xfe\x00\n"])
+    def test_not_csv_is_422(self, client, home, data):
+        assert upload(client, 0, "bad", data).status_code == 422
+        assert list((home / "sequences" / "a").iterdir()) == []
+
+    def test_too_big_is_422(self, client, home, monkeypatch):
+        monkeypatch.setattr(songs_service, "MAX_VARIANT_BYTES", 100)
+        res = upload(client, 0, "big", b"0,1,2\n" * 50)
+        assert res.status_code == 422 and "larger" in res.json()["detail"]
+        assert list((home / "sequences" / "a").iterdir()) == []
+
+    def test_too_big_content_length_refused_before_parsing(self, client, monkeypatch):
+        monkeypatch.setattr(songs_router, "MAX_VARIANT_BYTES", 10)
+        monkeypatch.setattr(songs_router, "_MULTIPART_OVERHEAD", 10)
+        assert upload(client, 0, "big", b"0,1,2\n" * 50).status_code == 422
+
+    def test_missing_file_field_is_422(self, client):
+        res = client.put("/api/songs/0/variants/x", data={"other": "1"})
+        assert res.status_code == 422
+
+    def test_existing_is_409_unless_replace(self, client, home):
+        path = home / "sequences" / "b" / "stems.csv"
+        res = upload(client, 1, "stems", b"1,1,1\n")
+        assert res.status_code == 409
+        assert path.read_text() == "255,0,255\n"
+        res = upload(client, 1, "stems", b"1,1,1\n", replace="true")
+        assert res.status_code == 200 and res.json()["replaced"] is True
+        assert path.read_text() == "1,1,1\n"
+
+    def test_unknown_song_is_404(self, client):
+        assert upload(client, 9, "x", b"0,1,2\n").status_code == 404
+
+    def test_upload_and_delete_are_logged(self, client, events_db):
+        import event_log
+        upload(client, 0, "logged", b"0,1,2\n")
+        client.delete("/api/songs/0/variants/logged")
+        rows, _total = event_log.fetch_events(types=["sequence_upload", "sequence_delete"])
+        by_type = {e["type"]: e for e in rows}
+        assert by_type["sequence_upload"]["variant"] == "logged"
+        assert by_type["sequence_upload"]["song"] == "Song A"
+        assert by_type["sequence_upload"]["details"]["user"] == "tester"
+        assert by_type["sequence_delete"]["variant"] == "logged"
+
+    def test_delete(self, client, home):
+        res = client.delete("/api/songs/1/variants/stems")
+        assert res.status_code == 200
+        assert not (home / "sequences" / "b" / "stems.csv").exists()
+
+    def test_delete_missing_is_404(self, client):
+        assert client.delete("/api/songs/1/variants/nope").status_code == 404
+
+    @pytest.mark.parametrize("setting", ["stems", "rotate:onset_bands,stems", "random:fft,stems"])
+    def test_delete_in_use_is_409(self, client, home, setting):
+        assert client.put("/api/songs/1/settings", json={"sequence": setting}).status_code == 200
+        res = client.delete("/api/songs/1/variants/stems")
+        assert res.status_code == 409 and "sequence setting" in res.json()["detail"]
+        assert (home / "sequences" / "b" / "stems.csv").exists()
+
+    def test_delete_with_other_variant_in_use(self, client, home):
+        client.put("/api/songs/1/settings", json={"sequence": "onset_bands"})
+        assert client.delete("/api/songs/1/variants/stems").status_code == 200
+
+    def test_delete_with_unparsable_setting(self, client, home):
+        (home / "music" / ".b.mp3.cfg").write_text("[custom_lightshow]\nsequence = bad:x\n")
+        assert client.delete("/api/songs/1/variants/stems").status_code == 200
+
+
+class TestExpectedChannels:
+
+    def cm(self, tmp_path, leds, gpio_len=8):
+        config_dir = tmp_path / "config"
+        config_dir.mkdir(exist_ok=True)
+        names = []
+        for i, (conn, mode, count) in enumerate(leds):
+            name = f"led{i}.cfg"
+            (config_dir / name).write_text(
+                f"[led]\nled_configuration = STRIP\nled_connection = {conn}\n"
+                f"led_channel_configuration = {mode}\nled_channel_count = {count}\n")
+            names.append(name)
+        return SimpleNamespace(hardware=SimpleNamespace(gpio_len=gpio_len),
+                               configs=SimpleNamespace(led=names),
+                               config_dir=str(config_dir) + "/")
+
+    def test_no_leds(self, tmp_path):
+        assert songs_service.expected_channels(self.cm(tmp_path, [])) == 8
+
+    def test_extend_adds(self, tmp_path):
+        cm = self.cm(tmp_path, [("SACN", "EXTEND", 10), ("SPI", "EXTEND", 2)])
+        assert songs_service.expected_channels(cm) == 20
+
+    def test_ledonly_replaces_and_mirror_keeps(self, tmp_path):
+        assert songs_service.expected_channels(self.cm(tmp_path, [("SACN", "LEDONLY", 5)])) == 5
+        assert songs_service.expected_channels(self.cm(tmp_path, [("SACN", "MIRROR", 5)])) == 8
+
+    def test_other_connection_ignored(self, tmp_path):
+        assert songs_service.expected_channels(self.cm(tmp_path, [("NONE", "EXTEND", 5)])) == 8
+
+    def test_unreadable_led_config_falls_back(self, tmp_path):
+        cm = self.cm(tmp_path, [])
+        cm.configs.led = ["missing.cfg"]
+        assert songs_service.expected_channels(cm) == 8
+
 
 @pytest.mark.unit
 def test_routes_require_auth():
@@ -371,5 +576,7 @@ def test_routes_require_auth():
     for method, path in [("get", "/api/songs"), ("put", "/api/songs/order"),
                          ("patch", "/api/songs/0"), ("get", "/api/songs/0/settings"),
                          ("put", "/api/songs/0/settings"), ("post", "/api/songs/0/play"),
-                         ("patch", "/api/songs/disabled/0")]:
+                         ("patch", "/api/songs/disabled/0"), ("get", "/api/songs/0/variants"),
+                         ("put", "/api/songs/0/variants/x"),
+                         ("delete", "/api/songs/0/variants/x")]:
         assert getattr(c, method)(path).status_code in (401, 403), (method, path)

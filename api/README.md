@@ -61,6 +61,27 @@ The FastAPI backend is **completely optional**. LightShowPi Neo works perfectly 
 - `/api/buttons/*` - Button controls (skip, audio, repeat, outlet)
 - `WS /api/lightshow/websocket` - Real-time updates (planned)
 
+**Songs (`routers/songs.py`; login to read, admin to change):**
+- `GET /api/songs` - Playlist in show order plus disabled songs
+- `PUT /api/songs/order`, `PATCH /api/songs/{index}`, `PATCH /api/songs/disabled/{index}` - Reorder, rename, disable/enable
+- `GET|PUT /api/songs/{index}/settings` - Per-song `[custom_lightshow]` settings
+- `GET /api/songs/{index}/variants` - Variant CSVs in `<sequences_dir>/<song>/`:
+  `{index, gpio_len, folder, variants: [{name, size, rows, columns, mtime, problem}]}`
+  (`problem` is null when the CSV is usable)
+- `PUT /api/songs/{index}/variants/{name}[?replace=true]` - Upload a variant CSV
+  (multipart field `file`, max 5 MB). 422 for a bad or reserved name (`fft`,
+  `csv`, `rotate`, `random`), an oversize file or any row without `gpio_len`
+  numeric columns; 409 if it exists and `replace` isn't set. `gpio_len` counts
+  LED channels from EXTEND/LEDONLY LED configs, as the show does. Logged as a
+  `sequence_upload` event.
+- `DELETE /api/songs/{index}/variants/{name}` - Delete a variant; 409 while the
+  song's saved `sequence` setting uses it. Logged as `sequence_delete`.
+- `POST /api/songs/{index}/play` - Play now (state `play_now`). Optional body
+  `{"variant": "<name>"}` plays that variant once (state
+  `sequence_once = <song stem>|<variant>`, written before `play_now`) without
+  changing the saved setting; 404/422 if the variant is missing or unusable,
+  409 when `[lightshow] allow_sequence_audition = False`
+
 **Scheduling System:**
 - APScheduler integration
 - Configurable start/stop times
