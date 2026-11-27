@@ -6,6 +6,10 @@ Draft. See the [Unreleased] section of [CHANGELOG.md](CHANGELOG.md).
 
 ### ✨ Highlights
 
+- **More about each song on the public page**: artist, album and year, the
+  light pattern playing, and how often the song has been played, heard to the
+  end and skipped. The playlist lists each song's artist and year. Turn the
+  counts off with `public_song_stats = false` under `[api]`.
 - **Songs page**: reorder, rename, disable and play songs from the web UI, and
   edit each song's settings (always on/off channels, attenuation, pre/postshow)
   without touching its `.cfg` file.

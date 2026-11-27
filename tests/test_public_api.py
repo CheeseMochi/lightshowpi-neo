@@ -20,6 +20,7 @@ NOW = 1_700_000_000.0
 def fresh_state():
     public._cache.clear()
     public.public_limiter.reset()
+    public._stats_memo.update(key=None, value=None)
     yield
     public._cache.clear()
     public.public_limiter.reset()
@@ -103,7 +104,7 @@ class TestNowPlayingEndpoint:
     def test_exact_keys_and_no_paths(self):
         res = make_client(state=PLAYING).get("/api/public/now-playing")
         assert res.status_code == 200
-        assert set(res.json()) == {"state", "title", "elapsed_s", "duration_s"}
+        assert set(res.json()) == set(public.PublicNowPlaying.model_fields)
         assert "/home" not in res.text and "scroce" not in res.text
         assert "max-age" in res.headers["cache-control"]
 
@@ -275,13 +276,15 @@ class TestPlaylist:
         res = make_client(state=state, entries=ENTRIES).get("/api/public/playlist")
         assert res.status_code == 200
         body = res.json()
-        assert body == {"songs": ["Carol Of The Bells", "Deck The Halls"], "current": 1}
+        assert body == {"songs": ["Carol Of The Bells", "Deck The Halls"], "current": 1,
+                        "details": [{"artist": None, "year": None}] * 2}
         for leak in ("/abs", "SYNCHRONIZED", "1.2.3.4", "playing!", ".mp3"):
             assert leak not in res.text
         assert "max-age" in res.headers["cache-control"]
 
     def test_no_config_is_empty(self):
-        assert make_client().get("/api/public/playlist").json() == {"songs": [], "current": None}
+        assert make_client().get("/api/public/playlist").json() == {
+            "songs": [], "current": None, "details": []}
 
     def test_unreadable_playlist_is_empty(self):
         client = make_client()

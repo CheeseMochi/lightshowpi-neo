@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Song details on the public home page**: while a song plays, the status
+  card shows its artist, album and year (from the audio file's tags), the light
+  pattern in use (`fft` shows as "Live audio-reactive", a variant like
+  `onset_bands` as "Onset bands") and, from the event log, how many times it has
+  played, been heard to the end and been skipped. The playlist shows each
+  song's artist and year. New `[api] public_song_stats` (default `true`) hides
+  the counts. `/api/public/now-playing` gains `artist`, `album`, `year`,
+  `pattern` and `stats`; `/api/public/playlist` gains `details` (parallel to
+  `songs`). The cloud Worker accepts and serves the new fields and still
+  accepts payloads from a Pi without them, so deploy the Worker (`make cloud`)
+  before the Pi.
 - **Per-song sequence variants**: a song's `.<song-file>.cfg` can set
   `[custom_lightshow] sequence = fft | csv | <variant> | rotate:<v1>,<v2>,… |
   random:<v1>,…`. Variant CSVs live in `<sequences_dir>/<song>/<variant>.csv`
