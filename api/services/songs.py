@@ -16,6 +16,10 @@ Files:
   show reads at song start. Written atomically (temp file + rename) with a
   ``.bak`` copy; other sections (``[fft]``, ``[custom_audio_processing]``)
   are kept.
+- ``<sequences_dir>/<song stem>/<variant>.csv``: variant light sequences
+  (see py/sequence_select.py). Uploads are checked with the show's own CSV
+  check against the channel count the show will use, written to a temp file
+  in the same folder and renamed into place.
 """
 
 import configparser
@@ -48,6 +52,10 @@ SETTINGS_KEYS = (('sequence',) + CHANNEL_KEYS + ('attenuate_pct',)
 
 _CHANNELS_RE = re.compile(r'^-?\d+(,-?\d+)*$')
 
+# Largest variant CSV accepted by an upload
+MAX_VARIANT_BYTES = 5 * 1024 * 1024
+_COPY_CHUNK = 64 * 1024
+
 # fcntl locks are per process: serialize this process's own writers too
 _write_lock = threading.Lock()
 
@@ -69,6 +77,10 @@ class SongLibrary:
     playlist_path: str
     home_dir: str
     sequences_dir: str
+    # Columns a sequence CSV needs (the show's gpio_len; see expected_channels)
+    gpio_len: Optional[int] = None
+    # [lightshow] allow_sequence_audition: "play now with variant" allowed
+    allow_audition: bool = True
 
     @property
     def disabled_path(self) -> str:
@@ -234,10 +246,192 @@ class SongLibrary:
             write_settings(self.cfg_path(abs_path), clean)
         return self.get_settings(index)
 
+    # ------------------------------------------------------------------
+    # variant sequence CSVs
+    # ------------------------------------------------------------------
+
+    def song_path(self, index: int) -> str:
+        """Absolute audio path of the playlist song at ``index``."""
+        return self.resolve(self.row(index)[1])
+
+    def _channels(self) -> int:
+        if not self.gpio_len:
+            raise SongError('Channel count (gpio_len) unknown; check [hardware] gpio_pins', 503)
+        return self.gpio_len
+
+    def list_variant_info(self, index: int) -> dict:
+        """Every variant CSV of a song with its size, rows, columns and problem."""
+        abs_path = self.song_path(index)
+        names = sequence_select.list_variants(self.sequences_dir, abs_path)
+        return {
+            'index': index,
+            'gpio_len': self.gpio_len,
+            'folder': self.display_path(sequence_select.variant_dir(self.sequences_dir, abs_path)),
+            'variants': [self.variant_info(abs_path, n) for n in names],
+        }
+
+    def variant_info(self, abs_path: str, name: str) -> dict:
+        """One variant: name, size, rows, columns, mtime and problem (None = usable)."""
+        path = sequence_select.variant_path(self.sequences_dir, abs_path, name)
+        st = os.stat(path)
+        rows, columns = _csv_shape(path)
+        problem = (sequence_select.check_csv(path, self.gpio_len, full=True)
+                   if self.gpio_len else None)
+        return {'name': name, 'size': st.st_size, 'rows': rows, 'columns': columns,
+                'mtime': st.st_mtime, 'problem': problem}
+
+    def check_variant_name(self, name: str) -> str:
+        """Return ``name`` if it can be a variant file name, else SongError 422."""
+        if not sequence_select.is_valid_variant_name(name) or \
+                name.lower() in sequence_select.RESERVED:
+            raise SongError("Invalid variant name '%s': use letters, digits, '_' or '-' "
+                            "(up to 64, starting with a letter or digit), not fft, csv, "
+                            "rotate or random" % name, 422)
+        return name
+
+    def save_variant(self, index: int, name: str, source, replace: bool = False) -> dict:
+        """Write an uploaded variant CSV from the file object ``source``.
+
+        Copies at most MAX_VARIANT_BYTES into a temp file in the song's variant
+        folder, checks every row like the show does, then renames it into
+        place. An existing variant needs ``replace``. Returns the variant info.
+        """
+        self.check_variant_name(name)
+        channels = self._channels()
+        abs_path = self.song_path(index)
+        folder = sequence_select.variant_dir(self.sequences_dir, abs_path)
+        target = sequence_select.variant_path(self.sequences_dir, abs_path, name)
+        if os.path.exists(target) and not replace:
+            raise SongError("Variant '%s' already exists; replace it?" % name, 409)
+        try:
+            os.makedirs(folder, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=folder, prefix='.tmp-', suffix='.part')
+        except PermissionError as error:
+            raise SongError('No permission to write in %s (%s)' % (folder, error), 403)
+        try:
+            size = 0
+            with os.fdopen(fd, 'wb') as out:
+                while True:
+                    chunk = source.read(_COPY_CHUNK)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > MAX_VARIANT_BYTES:
+                        raise SongError('File is larger than %d MB'
+                                        % (MAX_VARIANT_BYTES // (1024 * 1024)), 422)
+                    out.write(chunk)
+                out.flush()
+                os.fsync(out.fileno())
+            problem = sequence_select.check_csv(tmp, channels, full=True)
+            if problem:
+                raise SongError('Not a usable sequence CSV: %s' % problem, 422)
+            os.chmod(tmp, 0o644)
+            with _write_lock:
+                replaced = os.path.exists(target)
+                if replaced and not replace:
+                    raise SongError("Variant '%s' already exists; replace it?" % name, 409)
+                os.replace(tmp, target)
+        except PermissionError as error:
+            raise SongError('No permission to write %s (%s)' % (target, error), 403)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+        return dict(self.variant_info(abs_path, name), replaced=replaced)
+
+    def delete_variant(self, index: int, name: str) -> None:
+        """Delete a variant CSV unless the song's saved ``sequence`` uses it (409)."""
+        self.check_variant_name(name)
+        abs_path = self.song_path(index)
+        target = sequence_select.variant_path(self.sequences_dir, abs_path, name)
+        if not os.path.isfile(target):
+            raise SongError("No variant '%s' for this song" % name, 404)
+        setting = read_settings(self.cfg_path(abs_path)).get('sequence') or ''
+        try:
+            used = name in sequence_select.parse_spec(setting).choices
+        except ValueError:
+            used = False
+        if used:
+            raise SongError("Variant '%s' is in this song's sequence setting (%s); "
+                            "change the setting first" % (name, setting), 409)
+        try:
+            with _write_lock:
+                os.unlink(target)
+        except PermissionError as error:
+            raise SongError('No permission to delete %s (%s)' % (target, error), 403)
+
+    def audition_value(self, index: int, name: str) -> str:
+        """Check a variant can be auditioned; return the ``sequence_once`` state value."""
+        if not self.allow_audition:
+            raise SongError('Auditions are off ([lightshow] allow_sequence_audition = False)', 409)
+        self.check_variant_name(name)
+        channels = self._channels()
+        abs_path = self.song_path(index)
+        path = sequence_select.variant_path(self.sequences_dir, abs_path, name)
+        problem = sequence_select.check_csv(path, channels, full=True)
+        if problem == 'not found':
+            raise SongError("No variant '%s' for this song" % name, 404)
+        if problem:
+            raise SongError("Variant '%s' isn't usable: %s" % (name, problem), 422)
+        return sequence_select.once_value(abs_path, name)
+
 
 # ----------------------------------------------------------------------
 # helpers
 # ----------------------------------------------------------------------
+
+def _csv_shape(path: str):
+    """(rows, columns of the first row) of a sequence CSV; (0, 0) if unreadable."""
+    rows = columns = 0
+    try:
+        with open(path) as f:
+            for line in f:
+                if rows == 0:
+                    columns = len(line.rstrip().split(','))
+                rows += 1
+    except (OSError, UnicodeDecodeError):
+        return 0, 0
+    return rows, columns
+
+
+def expected_channels(cm) -> Optional[int]:
+    """Columns the show expects in a sequence CSV (its final ``gpio_len``).
+
+    The show starts from ``[hardware] gpio_pins`` and, when it loads each LED
+    config in ``[configs] led_config`` (Hardware._add_led -> set_led), an
+    SPI/SERIAL/SACN LED config with ``led_channel_configuration`` EXTEND adds
+    ``led_channel_count`` channels and LEDONLY replaces the count with it
+    (MIRROR keeps it). This mirrors that arithmetic read-only; set_led itself
+    mutates the Configuration, so it is never called here. Limitation: if the
+    show can't import led_module it skips the LED configs and uses plain
+    gpio_pins. Any error reading an LED config falls back to gpio_pins.
+    """
+    try:
+        count = int(cm.hardware.gpio_len)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    base = count
+    try:
+        for name in (getattr(getattr(cm, 'configs', None), 'led', None) or []):
+            name = name.strip()
+            if not name:
+                continue
+            led = configparser.RawConfigParser(allow_no_value=True)
+            with open(os.path.join(cm.config_dir, name)) as f:
+                led.read_file(f)
+            if led.get('led', 'led_connection').strip().upper() not in ('SERIAL', 'SPI', 'SACN') \
+                    or not (led.get('led', 'led_configuration') or '').strip():
+                continue
+            mode = led.get('led', 'led_channel_configuration').strip().upper()
+            leds = led.getint('led', 'led_channel_count')
+            if mode == 'EXTEND':
+                count += leds
+            elif mode == 'LEDONLY':
+                count = leds
+    except Exception as error:
+        log.warning("Could not work out LED channels (%s); using gpio_pins (%d)", error, base)
+        return base
+    return count
+
 
 def _parse_rows(text: str) -> List[List[str]]:
     """Playlist rows the way the show accepts them (2-4 fields), as strings."""

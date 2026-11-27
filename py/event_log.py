@@ -64,6 +64,7 @@ CREATE INDEX IF NOT EXISTS idx_events_type_ts ON events(type, ts);
 EVENT_TYPES = (
     "show_start", "show_stop", "song_start", "song_end", "skip", "error",
     "button_press", "api_action", "config_change", "test_mode",
+    "sequence_upload", "sequence_delete",
 )
 
 _FALSE = ("0", "false", "no", "off")

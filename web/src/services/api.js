@@ -55,8 +55,10 @@ export const AUTH_EXPIRED_EVENT = 'lsp:auth-expired';
 async function apiRequest(endpoint, options = {}) {
   const token = getAuthToken();
 
+  // A FormData body (file upload) needs the browser's multipart Content-Type
+  const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const headers = {
-    'Content-Type': 'application/json',
+    ...(isForm ? {} : { 'Content-Type': 'application/json' }),
     ...options.headers
   };
 
@@ -456,9 +458,33 @@ export const songs = {
     });
   },
 
-  async play(index) {
+  /** Play now; with a variant name, use that variant CSV for this play only. */
+  async play(index, variant = null) {
     return apiRequest(`/songs/${index}/play`, {
-      method: 'POST'
+      method: 'POST',
+      ...(variant ? { body: JSON.stringify({ variant }) } : {})
+    });
+  },
+
+  /** {index, gpio_len, folder, variants: [{name, size, rows, columns, mtime, problem}]} */
+  async listVariants(index) {
+    return apiRequest(`/songs/${index}/variants`);
+  },
+
+  /** Upload a variant CSV; a 409 means it exists (retry with replace = true). */
+  async uploadVariant(index, name, file, replace = false) {
+    const body = new FormData();
+    body.append('file', file);
+    const query = replace ? '?replace=true' : '';
+    return apiRequest(`/songs/${index}/variants/${encodeURIComponent(name)}${query}`, {
+      method: 'PUT',
+      body
+    });
+  },
+
+  async deleteVariant(index, name) {
+    return apiRequest(`/songs/${index}/variants/${encodeURIComponent(name)}`, {
+      method: 'DELETE'
     });
   }
 };
