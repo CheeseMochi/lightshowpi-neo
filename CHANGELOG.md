@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Virtual show channels** so outputs like Nanoleaf can run their own
+  pattern instead of mirroring the relays: `[hardware] virtual_channels = N`
+  appends N non-physical show channels after the GPIO and LED EXTEND
+  channels. GPIO and LED strips never see them; `[output:<name>] channels`
+  can map to them (e.g. 7 relays, `virtual_channels = 6`,
+  `[output:nanoleaf] channels = 7,8,9,10,11,12`). CSV sequences then need
+  `gpio_len + N` columns. In FFT mode only the base channels are analysed
+  (FFT bins and `.sync` caches are unchanged) and virtual channel i copies
+  base channel `virtual_channel_source[i]` (default `i mod base`). Network
+  servers send the full frame. Default `0` changes nothing.
+- `GET /api/layout` (login required): the show's channel ranges (`physical`,
+  `led_extend`, `virtual`), each output's channels, relay names from the
+  device registry and config warnings (e.g. an output mapped past the last
+  channel). Never returns hosts or tokens.
 - **Per-song sequence variants**: a song's `.<song-file>.cfg` can set
   `[custom_lightshow] sequence = fft | csv | <variant> | rotate:<v1>,<v2>,… |
   random:<v1>,…`. Variant CSVs live in `<sequences_dir>/<song>/<variant>.csv`

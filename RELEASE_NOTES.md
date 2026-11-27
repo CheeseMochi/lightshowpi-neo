@@ -13,6 +13,9 @@ Draft. See the [Unreleased] section of [CHANGELOG.md](CHANGELOG.md).
   variant, or rotate/randomize across several, so each play of a song can look
   different. Copy research variants in with `tools/install_sequences.py`.
   Songs you don't configure play exactly as before.
+- **Virtual channels**: give Nanoleaf (or any output) its own pattern with
+  `[hardware] virtual_channels`; extra CSV columns drive it while the relays
+  keep theirs. Off (0) by default.
 - **Config editor** in the web UI: edit `overrides.cfg` and LED configs from
   the browser, with a diff before saving, automatic backups you can restore,
   and an effective-config view. A file that wouldn't parse is never saved.

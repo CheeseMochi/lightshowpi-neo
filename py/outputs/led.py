@@ -8,7 +8,10 @@ class LedOutput(Output):
     Which slice of the show's channels the LEDs follow depends on the LED
     config's ``led_channel_configuration``:
 
-    * ``EXTEND``: LEDs take the channels after the physical GPIO channels
+    * ``EXTEND``: LEDs take the channels after the physical GPIO channels, up
+      to ``extend_end`` when set (Hardware sets it to the first virtual
+      channel when ``[hardware] virtual_channels`` > 0, so strips never see
+      virtual columns; None = to the end of the frame, as before)
     * anything else (``MIRROR``, ``LEDONLY``): the first ``gpio_len`` channels
 
     Network clients receive the server's whole array and pass it through
@@ -23,13 +26,14 @@ class LedOutput(Output):
         self.gpio_len = gpio_len
         self.slice_levels = slice_levels
         self.name = name
+        self.extend_end = None
 
     def select(self, levels):
         """Return the part of a show frame this LED config displays."""
         if not self.slice_levels:
             return levels
         if self.channel_configuration == "EXTEND":
-            return levels[self.physical_gpio_len:]
+            return levels[self.physical_gpio_len:self.extend_end]
         return levels[:self.gpio_len]
 
     def write_frame(self, levels):
