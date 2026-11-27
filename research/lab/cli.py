@@ -1,7 +1,7 @@
 """
 `python -m research.lab ...`: the pattern lab's command line (the GUI uses the same code).
 
-    lab serve [--port 8765] [--music music]     the browser GUI on this Mac
+    lab serve [--port 8765] [--music DIR]       the browser GUI on this Mac
     lab build SONG... [bundle options]          = research/bundle.py (patterns, mixes, clips)
     lab patterns                                list patterns and mixes (built-in and yours)
     lab rate SONG VARIANT STARS [--note TEXT]   remember what you liked (1-5, 0 clears)
@@ -110,7 +110,9 @@ def cmd_pi(args, rest):
 def cmd_serve(args, rest):
     import uvicorn
     from .server import create_app
-    app = create_app(music_dir=args.music, pi_url=args.pi)
+    music = store.initial_music_dir(args.music, os.path.join(os.getcwd(), "music"))
+    app = create_app(music_dir=music, pi_url=args.pi)
+    print(f"Songs from {music} (change it on the Build tab)")
     print(f"Pattern lab on http://127.0.0.1:{args.port}  (Ctrl-C stops)")
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
     return 0
@@ -124,8 +126,9 @@ def build_parser():
 
     s = sub.add_parser("serve", help="open the browser GUI")
     s.add_argument("--port", type=int, default=8765)
-    s.add_argument("--music", default=os.path.join(os.getcwd(), "music"),
-                   help="folder with your songs (default ./music)")
+    s.add_argument("--music", default=None,
+                   help="folder with your songs (default: $LSP_MUSIC_DIR, else the last folder "
+                        "used in the lab, else ./music); also changeable on the Build tab")
 
     sub.add_parser("build", help="build bundles (all research/bundle.py options)", add_help=False)
     sub.add_parser("patterns", help="list patterns and mixes")

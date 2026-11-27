@@ -16,7 +16,13 @@ Demucs/torch, FastAPI for the GUI). It's Mac only and kept apart from `lightshow
 make lab-env                     # once (and after environment-lab.yml changes); ~2 GB with Demucs
 export LSP_RELAYS=ssr            # your props are on solid-state relays (put it in ~/.zshrc)
 make lab                         # then open http://127.0.0.1:8765
+make lab MUSIC=~/Music/Christmas # start with your own songs (the repo only has test tracks)
 ```
+
+Your songs can live anywhere. Set the **Music folder** on the Build tab (with Load, plus recent
+folders), `MUSIC=` for `make lab`, or `$LSP_MUSIC_DIR`. The lab remembers the last folder in
+`research/lab.local.json` (git-ignored). It lists up to 3,000 songs, so point it at your
+Christmas folder rather than all of `~/Music`.
 
 Or activate the env and run the lab directly:
 `conda activate lightshowpi-neo-lab && python -m research.lab serve`.
@@ -24,8 +30,8 @@ Or activate the env and run the lab directly:
 **The loop:**
 1. **Pi tab:** log in (`http://piserver-neo.local:8000`, your admin user), then **Fetch layout**.
    Builds then use the Pi's exact column count and light sources (GPIO relays, Nanoleaf, …).
-2. **Build:** pick songs (from `music/`), patterns and mixes, the relay preset and clip, then
-   **Build**.
+2. **Build:** choose your music folder, pick songs, patterns and mixes, the relay preset and
+   clip, then **Build**.
 3. **Compare & rate:** play the 30 s clip or the full song in the preview, switch variants, and
    star them. Notes are kept with the stars (`research/ratings.jsonl`).
 4. **Audition on lights:** plays that song next on the Pi with that variant, once. Its saved

@@ -7,6 +7,8 @@ CONDA_DEV_ENV ?= lightshowpi-neo-dev
 # Mac-only env for composing light patterns (research/, the pattern lab)
 CONDA_LAB_ENV ?= lightshowpi-neo-lab
 LAB_PORT      ?= 8765
+# Folder with your own songs for the lab (default: the last one used, else ./music)
+MUSIC         ?=
 HOST          ?=
 TOKEN         ?=
 ARGS          ?=
@@ -87,8 +89,9 @@ lab-env: ## Create or update the pattern-lab conda env (environment-lab.yml; Mac
 		conda env update -n $(CONDA_LAB_ENV) -f environment-lab.yml --prune; \
 	else conda env create -n $(CONDA_LAB_ENV) -f environment-lab.yml; fi
 
-lab: ## Start the pattern lab GUI on http://127.0.0.1:8765 (LAB_PORT=..., ARGS="--music DIR")
-	conda run --no-capture-output -n $(CONDA_LAB_ENV) python -m research.lab serve --port $(LAB_PORT) $(ARGS)
+lab: ## Start the pattern lab GUI on http://127.0.0.1:8765 (MUSIC=~/Music/Christmas, LAB_PORT=...)
+	conda run --no-capture-output -n $(CONDA_LAB_ENV) python -m research.lab serve --port $(LAB_PORT) \
+		$(if $(MUSIC),--music "$(MUSIC)",) $(ARGS)
 
 lab-test: ## Run the composer and lab tests in the lab env
 	SYNCHRONIZED_LIGHTS_HOME=$(CURDIR) conda run -n $(CONDA_LAB_ENV) pytest -q -p no:cacheprovider \

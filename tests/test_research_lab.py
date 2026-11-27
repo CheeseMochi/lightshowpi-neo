@@ -401,7 +401,8 @@ def lab(tmp_path):
                             ratings_file=str(tmp_path / "r.jsonl"),
                             layout_file=str(tmp_path / "layout.json"),
                             token_file=str(tmp_path / "tok.json"),
-                            build_runner=runner, pi_opener=opener_for(app_pi))
+                            build_runner=runner, pi_opener=opener_for(app_pi),
+                            settings_file=str(tmp_path / "lab.local.json"))
     return TestClient(app), app_pi, runs, tmp_path
 
 
@@ -582,3 +583,63 @@ def test_lab_client_against_the_real_songs_api(tmp_path):
         f.write("0,255\n")                          # wrong column count: the Pi refuses it
     r = store.push(client, "WizardsInWinter", ["fft"], replace=True, out_dir=bad)["results"][0]
     assert not r["ok"] and r["status"] == 422
+
+
+# ---------------------------------------------------------------------------
+# Music folder: songs from anywhere, remembered between runs
+# ---------------------------------------------------------------------------
+
+class TestMusicFolder:
+
+    def test_switch_folder_remember_and_build_from_it(self, lab):
+        c, _pi, runs, tmp = lab
+        mine = tmp / "My Christmas Music"
+        (mine / "TSO").mkdir(parents=True)
+        (mine / "TSO" / "Wizards In Winter.flac").write_bytes(b"x")
+        (mine / "notes.txt").write_text("not audio")
+        r = c.post("/api/music-dir", json={"path": str(mine)})
+        assert r.status_code == 200 and r.json()["songs"] == 1
+        s = c.get("/api/state").json()
+        assert s["music_dir"] == str(mine) and s["songs"] == [os.path.join("TSO", "Wizards In Winter.flac")]
+        assert s["recent_music_dirs"][0] == str(mine)
+        c.post("/api/build", json={"songs": [os.path.join("TSO", "Wizards In Winter.flac")]})
+        assert runs[-1][0] == str(mine / "TSO" / "Wizards In Winter.flac")
+        settings = json.loads((tmp / "lab.local.json").read_text())
+        assert settings["music_dir"] == str(mine)
+
+    def test_missing_folder_and_escaping_paths_are_refused(self, lab):
+        c, _pi, _runs, tmp = lab
+        assert c.post("/api/music-dir", json={"path": str(tmp / "nope")}).status_code == 404
+        (tmp / "secret.mp3").write_bytes(b"x")
+        r = c.post("/api/build", json={"songs": ["../secret.mp3"]})
+        assert r.status_code == 422 and "outside" in r.json()["detail"]
+
+    def test_recent_folders_most_recent_first_without_duplicates(self, tmp_path):
+        path = str(tmp_path / "s.json")
+        for d in ("a", "b", "a", "c"):
+            store.remember_music_dir(d, path)
+        assert store.load_settings(path)["recent_music_dirs"] == ["c", "a", "b"]
+
+    def test_scan_skips_libraries_and_stops_at_the_cap(self, tmp_path):
+        (tmp_path / "Music.musiclibrary").mkdir()
+        (tmp_path / "Music.musiclibrary" / "x.mp3").write_bytes(b"x")
+        for i in range(5):
+            (tmp_path / f"song{i}.mp3").write_bytes(b"x")
+        songs, truncated = store.scan_music(str(tmp_path), limit=3)
+        assert len(songs) == 3 and truncated
+        songs, truncated = store.scan_music(str(tmp_path))
+        assert len(songs) == 5 and not truncated
+
+    def test_initial_folder_precedence(self, tmp_path, monkeypatch):
+        a, b, c = (tmp_path / n for n in "abc")
+        for d in (a, b, c):
+            d.mkdir()
+        settings = str(tmp_path / "s.json")
+        store.remember_music_dir(str(c), settings)
+        monkeypatch.delenv("LSP_MUSIC_DIR", raising=False)
+        assert store.initial_music_dir(None, "music", settings) == str(c)        # last used
+        monkeypatch.setenv("LSP_MUSIC_DIR", str(b))
+        assert store.initial_music_dir(None, "music", settings) == str(b)        # env
+        assert store.initial_music_dir(str(a), "music", settings) == str(a)      # --music
+        monkeypatch.setenv("LSP_MUSIC_DIR", str(tmp_path / "gone"))
+        assert store.initial_music_dir(None, "music", settings) == str(c)        # bad env skipped

@@ -19,7 +19,10 @@ from .pi import PiClient, PiError, pi_variant_name
 OUT_DIR = os.path.join(RESEARCH_DIR, "out")
 RATINGS_FILE = os.path.join(RESEARCH_DIR, "ratings.jsonl")
 LAYOUT_FILE = os.path.join(RESEARCH_DIR, "layout.json")
+SETTINGS_FILE = os.path.join(RESEARCH_DIR, "lab.local.json")
 AUDIO_EXTS = (".mp3", ".m4a", ".wav", ".flac", ".ogg", ".aac", ".mp4")
+MAX_SONGS = 3000          # a whole ~/Music library would make the song list unusable
+MAX_RECENT = 8
 
 
 # ---------------------------------------------------------------------------
@@ -44,15 +47,81 @@ def bundles(out_dir: str = OUT_DIR) -> Dict[str, dict]:
     return found
 
 
-def audio_files(music_dir: str) -> List[str]:
-    """Audio files under ``music_dir`` (relative paths, sorted), skipping research output."""
-    found = []
+def audio_files(music_dir: str, limit: int = MAX_SONGS) -> List[str]:
+    """
+    Audio files under ``music_dir`` (relative paths, sorted), skipping hidden
+    folders, sequences/ and app bundles (e.g. a Music.app library package).
+    Stops after ``limit`` files; see ``scan_music``.
+    """
+    return scan_music(music_dir, limit)[0]
+
+
+def scan_music(music_dir: str, limit: int = MAX_SONGS):
+    """(relative audio paths sorted, True if the scan stopped at ``limit``)."""
+    found, truncated = [], False
     for root, dirs, files in os.walk(music_dir):
-        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "sequences"]
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d != "sequences"
+                         and not d.endswith((".app", ".musiclibrary", ".photoslibrary")))
         for f in files:
             if f.lower().endswith(AUDIO_EXTS) and not f.startswith("."):
+                if len(found) >= limit:
+                    truncated = True
+                    break
                 found.append(os.path.relpath(os.path.join(root, f), music_dir))
-    return sorted(found, key=str.lower)
+        if truncated:
+            break
+    return sorted(found, key=str.lower), truncated
+
+
+# ---------------------------------------------------------------------------
+# Lab settings (git-ignored research/lab.local.json): the music folder
+# ---------------------------------------------------------------------------
+
+def load_settings(path: str = SETTINGS_FILE) -> dict:
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(settings: dict, path: str = SETTINGS_FILE) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(settings, f, indent=2)
+    os.replace(tmp, path)
+
+
+def resolve_music_dir(path: str) -> str:
+    """Absolute, user-expanded folder path; ValueError if it isn't a folder."""
+    resolved = os.path.abspath(os.path.expanduser(os.path.expandvars(path.strip())))
+    if not os.path.isdir(resolved):
+        raise ValueError(f"not a folder: {resolved}")
+    return resolved
+
+
+def remember_music_dir(path: str, settings_path: str = SETTINGS_FILE) -> dict:
+    """Make ``path`` the current music folder and move it to the front of the recent list."""
+    settings = load_settings(settings_path)
+    recent = [p for p in settings.get("recent_music_dirs", []) if p != path]
+    settings["music_dir"] = path
+    settings["recent_music_dirs"] = ([path] + recent)[:MAX_RECENT]
+    save_settings(settings, settings_path)
+    return settings
+
+
+def initial_music_dir(explicit: Optional[str], default: str,
+                      settings_path: str = SETTINGS_FILE) -> str:
+    """--music, else $LSP_MUSIC_DIR, else the last folder used in the lab, else ``default``."""
+    for candidate in (explicit, os.environ.get("LSP_MUSIC_DIR"),
+                      load_settings(settings_path).get("music_dir")):
+        if candidate:
+            try:
+                return resolve_music_dir(candidate)
+            except ValueError:
+                continue
+    return os.path.abspath(default)
 
 
 def song_stem(path: str) -> str:

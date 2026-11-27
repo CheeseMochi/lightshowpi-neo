@@ -50,8 +50,14 @@
 
 <section id="tab-build" class="on">
   <div class="panel">
-    <h2>Songs <span class="muted" id="musicdir"></span></h2>
-    <div class="row"><input id="songfilter" placeholder="filter…" size="30"></div>
+    <h2>Songs</h2>
+    <div class="row">Music folder
+      <input id="musicdir" list="recentdirs" size="60" placeholder="~/Music/Christmas" spellcheck="false">
+      <datalist id="recentdirs"></datalist>
+      <button id="loadmusic">Load</button>
+      <span class="muted">Your own songs can live anywhere; the folder is remembered.</span></div>
+    <div class="row"><input id="songfilter" placeholder="filter…" size="30">
+      <span class="muted" id="songcount"></span></div>
     <div class="list" id="songlist"></div>
   </div>
   <div class="panel">
@@ -156,7 +162,8 @@ async function api(method, path, body) {
 }
 async function refresh() {
   S = await api('GET', '/api/state');
-  $('musicdir').textContent = S.music_dir;
+  if (document.activeElement !== $('musicdir')) $('musicdir').value = S.music_dir;
+  $('recentdirs').innerHTML = S.recent_music_dirs.map(d => `<option value="${esc(d)}">`).join('');
   $('pistatus').innerHTML = S.pi.logged_in ? `<span class="ok">● ${esc(S.pi.url)}</span>` : `<span class="muted">○ not logged in to ${esc(S.pi.url)}</span>`;
   $('piurl').value = $('piurl').value || S.pi.url;
   renderSongs(); renderPatternPicker(); renderRelays(); renderLayoutNote();
@@ -175,7 +182,10 @@ const picked = new Set();
 function renderSongs() {
   const f = $('songfilter').value.toLowerCase();
   const built = new Set(Object.keys(S.bundles));
-  $('songlist').innerHTML = S.songs.filter(s => s.toLowerCase().includes(f)).map(s => {
+  const shown = S.songs.filter(s => s.toLowerCase().includes(f));
+  $('songcount').textContent = !S.music_dir_ok ? 'folder not found'
+    : `${shown.length} of ${S.songs.length} songs` + (S.songs_truncated ? ` (stopped at ${S.songs_limit}; pick a smaller folder)` : '');
+  $('songlist').innerHTML = shown.map(s => {
     const stem = s.split('/').pop().replace(/\.[^.]+$/, '');
     return `<label class="chk"><input type="checkbox" data-song="${esc(s)}" ${picked.has(s) ? 'checked' : ''}>
       ${esc(s)} ${built.has(stem) ? '<span class="tag">built</span>' : ''}</label>`;
@@ -184,6 +194,16 @@ function renderSongs() {
     i.checked ? picked.add(i.dataset.song) : picked.delete(i.dataset.song));
 }
 $('songfilter').oninput = renderSongs;
+async function loadMusic() {
+  try {
+    const r = await api('POST', '/api/music-dir', { path: $('musicdir').value });
+    picked.clear(); $('musicdir').blur();
+    toast(`${r.songs} songs in ${r.music_dir}` + (r.truncated ? ' (list capped)' : ''));
+    await refresh();
+  } catch (e) { toast(e.message, true); }
+}
+$('loadmusic').onclick = loadMusic;
+$('musicdir').onkeydown = (e) => { if (e.key === 'Enter') loadMusic(); };
 const pickedPat = new Set();
 function renderPatternPicker() {
   const items = [...S.patterns, ...S.mixes.map(m => ({...m, base: 'mix'}))];

@@ -54,6 +54,10 @@ class MixBody(BaseModel):
     groups: List[Dict[str, object]]
 
 
+class MusicDirBody(BaseModel):
+    path: str
+
+
 class RateBody(BaseModel):
     song: str
     variant: str
@@ -134,13 +138,14 @@ def _bundle_main(argv):
 def create_app(music_dir: str, pi_url: str, out_dir: str = store.OUT_DIR,
                local_patterns: Optional[str] = None, ratings_file: str = store.RATINGS_FILE,
                layout_file: str = store.LAYOUT_FILE, token_file: Optional[str] = None,
-               build_runner=_bundle_main, pi_opener=None) -> FastAPI:
+               build_runner=_bundle_main, pi_opener=None,
+               settings_file: str = store.SETTINGS_FILE) -> FastAPI:
     from lspcompose import strategies, variants
 
     local_patterns = local_patterns or variants.LOCAL_FILE
     app = FastAPI(title="Pattern lab", docs_url=None, redoc_url=None)
     jobs = Jobs()
-    state = {"pi_url": pi_url}
+    state = {"pi_url": pi_url, "music_dir": os.path.abspath(music_dir)}
 
     def client() -> PiClient:
         kw = {"opener": pi_opener} if pi_opener else {}
@@ -189,9 +194,16 @@ def create_app(music_dir: str, pi_url: str, out_dir: str = store.OUT_DIR,
         bases = {b: {"types": {k: str(t) for k, t in variants.option_types(b).items()},
                      "defaults": variants.option_defaults(b), "needs_stems": variants.BASES[b][3]}
                  for b in variants.BASES}
+        music = state["music_dir"]
+        songs, truncated = store.scan_music(music) if os.path.isdir(music) else ([], False)
+        settings = store.load_settings(settings_file)
         return {
-            "music_dir": music_dir,
-            "songs": store.audio_files(music_dir) if os.path.isdir(music_dir) else [],
+            "music_dir": music,
+            "music_dir_ok": os.path.isdir(music),
+            "recent_music_dirs": settings.get("recent_music_dirs", []),
+            "songs": songs,
+            "songs_truncated": truncated,
+            "songs_limit": store.MAX_SONGS,
             "bundles": {k: {kk: v[kk] for kk in BUNDLE_KEYS if kk in v}
                         for k, v in store.bundles(out_dir).items()},
             "patterns": [{"name": n, "source": lib.sources[n], **s} for n, s in lib.patterns.items()],
@@ -205,12 +217,28 @@ def create_app(music_dir: str, pi_url: str, out_dir: str = store.OUT_DIR,
             "busy": jobs.busy(),
         }
 
+    # -- music folder -------------------------------------------------------
+    @app.post("/api/music-dir")
+    def post_music_dir(body: MusicDirBody):
+        try:
+            path = store.resolve_music_dir(body.path)
+        except ValueError as e:
+            raise HTTPException(404, str(e))
+        state["music_dir"] = path
+        store.remember_music_dir(path, settings_file)
+        songs, truncated = store.scan_music(path)
+        return {"music_dir": path, "songs": len(songs), "truncated": truncated}
+
     # -- builds -----------------------------------------------------------
     @app.post("/api/build")
     def post_build(body: BuildRequest):
         if not body.songs:
             raise HTTPException(422, "pick at least one song")
-        argv = [os.path.join(music_dir, s) for s in body.songs]
+        root = state["music_dir"]
+        argv = [os.path.normpath(os.path.join(root, s)) for s in body.songs]
+        for path in argv:
+            if os.path.commonpath([root, path]) != root:
+                raise HTTPException(422, f"{path} is outside the music folder")
         for path in argv:
             if not os.path.isfile(path):
                 raise HTTPException(404, f"no such song: {path}")
