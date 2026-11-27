@@ -230,9 +230,10 @@ class TestSongStats:
         def compute(song):
             calls.append(song)
             return public.PublicSongStats(plays=len(calls)), NOW
-        assert public.current_song_stats(PLAYING, compute).plays == 1
-        assert public.current_song_stats(PLAYING, compute).plays == 1
-        assert public.current_song_stats({**PLAYING, "song_started_at": "9"}, compute).plays == 2
+        assert public.current_song_stats(PLAYING, compute, now=NOW).plays == 1
+        assert public.current_song_stats(PLAYING, compute, now=NOW).plays == 1
+        assert public.current_song_stats({**PLAYING, "song_started_at": "9"}, compute,
+                                         now=NOW).plays == 2
         assert calls == [PLAYING["song_title"]] * 2
 
     def test_reads_again_until_this_play_is_logged(self, events_db):
@@ -240,22 +241,44 @@ class TestSongStats:
         song = PLAYING["song_title"]
         started = float(PLAYING["song_started_at"])
         event_log.record("song_start", source="show", song=song, ts=started - 3600)
-        assert public.current_song_stats(PLAYING).plays == 1   # this play not logged yet
+        early = started + 0.005
+        assert public.current_song_stats(PLAYING, now=early).plays == 1   # not logged yet
         event_log.record("song_start", source="show", song=song, ts=started + 0.01)
-        assert public.current_song_stats(PLAYING).plays == 2   # read again, now kept
+        assert public.current_song_stats(PLAYING, now=early).plays == 2   # read again, kept
         event_log.record("song_end", source="show", song=song, reason="skipped", ts=started + 9)
-        assert public.current_song_stats(PLAYING).skips == 0   # memoized for this play
+        assert public.current_song_stats(PLAYING, now=started + 30).skips == 0  # memoized
 
     def test_first_ever_play_not_logged_yet_is_not_kept(self, events_db):
-        assert public.current_song_stats(PLAYING) is None
-        event_log.record("song_start", source="show", song=PLAYING["song_title"],
-                         ts=float(PLAYING["song_started_at"]))
-        assert public.current_song_stats(PLAYING).plays == 1
+        started = float(PLAYING["song_started_at"])
+        assert public.current_song_stats(PLAYING, now=started + 1) is None
+        event_log.record("song_start", source="show", song=PLAYING["song_title"], ts=started)
+        assert public.current_song_stats(PLAYING, now=started + 1).plays == 1
 
-    def test_errors_give_none(self):
+    def test_stops_retrying_after_the_window(self, events_db):
+        """A play the show never logged costs one read per song, not one per poll."""
+        calls = []
+
+        def compute(song):
+            calls.append(song)
+            return None, None
+        late = float(PLAYING["song_started_at"]) + public.STATS_RETRY_S + 1
+        for _ in range(3):
+            assert public.current_song_stats(PLAYING, compute, now=late) is None
+        assert len(calls) == 1
+
+    def test_errors_give_none_and_are_not_retried_all_song(self):
+        calls = []
+
         def boom(song):
+            calls.append(song)
             raise RuntimeError("db locked")
-        assert public.current_song_stats(PLAYING, boom) is None
+        started = float(PLAYING["song_started_at"])
+        assert public.current_song_stats(PLAYING, boom, now=started + 1) is None
+        assert public.current_song_stats(PLAYING, boom, now=started + 2) is None
+        assert len(calls) == 2  # retried inside the window
+        for _ in range(3):
+            assert public.current_song_stats(PLAYING, boom, now=started + 60) is None
+        assert len(calls) == 3  # then kept
 
 
 def make_client(state, with_stats=True, entries=None, home_dir="/home/pi/lightshowpi"):

@@ -31,7 +31,7 @@ const MAX_TITLE = 200;
 const MAX_NOTE = 500;
 const MAX_SONGS = 1000;
 const MAX_SHOWS = 50;
-const MAX_DETAIL = 120;
+const MAX_DETAIL = 200;  // the Pi caps at 120 characters; JS counts some as 2
 const MAX_COUNT = 1e9;
 
 // Song detail keys that follow the basics in now_playing (all optional, so a

@@ -456,6 +456,10 @@ _stats_lock = threading.Lock()
 
 # How far before song_started_at the show's song_start event may be stamped
 STATS_START_SLACK_S = 5.0
+# How long into a song to keep re-reading the log for this play's song_start;
+# after that whatever was read is kept, so a play the show never logged (or an
+# unreadable log) costs one read per song, not one per poll.
+STATS_RETRY_S = 10.0
 
 
 def song_stats(song: str) -> Tuple[Optional[PublicSongStats], Optional[float]]:
@@ -476,15 +480,15 @@ def song_stats(song: str) -> Tuple[Optional[PublicSongStats], Optional[float]]:
 
 
 def current_song_stats(state: Dict[str, str],
-                       compute: Callable[[str], Tuple[Optional[PublicSongStats], Optional[float]]] = None
-                       ) -> Optional[PublicSongStats]:
+                       compute: Callable[[str], Tuple[Optional[PublicSongStats], Optional[float]]] = None,
+                       now: Optional[float] = None) -> Optional[PublicSongStats]:
     """
     Stats for the song in ``state``, read from the event log once per song
     (not per poll). Never raises.
 
     The show writes ``song_started_at`` a moment before it logs the play, so
-    a result that doesn't include this play yet isn't kept; the next poll
-    reads again.
+    a result that doesn't include this play yet isn't kept and the next poll
+    reads again, for up to ``STATS_RETRY_S`` into the song.
     """
     compute = compute or song_stats
     song = state.get("song_title", "") or ""
@@ -493,13 +497,17 @@ def current_song_stats(state: Dict[str, str],
     with _stats_lock:
         if _stats_memo["key"] == key:
             return _stats_memo["value"]
+    now = time.time() if now is None else now
+    retrying = started is not None and now - started < STATS_RETRY_S
     try:
         value, last_ts = compute(song)
     except Exception as e:
         log.warning(f"Public song stats could not read the event log: {e}")
-        return None
-    complete = (started is None or not event_log.is_enabled()
-                or (last_ts is not None and last_ts >= started - STATS_START_SLACK_S))
+        value, last_ts = None, None
+        complete = not retrying
+    else:
+        complete = (not retrying or not event_log.is_enabled()
+                    or (last_ts is not None and last_ts >= started - STATS_START_SLACK_S))
     if complete:
         with _stats_lock:
             _stats_memo["key"], _stats_memo["value"] = key, value
