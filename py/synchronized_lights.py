@@ -273,8 +273,8 @@ class Lightshow(object):
         # FFT analyses only the base channels (GPIO + LED EXTEND); virtual
         # channels ([hardware] virtual_channels) mirror them in update_lights.
         # Without virtual channels the base count is gpio_len.
-        self.fft_channel_count = getattr(cm.hardware, 'base_channel_count', cm.hardware.gpio_len)
-        self.virtual_sources = list(getattr(cm.hardware, 'virtual_channel_sources', None) or [])
+        self.fft_channel_count = virtual_channels.base_channel_count(cm.hardware)
+        self.virtual_sources = virtual_channels.mirror_sources(cm.hardware)
 
         self.mean = np.array([12.0 for _ in range(self.fft_channel_count)], dtype='float32')
         self.std = np.array([1.5 for _ in range(self.fft_channel_count)], dtype='float32')

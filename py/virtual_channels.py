@@ -15,12 +15,23 @@ With N = 0 nothing in this module changes a frame.
 """
 import logging
 
-import numpy as np
-
 log = logging.getLogger(__name__)
 
 # gpio_pins placeholder numbers for virtual channels (LED EXTEND uses 1000+)
 PIN_BASE = 2000
+
+
+def base_channel_count(hardware):
+    """Show channels before any virtual channels (``gpio_len`` when there are none).
+
+    :param hardware: ``cm.hardware`` (or a stub with at least ``gpio_len``)
+    """
+    return getattr(hardware, "base_channel_count", hardware.gpio_len)
+
+
+def mirror_sources(hardware):
+    """Base channel mirrored by each virtual channel in FFT mode ([] = none)."""
+    return list(getattr(hardware, "virtual_channel_sources", None) or [])
 
 
 def _strip_comment(text):
@@ -89,6 +100,8 @@ def append_mirrored(levels, sources):
     """
     if not sources:
         return levels
+    import numpy as np  # here so configuration_manager's import stays numpy-free
+
     levels = np.asarray(levels)
     if len(levels) == 0:
         return np.zeros(len(sources), dtype=levels.dtype)

@@ -73,6 +73,12 @@ class TestHelpers:
     def test_append_mirrored_no_base(self):
         np.testing.assert_allclose(vc.append_mirrored(np.zeros(0), [0, 0]), [0, 0])
 
+    def test_base_count_and_sources_from_hardware(self):
+        assert vc.base_channel_count(SimpleNamespace(gpio_len=13, base_channel_count=7)) == 7
+        assert vc.base_channel_count(SimpleNamespace(gpio_len=7)) == 7   # older stubs
+        assert vc.mirror_sources(SimpleNamespace(virtual_channel_sources=[1, 2])) == [1, 2]
+        assert vc.mirror_sources(SimpleNamespace()) == []
+
 
 # ---------------------------------------------------------------------------
 # configuration
@@ -264,7 +270,8 @@ class TestHardware:
         hc._bound_led_extend(7)
         assert plain.extend_end == 7 and wrapped.inner.extend_end == 7
 
-    def test_full_hardware_with_virtual_channels(self, tmp_path):
+    def test_full_hardware_with_virtual_channels(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(hardware_controller, "cm", hardware_controller.cm)  # restored after
         overrides = tmp_path / "virtual.cfg"
         overrides.write_text("[hardware]\ngpio_pins = 0,1,2\nvirtual_channels = 2\n"
                              "[configs]\nled_config =\n[network]\nnetworking = off\n")
@@ -274,7 +281,8 @@ class TestHardware:
         assert len(hc.channels) == 5
         assert [c.pin_number for c in hc.channels] == [0, 1, 2, 2000, 2001]
 
-    def test_full_hardware_default_unchanged(self, tmp_path):
+    def test_full_hardware_default_unchanged(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(hardware_controller, "cm", hardware_controller.cm)  # restored after
         overrides = tmp_path / "plain.cfg"
         overrides.write_text("[hardware]\ngpio_pins = 0,1,2\n"
                              "[configs]\nled_config =\n[network]\nnetworking = off\n")
@@ -440,6 +448,58 @@ class TestUpdateLights:
         row = np.array([255, 0, 0, 0, 0, 255], dtype="float32")
         show.update_lights(row)
         np.testing.assert_allclose(hc.set_array.call_args.args[0], [1, 0, 0, 0, 0, 1])
+
+
+class FakeMusic:
+    def getframerate(self):
+        return 44100
+
+    def getnchannels(self):
+        return 2
+
+    def getnframes(self):
+        return 44100
+
+
+class TestFftSizing:
+    """FFT bins, stats and the .sync cache use the base count, not gpio_len."""
+
+    def _show(self, sl, monkeypatch, hardware):
+        fft_cls = Mock()
+        monkeypatch.setattr(sl.fft, "FFT", fft_cls)
+        monkeypatch.setattr(sl.decoder, "open", lambda *a, **k: FakeMusic())
+        monkeypatch.setattr(sl, "args", SimpleNamespace(readcache=False))
+        monkeypatch.setattr(sl, "cm", SimpleNamespace(
+            hardware=hardware,
+            lightshow=SimpleNamespace(light_delay=0.0, light_delay_legacy_math=True),
+            audio_processing=SimpleNamespace(min_frequency=20, max_frequency=15000,
+                                             custom_channel_mapping=0,
+                                             custom_channel_frequencies=0, use_gpu=False),
+            custom_sequences=SimpleNamespace(timing=50)))
+        show = sl.Lightshow.__new__(sl.Lightshow)
+        show.fft_channel_count = vc.base_channel_count(hardware)   # as __init__ does
+        show.song_filename = "song.wav"
+        show.sequence_type = "auto"
+        show.chunk_size = 2048
+        show.cache_filename = "unused.sync"
+        show.set_audio_device = Mock()
+        return show, fft_cls
+
+    def test_virtual_channels_keep_base_fft(self, sl, monkeypatch):
+        hw = SimpleNamespace(gpio_len=13, base_channel_count=7)
+        show, fft_cls = self._show(sl, monkeypatch, hw)
+        show.setup_audio()
+        assert fft_cls.call_args.args[2] == 7
+        show.setup_cache()
+        assert show.cache_matrix.shape == (0, 7)
+
+    def test_default_fft_uses_gpio_len(self, sl, monkeypatch):
+        hw = SimpleNamespace(gpio_len=7)
+        show, fft_cls = self._show(sl, monkeypatch, hw)
+        show.setup_audio()
+        assert fft_cls.call_args.args[2] == 7
+        show.setup_cache()
+        assert show.cache_matrix.shape == (0, 7)
 
 
 # ---------------------------------------------------------------------------

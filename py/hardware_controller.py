@@ -39,6 +39,7 @@ from collections import defaultdict
 import configuration_manager
 import networking
 import networking_sacn
+import virtual_channels
 from outputs.led import LedOutput
 from outputs.threaded import ThreadedOutput
 from outputs.nanoleaf import NanoleafOutput
@@ -89,11 +90,6 @@ else:
     import wiring_pi as wiringpi
 
     logging.debug("Not running on a raspberryPI")
-
-def _base_channel_count(hardware):
-    """Show channels before any virtual channels (gpio_len when there are none)."""
-    return getattr(hardware, 'base_channel_count', hardware.gpio_len)
-
 
 class LEDManager(BaseManager):
     pass
@@ -321,12 +317,12 @@ class Hardware(object):
 
     def set_pins_as_outputs(self):
         """Set all the configured pins as outputs (virtual channels have no pin)."""
-        for pin in range(_base_channel_count(cm.hardware)):
+        for pin in range(virtual_channels.base_channel_count(cm.hardware)):
             self.set_pin_as_output(pin)
 
     def set_pins_as_inputs(self):
         """Set all the configured pins as inputs (virtual channels have no pin)."""
-        for pin in range(_base_channel_count(cm.hardware)):
+        for pin in range(virtual_channels.base_channel_count(cm.hardware)):
             self.set_pin_as_input(pin)
 
     def set_pin_as_output(self, pin):

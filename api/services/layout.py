@@ -13,6 +13,7 @@ import logging
 from typing import Dict, List, Optional
 
 import configuration_manager
+import virtual_channels
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ def channel_layout(config_dir: str, labels: Optional[Dict[int, str]] = None) -> 
         config_dir, load_leds=led_module_available())
     layout = cm.channel_layout()
     hw = cm.hardware
-    base = getattr(hw, "base_channel_count", hw.gpio_len)
+    base = virtual_channels.base_channel_count(hw)
     warnings = list(errors)
 
     outputs = []
@@ -91,7 +92,7 @@ def channel_layout(config_dir: str, labels: Optional[Dict[int, str]] = None) -> 
                         "channels": channels})
 
     layout.update({
-        "virtual_sources": list(getattr(hw, "virtual_channel_sources", []) or []),
+        "virtual_sources": virtual_channels.mirror_sources(hw),
         "outputs": outputs,
         "channel_labels": {str(k): v for k, v in sorted((labels or {}).items())
                            if 0 <= k < hw.gpio_len},
