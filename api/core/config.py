@@ -45,6 +45,8 @@ class APIConfig:
         self.public_show_start = self._get_str('api', 'public_show_start', '').strip()
         self.public_show_stop = self._get_str('api', 'public_show_stop', '').strip()
         self.public_show_days = self._get_str('api', 'public_show_days', '').strip()
+        # Play/skip counts for the current song on the public page
+        self.public_song_stats = self._get_bool('api', 'public_song_stats', True)
         self.db_path = self._get_str('api', 'db_path', '')
         self.cors_origins = [o.strip().rstrip('/') for o in
                              self._get_str('api', 'cors_origins', '').split(',') if o.strip()]

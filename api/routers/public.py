@@ -9,7 +9,10 @@ IPs, file paths, client details or controls. Responses use explicit models
 client IP.
 
 The song comes from config/state.cfg, which synchronized_lights.py writes
-however the show was started (cron, CLI, buttons or the API).
+however the show was started (cron, CLI, buttons or the API). Artist, album
+and year come from the audio file's tags (api/services/song_tags.py), the
+light pattern from the show's ``song_sequence`` state key, and the play and
+skip counts from the event log (``[api] public_song_stats``, on by default).
 
 The ``*_snapshot`` functions build each view and never raise. The endpoints
 and the cloud publisher (api/services/cloud_publisher.py) both use them, so
@@ -30,7 +33,9 @@ from pydantic import BaseModel, ConfigDict
 import api.core.config  # noqa: F401  (puts py/ on sys.path)
 from api.core.rate_limit import RateLimiter, client_ip
 from api.routers.schedules import get_optional_scheduler
+from api.services import event_analytics, song_tags
 from configuration_manager import read_playlist
+import event_log
 
 log = logging.getLogger(__name__)
 
@@ -49,19 +54,38 @@ DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]  # DB order: 0 = S
 MAX_PUBLIC_SONGS = 500
 # State keys the public views read. song_path is used only to find the
 # current playlist entry and is never returned.
-STATE_KEYS = ("now_playing", "song_title", "song_duration", "song_started_at", "song_path")
+STATE_KEYS = ("now_playing", "song_title", "song_duration", "song_started_at", "song_path",
+              "song_sequence")
+MAX_DETAIL = 120
+# Friendly names for the built-in light patterns; research variants are prettified
+PATTERN_LABELS = {"fft": "Live audio-reactive", "csv": "Custom sequence"}
+_PATTERN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 public_limiter = RateLimiter(max_events=PUBLIC_REQUESTS_PER_MINUTE, window_s=60.0)
 
 
+class PublicSongStats(BaseModel):
+    """How often the current song has played (all time, from the event log)."""
+    model_config = ConfigDict(extra="forbid")
+
+    plays: int = 0
+    completions: int = 0
+    skips: int = 0
+
+
 class PublicNowPlaying(BaseModel):
-    """What's on right now."""
+    """What's on right now. Everything after ``duration_s`` is optional detail."""
     model_config = ConfigDict(extra="forbid")
 
     state: str  # "playing", "ambient" or "off"
     title: Optional[str] = None
     elapsed_s: Optional[float] = None
     duration_s: Optional[float] = None
+    artist: Optional[str] = None
+    album: Optional[str] = None
+    year: Optional[str] = None
+    pattern: Optional[str] = None  # the light pattern, as a friendly label
+    stats: Optional[PublicSongStats] = None
 
 
 class PublicShowTime(BaseModel):
@@ -82,12 +106,24 @@ class PublicSchedule(BaseModel):
     shows: List[PublicShowTime] = []
 
 
+class PublicSongInfo(BaseModel):
+    """Tag details for one playlist song."""
+    model_config = ConfigDict(extra="forbid")
+
+    artist: Optional[str] = None
+    year: Optional[str] = None
+
+
 class PublicPlaylist(BaseModel):
-    """Song titles in playlist order; ``current`` is the index playing now."""
+    """
+    Song titles in playlist order; ``current`` is the index playing now.
+    ``details`` runs parallel to ``songs`` (artist and year from the tags).
+    """
     model_config = ConfigDict(extra="forbid")
 
     songs: List[str] = []
     current: Optional[int] = None
+    details: List[PublicSongInfo] = []
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +177,11 @@ def config_show_times(api_config) -> Optional["PublicShowTime"]:
                             getattr(api_config, "public_show_days", ""))
 
 
+def config_song_stats(api_config) -> bool:
+    """``[api] public_song_stats``: show play and skip counts on the public page."""
+    return bool(getattr(api_config, "public_song_stats", True))
+
+
 def get_state_reader() -> Optional[Callable[[], Dict[str, str]]]:
     """Dependency: a function returning the current show state, or None."""
     if _api_config is None:
@@ -160,6 +201,11 @@ def get_playlist_reader() -> Optional[Callable[[], List[list]]]:
 def get_home_dir() -> str:
     """Dependency: the home dir used to expand playlist paths."""
     return "" if _api_config is None else config_home_dir(_api_config)
+
+
+def get_song_stats_enabled() -> bool:
+    """Dependency: whether the public page shows play and skip counts."""
+    return False if _api_config is None else config_song_stats(_api_config)
 
 
 def get_schedule_note() -> Optional[str]:
@@ -221,7 +267,31 @@ def public_title(raw: str) -> Optional[str]:
     return title[:120] or None
 
 
-def build_now_playing(state: Optional[Dict[str, str]], now: Optional[float] = None) -> PublicNowPlaying:
+def _detail(value: Optional[str]) -> Optional[str]:
+    text = " ".join(str(value or "").split())
+    return text[:MAX_DETAIL] or None
+
+
+def public_pattern(name: Optional[str]) -> Optional[str]:
+    """
+    The light pattern as visitors should see it: 'fft' -> 'Live audio-reactive',
+    'onset_bands' -> 'Onset bands'. Anything that isn't a plain sequence name
+    (a path, odd characters) gives None.
+    """
+    name = (name or "").strip()
+    if not name:
+        return None
+    if name.lower() in PATTERN_LABELS:
+        return PATTERN_LABELS[name.lower()]
+    if not _PATTERN_RE.match(name):
+        return None
+    words = re.sub(r"[_.-]+", " ", name).strip()
+    return (words[:1].upper() + words[1:])[:MAX_DETAIL] or None
+
+
+def build_now_playing(state: Optional[Dict[str, str]], now: Optional[float] = None,
+                      tags: Optional[Dict[str, Optional[str]]] = None,
+                      stats: Optional[PublicSongStats] = None) -> PublicNowPlaying:
     """Turn raw state-file values into the public now-playing view."""
     if not state or str(state.get("now_playing", "0")).strip() != "1":
         return PublicNowPlaying(state="off")
@@ -242,9 +312,18 @@ def build_now_playing(state: Optional[Dict[str, str]], now: Optional[float] = No
         elapsed = max(0.0, now - started)
         if duration is not None:
             elapsed = min(elapsed, duration)
-    return PublicNowPlaying(state="playing", title=public_title(raw_title),
+    tags = tags or {}
+    # The state title is "Title by Artist" when tagged; with the artist shown
+    # separately, use the tag's own title so the artist isn't repeated.
+    title = _detail(tags.get("title")) or public_title(raw_title)
+    return PublicNowPlaying(state="playing", title=title,
                             elapsed_s=round(elapsed, 1) if elapsed is not None else None,
-                            duration_s=round(duration, 1) if duration is not None else None)
+                            duration_s=round(duration, 1) if duration is not None else None,
+                            artist=_detail(tags.get("artist")),
+                            album=_detail(tags.get("album")),
+                            year=_detail(tags.get("year")),
+                            pattern=public_pattern(state.get("song_sequence")),
+                            stats=stats)
 
 
 def _show_time(schedule: Dict) -> PublicShowTime:
@@ -320,7 +399,8 @@ def _resolve_song_path(path: str, home_dir: str) -> str:
 
 
 def build_playlist(entries: List[list], state: Optional[Dict[str, str]] = None,
-                   home_dir: str = "", now: Optional[float] = None) -> PublicPlaylist:
+                   home_dir: str = "", now: Optional[float] = None,
+                   read_tags: Optional[Callable[[str], Dict]] = None) -> PublicPlaylist:
     """
     Public titles of the playlist entries (never paths), and which one is playing.
 
@@ -332,6 +412,7 @@ def build_playlist(entries: List[list], state: Optional[Dict[str, str]] = None,
     if state and build_now_playing(state, now=now).state == "playing":
         playing_path = _resolve_song_path(state.get("song_path", ""), home_dir)
     songs: List[str] = []
+    details: List[PublicSongInfo] = []
     current = None
     for entry in entries or []:
         if len(songs) >= MAX_PUBLIC_SONGS:
@@ -342,11 +423,19 @@ def build_playlist(entries: List[list], state: Optional[Dict[str, str]] = None,
             continue
         if not title:
             continue
-        if (playing_path and current is None and len(entry) > 1
-                and _resolve_song_path(entry[1], home_dir) == playing_path):
+        song_path = _resolve_song_path(entry[1], home_dir) if len(entry) > 1 else ""
+        if playing_path and current is None and song_path == playing_path:
             current = len(songs)
         songs.append(title)
-    return PublicPlaylist(songs=songs, current=current)
+        tags = {}
+        if read_tags is not None and song_path:
+            try:
+                tags = read_tags(song_path) or {}
+            except Exception:
+                tags = {}
+        details.append(PublicSongInfo(artist=_detail(tags.get("artist")),
+                                      year=_detail(tags.get("year"))))
+    return PublicPlaylist(songs=songs, current=current, details=details)
 
 
 # ---------------------------------------------------------------------------
@@ -354,15 +443,102 @@ def build_playlist(entries: List[list], state: Optional[Dict[str, str]] = None,
 # a broken state file or playlist shows as "off" or empty, not an error.
 # ---------------------------------------------------------------------------
 
-def now_playing_snapshot(read: Optional[Callable[[], Dict[str, str]]]) -> PublicNowPlaying:
-    """Now-playing from a state reader; "off" when there is none or it fails."""
+def file_tags(path: str) -> Dict[str, Optional[str]]:
+    """Tags of the audio file at ``path`` (looked up at call time, so tests can patch it)."""
+    return song_tags.read_tags(path)
+
+
+# The stats for the song playing now, computed once per song (not per poll):
+# (song title, song_started_at) -> stats
+_stats_memo: Dict[str, object] = {"key": None, "value": None}
+_stats_lock = threading.Lock()
+
+
+# How far before song_started_at the show's song_start event may be stamped
+STATS_START_SLACK_S = 5.0
+
+
+def song_stats(song: str) -> Tuple[Optional[PublicSongStats], Optional[float]]:
+    """
+    All-time plays, completions and skips for ``song`` (the state title), and
+    the time of its latest event. ``(None, None)`` when unknown or the event
+    log is off.
+    """
+    if not song or not event_log.is_enabled():
+        return None, None
+    events, _ = event_log.fetch_events(types=["song_start", "song_end"], song=song)
+    rows = event_analytics.song_stats(events)
+    if not rows:
+        return None, None
+    row = rows[0]
+    stats = PublicSongStats(plays=row["plays"], completions=row["completions"], skips=row["skips"])
+    return stats, row.get("last_played")
+
+
+def current_song_stats(state: Dict[str, str],
+                       compute: Callable[[str], Tuple[Optional[PublicSongStats], Optional[float]]] = None
+                       ) -> Optional[PublicSongStats]:
+    """
+    Stats for the song in ``state``, read from the event log once per song
+    (not per poll). Never raises.
+
+    The show writes ``song_started_at`` a moment before it logs the play, so
+    a result that doesn't include this play yet isn't kept; the next poll
+    reads again.
+    """
+    compute = compute or song_stats
+    song = state.get("song_title", "") or ""
+    started = _float(state.get("song_started_at"))
+    key = (song, state.get("song_started_at", ""))
+    with _stats_lock:
+        if _stats_memo["key"] == key:
+            return _stats_memo["value"]
+    try:
+        value, last_ts = compute(song)
+    except Exception as e:
+        log.warning(f"Public song stats could not read the event log: {e}")
+        return None
+    complete = (started is None or not event_log.is_enabled()
+                or (last_ts is not None and last_ts >= started - STATS_START_SLACK_S))
+    if complete:
+        with _stats_lock:
+            _stats_memo["key"], _stats_memo["value"] = key, value
+    return value
+
+
+def now_playing_snapshot(read: Optional[Callable[[], Dict[str, str]]], home_dir: str = "",
+                         with_stats: bool = False,
+                         read_tags: Optional[Callable[[str], Dict]] = file_tags,
+                         stats: Optional[Callable[[Dict[str, str]], Optional[PublicSongStats]]] = None
+                         ) -> PublicNowPlaying:
+    """
+    Now-playing from a state reader; "off" when there is none or it fails.
+
+    When a song is playing, adds its tags (``read_tags``, by the state's
+    ``song_path``) and, if ``with_stats``, its play counts.
+    """
     if read is None:
         return PublicNowPlaying(state="off")
     try:
-        return build_now_playing(read())
+        state = read()
+        basic = build_now_playing(state)
     except Exception as e:
         log.warning(f"Public now-playing could not read the state file: {e}")
         return PublicNowPlaying(state="off")
+    if basic.state != "playing":
+        return basic
+    tags = None
+    if read_tags is not None:
+        try:
+            tags = read_tags(_resolve_song_path(state.get("song_path", ""), home_dir))
+        except Exception as e:
+            log.debug(f"Public now-playing could not read song tags: {e}")
+    song_stats_value = (stats or current_song_stats)(state) if with_stats else None
+    try:
+        return build_now_playing(state, tags=tags, stats=song_stats_value)
+    except Exception as e:
+        log.warning(f"Public now-playing details failed: {e}")
+        return basic
 
 
 def schedule_snapshot(scheduler, note: Optional[str],
@@ -383,7 +559,9 @@ def schedule_snapshot(scheduler, note: Optional[str],
 
 def playlist_snapshot(read_entries: Optional[Callable[[], List[list]]],
                       read: Optional[Callable[[], Dict[str, str]]] = None,
-                      home_dir: str = "") -> PublicPlaylist:
+                      home_dir: str = "",
+                      read_tags: Optional[Callable[[str], Dict]] = file_tags
+                      ) -> PublicPlaylist:
     """Public playlist; empty when there is no playlist or it can't be read."""
     if read_entries is None:
         return PublicPlaylist()
@@ -399,7 +577,7 @@ def playlist_snapshot(read_entries: Optional[Callable[[], List[list]]],
         except Exception as e:
             log.warning(f"Public playlist could not read the state file: {e}")
     try:
-        return build_playlist(entries, state, home_dir)
+        return build_playlist(entries, state, home_dir, read_tags=read_tags)
     except Exception as e:
         log.warning(f"Public playlist could not be built: {e}")
         return PublicPlaylist()
@@ -414,10 +592,15 @@ def _cache_headers(response: Response) -> None:
 
 
 @router.get("/now-playing", response_model=PublicNowPlaying, dependencies=[Depends(rate_limit)])
-async def now_playing(response: Response, read_state=Depends(get_state_reader)):
-    """Whether the show is on and the current song title. No login needed."""
+async def now_playing(response: Response, read_state=Depends(get_state_reader),
+                      home_dir: str = Depends(get_home_dir),
+                      with_stats: bool = Depends(get_song_stats_enabled)):
+    """
+    Whether the show is on, and the current song: title, artist, album, year,
+    light pattern and (with `[api] public_song_stats`) play counts. No login needed.
+    """
     _cache_headers(response)
-    return cached("now-playing", lambda: now_playing_snapshot(read_state))
+    return cached("now-playing", lambda: now_playing_snapshot(read_state, home_dir, with_stats))
 
 
 @router.get("/schedule", response_model=PublicSchedule, dependencies=[Depends(rate_limit)])
@@ -437,6 +620,6 @@ async def schedule(response: Response, scheduler=Depends(get_optional_scheduler)
 async def playlist(response: Response, read_entries=Depends(get_playlist_reader),
                    read_state=Depends(get_state_reader),
                    home_dir: str = Depends(get_home_dir)):
-    """Song titles in playlist order (no file paths) and the index playing now."""
+    """Song titles in playlist order (no file paths), artist and year, and the index playing now."""
     _cache_headers(response)
     return cached("playlist", lambda: playlist_snapshot(read_entries, read_state, home_dir))
