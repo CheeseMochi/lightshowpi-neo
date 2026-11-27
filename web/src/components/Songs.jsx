@@ -119,7 +119,184 @@ function SequenceEditor({ value, onChange, variants, legacyCsv }) {
   );
 }
 
-function SettingsPanel({ song, onClose, onSaved }) {
+/** A variant name from an uploaded file name ("Onset Bands.csv" -> "Onset_Bands"). */
+export function variantNameFromFile(fileName) {
+  const stem = (fileName || '').replace(/\.[^.]*$/, '');
+  return stem.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^[_-]+/, '').slice(0, 64);
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Variant CSVs of a song: list, upload, delete, and play now with one. */
+function VariantsPanel({ song, savedSequence, onChanged }) {
+  const [info, setInfo] = useState(null);
+  const [file, setFile] = useState(null);
+  const [name, setName] = useState('');
+  const [audition, setAudition] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [inputKey, setInputKey] = useState(0);
+
+  const load = async () => {
+    try {
+      const res = await songsApi.listVariants(song.index);
+      setInfo(res);
+      const usable = res.variants.filter((v) => !v.problem).map((v) => v.name);
+      setAudition((current) => (usable.includes(current) ? current : (usable[0] || '')));
+      return res;
+    } catch (err) {
+      setError(err.message);
+      return null;
+    }
+  };
+
+  useEffect(() => { load(); }, [song.index]);
+
+  const act = async (fn, okMessage) => {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      await fn();
+      setMessage(okMessage);
+      const res = await load();
+      if (res) onChanged(res.variants.map((v) => v.name));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const upload = async () => {
+    if (!file || !name) return;
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      let replace = false;
+      try {
+        await songsApi.uploadVariant(song.index, name, file);
+      } catch (err) {
+        if (err.status !== 409) throw err;
+        if (!window.confirm(`Variant "${name}" already exists. Replace it?`)) return;
+        replace = true;
+        await songsApi.uploadVariant(song.index, name, file, true);
+      }
+      setMessage(`${replace ? 'Replaced' : 'Uploaded'} ${name}`);
+      setFile(null);
+      setName('');
+      setInputKey((k) => k + 1);
+      const res = await load();
+      if (res) onChanged(res.variants.map((v) => v.name));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = (variant) => {
+    if (!window.confirm(`Delete variant "${variant}" of ${song.name}? This removes the CSV file.`)) return;
+    act(() => songsApi.deleteVariant(song.index, variant), `Deleted ${variant}`);
+  };
+
+  const playWith = () => {
+    if (!audition) return;
+    act(() => songsApi.play(song.index, audition),
+      `${song.name} plays next with ${audition} (once; the saved sequence is unchanged)`);
+  };
+
+  const inUse = (variant) => {
+    const { mode, variant: single, selected } = parseSequence(savedSequence);
+    return mode === 'variant' ? single === variant : selected.includes(variant);
+  };
+
+  if (!info) {
+    return <div className="variants-panel">{error || 'Loading variants…'}</div>;
+  }
+  const usable = info.variants.filter((v) => !v.problem);
+
+  return (
+    <div className="variants-panel">
+      <div className="variants-header">
+        <label>Variants</label>
+        <span className="field-hint">{info.folder} · {info.gpio_len} columns per row</span>
+      </div>
+      {error && <div className="error-banner">{error}</div>}
+      {message && <div className="songs-message">{message}</div>}
+
+      {info.variants.length === 0 ? (
+        <div className="field-hint">No variant CSVs yet.</div>
+      ) : (
+        <table className="variants-table">
+          <thead>
+            <tr><th>Name</th><th>Rows</th><th>Size</th><th>Updated</th><th aria-label="Actions"></th></tr>
+          </thead>
+          <tbody>
+            {info.variants.map((v) => (
+              <tr key={v.name}>
+                <td>
+                  {v.name}
+                  {inUse(v.name) && <span className="field-hint"> (in use)</span>}
+                  {v.problem && <div className="variant-problem">{v.problem}</div>}
+                </td>
+                <td>{v.rows}</td>
+                <td>{formatSize(v.size)}</td>
+                <td>{new Date(v.mtime * 1000).toLocaleString()}</td>
+                <td>
+                  <button className="btn btn-sm btn-danger" onClick={() => remove(v.name)} disabled={busy}>Delete</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <div className="variants-upload">
+        <input
+          key={inputKey}
+          type="file"
+          accept=".csv,text/csv"
+          onChange={(e) => {
+            const picked = e.target.files[0] || null;
+            setFile(picked);
+            if (picked) setName(variantNameFromFile(picked.name));
+          }}
+        />
+        <input
+          type="text"
+          value={name}
+          placeholder="variant name"
+          onChange={(e) => setName(e.target.value)}
+        />
+        <button className="btn btn-sm btn-primary" onClick={upload} disabled={busy || !file || !name}>
+          Upload
+        </button>
+      </div>
+      <div className="field-hint">CSV, up to 5 MB, {info.gpio_len} numeric columns on every row.</div>
+
+      {usable.length > 0 && (
+        <div className="variants-audition">
+          <select value={audition} onChange={(e) => setAudition(e.target.value)}>
+            {usable.map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
+          </select>
+          <button className="btn btn-sm btn-primary" onClick={playWith} disabled={busy || !audition}>
+            ▶ Play now with
+          </button>
+          <span className="field-hint">Once, without changing the saved sequence.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettingsPanel({ song, onClose, onSaved, onVariantsChanged }) {
   const [data, setData] = useState(null);
   const [form, setForm] = useState({});
   const [error, setError] = useState('');
@@ -175,6 +352,16 @@ function SettingsPanel({ song, onClose, onSaved }) {
           legacyCsv={data.legacy_csv}
         />
       </div>
+
+      <VariantsPanel
+        song={song}
+        savedSequence={data.settings.sequence}
+        onChanged={(variants) => {
+          // Keep unsaved form edits: only the variant list changes
+          setData((current) => ({ ...current, variants }));
+          if (onVariantsChanged) onVariantsChanged();
+        }}
+      />
 
       <div className="settings-grid">
         {TEXT_FIELDS.map(({ key, label, hint }) => (
@@ -319,6 +506,7 @@ export default function Songs({ onBack, onLogout }) {
                         onPlay={() => play(song)}
                         onEdit={() => setEditing(editing === song.index ? null : song.index)}
                         onSaved={() => { setEditing(null); load(); setMessage(`Saved settings for ${song.name}`); }}
+                        onVariantsChanged={load}
                       />
                     ))}
                   </tbody>
@@ -353,7 +541,7 @@ export default function Songs({ onBack, onLogout }) {
   );
 }
 
-function SongRow({ song, position, count, busy, editing, onMove, onRename, onDisable, onPlay, onEdit, onSaved }) {
+function SongRow({ song, position, count, busy, editing, onMove, onRename, onDisable, onPlay, onEdit, onSaved, onVariantsChanged }) {
   return (
     <>
       <tr className={song.exists ? '' : 'song-missing'}>
@@ -383,7 +571,7 @@ function SongRow({ song, position, count, busy, editing, onMove, onRename, onDis
       {editing && (
         <tr className="song-settings-row">
           <td colSpan={5}>
-            <SettingsPanel song={song} onClose={onEdit} onSaved={onSaved} />
+            <SettingsPanel song={song} onClose={onEdit} onSaved={onSaved} onVariantsChanged={onVariantsChanged} />
           </td>
         </tr>
       )}

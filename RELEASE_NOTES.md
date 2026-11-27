@@ -13,6 +13,12 @@ Draft. See the [Unreleased] section of [CHANGELOG.md](CHANGELOG.md).
   variant, or rotate/randomize across several, so each play of a song can look
   different. Copy research variants in with `tools/install_sequences.py`.
   Songs you don't configure play exactly as before.
+- **Upload and audition variants from the web**: a song's Settings panel lists
+  its variant CSVs, uploads new ones (checked against your channel count before
+  they're saved) and deletes unused ones. "Play now with" plays the song once
+  with a chosen variant, leaving its saved sequence alone. To turn auditions
+  off, set `allow_sequence_audition = False` under `[lightshow]` in
+  `overrides.cfg`.
 - **Virtual channels**: give Nanoleaf (or any output) its own pattern with
   `[hardware] virtual_channels`; extra CSV columns drive it while the relays
   keep theirs. Off (0) by default.

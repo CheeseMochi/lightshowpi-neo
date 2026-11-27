@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Variant CSV upload, delete and audition** on the Songs page (Settings →
+  Variants) and in the API: `GET /api/songs/{index}/variants`,
+  `PUT /api/songs/{index}/variants/{name}` (multipart `file`, up to 5 MB, every
+  row checked against the channel count the show uses; `?replace=true` to
+  overwrite) and `DELETE /api/songs/{index}/variants/{name}` (refused while the
+  song's `sequence` setting uses it). Uploads and deletes are logged as
+  `sequence_upload` / `sequence_delete` events. `POST /api/songs/{index}/play`
+  takes an optional `{"variant": "<name>"}` to play the song once with that
+  variant without changing its saved setting: the API sets state
+  `sequence_once = <song>|<variant>` before `play_now`, and the show uses it for
+  that one play and clears it. New `[lightshow] allow_sequence_audition`
+  (default `True`); set it to `False` to turn auditions off.
 - **Virtual show channels** so outputs like Nanoleaf can run their own
   pattern instead of mirroring the relays: `[hardware] virtual_channels = N`
   appends N non-physical show channels after the GPIO and LED EXTEND

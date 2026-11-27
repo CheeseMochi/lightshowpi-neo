@@ -929,6 +929,17 @@ class Lightshow(object):
         # Per-song "[custom_lightshow] sequence" picks FFT, the legacy CSV or a
         # variant CSV; without it the original behaviour below is unchanged.
         sequence_setting = sequence_select.read_sequence_setting(self.config_filename)
+        # A one-shot audition from the API ("play now with variant") overrides
+        # the saved setting for this play only. Always taken (and cleared) so a
+        # stale request can't fire later; ignored when auditions are off.
+        try:
+            once = sequence_select.take_once(filename, cm.get_state, cm.update_state)
+        except Exception as error:
+            log.warning("One-shot sequence check failed (%s)", error)
+            once = None
+        if once and getattr(cm.lightshow, 'allow_sequence_audition', False):
+            log.info("Auditioning sequence '%s' for this play", once)
+            sequence_setting = once
         if sequence_setting is None:
             self.sequence_filename = filename.rsplit('.',1)[0] + '.csv'
             if os.path.isfile(self.sequence_filename):

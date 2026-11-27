@@ -641,6 +641,9 @@ class Configuration(object):
             sequences_dir = '$SYNCHRONIZED_LIGHTS_HOME/music/sequences'
         lghtshw["sequences_dir"] = sequences_dir.replace('$SYNCHRONIZED_LIGHTS_HOME',
                                                          self.home_dir or '')
+        # Let the API play a song once with a chosen variant (state sequence_once)
+        lghtshw["allow_sequence_audition"] = self.config.getboolean(
+            ls, 'allow_sequence_audition', fallback=True)
 
         lghtshw["randomize_playlist"] = self.config.getboolean(ls, 'randomize_playlist', fallback=False)
 

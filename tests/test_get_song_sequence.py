@@ -52,7 +52,8 @@ class FakeCM:
     def __init__(self, home, sequences_dir, gpio_len=3):
         self.home_dir = str(home)
         self.hardware = SimpleNamespace(gpio_len=gpio_len)
-        self.lightshow = SimpleNamespace(sequences_dir=str(sequences_dir), songname_command="")
+        self.lightshow = SimpleNamespace(sequences_dir=str(sequences_dir), songname_command="",
+                                         allow_sequence_audition=True)
         self.state = {}
         self.published = {}
 
@@ -145,6 +146,75 @@ def test_rotate_key_advances_state(env):
     env.show.get_song()
     assert env.cm.published["song_sequence"] == "b"
     assert env.cm.state["seq_rot_tone"] == "0"
+
+
+def next_play(env):
+    """The show runs one process per song: start the next play fresh."""
+    env.show.sequence_type = "auto"
+    env.show.sequence_filename = None
+    env.show.get_song()
+
+
+def test_one_shot_used_once_then_saved_setting(env):
+    write_variant(env, "onset_bands")
+    write_variant(env, "stems")
+    write_cfg(env, "onset_bands")
+    env.cm.state["sequence_once"] = "tone|stems"
+    env.show.get_song()
+    assert env.cm.published["song_sequence"] == "stems"
+    assert env.show.sequence_filename == str(env.seqdir / "tone" / "stems.csv")
+    assert env.cm.state["sequence_once"] == ""
+    next_play(env)
+    assert env.cm.published["song_sequence"] == "onset_bands"
+
+
+def test_one_shot_without_saved_setting(env):
+    write_variant(env, "stems")
+    env.cm.state["sequence_once"] = "tone|stems"
+    env.show.get_song()
+    assert env.cm.published["song_sequence"] == "stems"
+    next_play(env)
+    assert env.show.sequence_type == "auto"
+    assert env.cm.published["song_sequence"] == "fft"
+
+
+def test_one_shot_does_not_advance_rotation(env):
+    write_variant(env, "a")
+    write_variant(env, "b")
+    write_cfg(env, "rotate:a,b")
+    env.cm.state["sequence_once"] = "tone|b"
+    env.show.get_song()
+    assert env.cm.published["song_sequence"] == "b"
+    assert "seq_rot_tone" not in env.cm.state
+    next_play(env)
+    assert env.cm.published["song_sequence"] == "a"
+
+
+def test_one_shot_ignored_but_cleared_when_flag_off(env):
+    write_variant(env, "onset_bands")
+    write_variant(env, "stems")
+    write_cfg(env, "onset_bands")
+    env.cm.lightshow.allow_sequence_audition = False
+    env.cm.state["sequence_once"] = "tone|stems"
+    env.show.get_song()
+    assert env.cm.published["song_sequence"] == "onset_bands"
+    assert env.cm.state["sequence_once"] == ""
+
+
+def test_one_shot_for_other_song_is_cleared(env):
+    write_variant(env, "stems")
+    env.cm.state["sequence_once"] = "other|stems"
+    env.show.get_song()
+    assert env.cm.published["song_sequence"] == "fft"
+    assert env.cm.state["sequence_once"] == ""
+
+
+def test_one_shot_missing_variant_falls_back_and_never_exits(env):
+    write_legacy(env, "1,2")  # mismatched legacy CSV would exit() without a setting
+    env.cm.state["sequence_once"] = "tone|gone"
+    env.show.get_song()
+    assert env.show.sequence_type == "auto"
+    assert env.cm.published["song_sequence"] == "fft"
 
 
 def test_key_with_bad_variant_and_mismatched_legacy_does_not_exit(env):
