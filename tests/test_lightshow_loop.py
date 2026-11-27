@@ -17,6 +17,8 @@ pytestmark = pytest.mark.unit
 SONG = """import sys, time, os
 with open(os.environ["RUNS_LOG"], "a") as f:
     f.write(" ".join(sys.argv[1:]) + "\\n")
+if os.environ.get("SONG_PRINT"):
+    print(os.environ["SONG_PRINT"], flush=True)
 time.sleep(float(os.environ.get("SONG_SECONDS", "0.3")))
 sys.exit(int(os.environ.get("SONG_EXIT", "0")))
 """
@@ -116,6 +118,31 @@ def test_crash_loop_stops_with_error(mgr, monkeypatch):
     time.sleep(0.5)
     assert len(mgr.runs()) == count
     assert not mgr.is_running()
+
+
+def test_crash_loop_error_names_exit_code_and_last_output(mgr, monkeypatch):
+    # The show's traceback goes to its stdout; the error must carry its last
+    # line so Activity shows the cause, not just "exited 3 times".
+    monkeypatch.setenv("SONG_SECONDS", "0.1")
+    monkeypatch.setenv("SONG_EXIT", "1")
+    monkeypatch.setenv("SONG_PRINT", "PermissionError: [Errno 13] /dev/gpiochip0")
+    mgr.startup_check_seconds = 0.0
+    mgr.min_run_seconds = 5.0
+    assert mgr.start() is True
+    assert wait_for(lambda: mgr.state == LightshowState.ERROR, timeout=10)
+    assert "exit code 1" in mgr.error_message
+    assert "PermissionError: [Errno 13] /dev/gpiochip0" in mgr.error_message
+
+
+def test_immediate_exit_names_exit_code_and_last_output(mgr, monkeypatch):
+    monkeypatch.setenv("SONG_SECONDS", "0")
+    monkeypatch.setenv("SONG_EXIT", "2")
+    monkeypatch.setenv("SONG_PRINT", "ModuleNotFoundError: No module named 'alsaaudio'")
+    mgr.startup_check_seconds = 1.0
+    assert mgr.start() is False
+    assert mgr.state == LightshowState.ERROR
+    assert "exit code 2" in mgr.error_message
+    assert "No module named 'alsaaudio'" in mgr.error_message
 
 
 def test_test_mode_stops_the_loop(mgr):
