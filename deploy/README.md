@@ -126,6 +126,11 @@ should say `off`.
 **Turn it off:** blank `cloud_url` in `overrides.cfg` and restart the API. To take the page down,
 `cd cloud/worker && npx wrangler delete`.
 
+When a change adds fields to the public data, deploy the Worker first
+(`make cloud`), then the Pi (`make deploy`): the Worker accepts payloads with
+or without the new fields, but an older Worker rejects a newer Pi's pushes, and
+the site would show the show as off after 15 minutes.
+
 `make cloud-test` runs the Worker's tests (vitest inside workerd, no account needed).
 
 ## Turnstile on the admin login (optional)
