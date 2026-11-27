@@ -17,6 +17,8 @@ from api.services.lightshow_manager import LightshowManager
 from api.services.test_mode_manager import TestModeManager
 
 SONG = """import sys, time, os
+if os.environ.get("SONG_PRINT"):
+    print(os.environ["SONG_PRINT"], flush=True)
 time.sleep(float(os.environ.get("SONG_SECONDS", "0.3")))
 sys.exit(int(os.environ.get("SONG_EXIT", "0")))
 """
@@ -104,6 +106,22 @@ class TestLightshowManagerEvents:
         assert mgr.state == LightshowState.ERROR
         errors = events(["error"])
         assert errors and errors[-1]["details"]["action"] == "playlist_loop"
+        assert errors[-1]["details"]["exit_code"] == 1
+        assert "exit code 1" in errors[-1]["details"]["message"]
+
+    def test_fast_failure_event_keeps_show_output(self, mgr, monkeypatch):
+        monkeypatch.setenv("SONG_SECONDS", "0.1")
+        monkeypatch.setenv("SONG_EXIT", "1")
+        monkeypatch.setenv("SONG_PRINT", "RuntimeError: audio device busy")
+        mgr.startup_check_seconds = 0.0
+        mgr.min_run_seconds = 5.0
+        mgr.start()
+        deadline = time.time() + 10
+        while mgr.state != LightshowState.ERROR and time.time() < deadline:
+            time.sleep(0.05)
+        (err,) = [e for e in events(["error"]) if e["details"]["action"] == "playlist_loop"]
+        assert err["details"]["output"][-1] == "RuntimeError: audio device busy"
+        assert "RuntimeError: audio device busy" in err["details"]["message"]
 
     def test_event_log_failure_does_not_break_start(self, mgr, tmp_path):
         blocker = tmp_path / "blocker"

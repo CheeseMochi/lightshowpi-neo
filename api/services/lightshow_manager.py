@@ -11,6 +11,7 @@ import signal
 import subprocess
 import logging
 import time
+from collections import deque
 from typing import Optional, Dict, Any
 from threading import Event, Thread, Lock
 
@@ -68,6 +69,8 @@ class LightshowManager:
     while maintaining backward compatibility with traditional CLI usage.
     """
 
+    OUTPUT_TAIL_LINES = 15
+
     def __init__(self, config: APIConfig):
         """
         Initialize lightshow manager.
@@ -92,6 +95,9 @@ class LightshowManager:
         self._stop_event = Event()
         self._supervisor: Optional[Thread] = None
         self._spawned_at: Optional[float] = None
+        # Last lines the current run printed, so a crash's cause reaches the
+        # event log instead of only the API log.
+        self._output_tail: deque = deque(maxlen=self.OUTPUT_TAIL_LINES)
         self.min_run_seconds = 5.0        # a run shorter than this counts as a failure
         self.max_fast_failures = 3        # consecutive short runs before giving up
         self.fast_failure_pause = 5.0     # pause after a short run
@@ -116,16 +122,25 @@ class LightshowManager:
     def is_test_mode_active(self) -> bool:
         return self.test_mode is not None and self.test_mode.is_active()
 
-    def _read_output(self):
-        """Read subprocess output in background thread."""
-        if not self.process:
+    def _read_output(self, process: Optional[subprocess.Popen] = None,
+                     tail: Optional[deque] = None):
+        """Read subprocess output in background thread.
+
+        Args:
+            process: The run to read (default: self.process)
+            tail: Deque that keeps that run's last lines
+        """
+        process = process or self.process
+        if not process:
             return
 
         try:
-            for line in iter(self.process.stdout.readline, b''):
+            for line in iter(process.stdout.readline, b''):
                 if line:
-                    decoded = line.decode('utf-8').strip()
+                    decoded = line.decode('utf-8', errors='replace').strip()
                     log.info(f"[lightshow] {decoded}")
+                    if tail is not None and decoded:
+                        tail.append(decoded)
 
                     # Parse output for current song info
                     if "Playing:" in decoded or "Now playing:" in decoded:
@@ -252,7 +267,8 @@ class LightshowManager:
                 if self.process.poll() is not None:
                     log.error("Lightshow process terminated immediately")
                     self.state = LightshowState.ERROR
-                    self.error_message = "Process terminated immediately"
+                    reason, _ = self._last_run_summary(self.process)
+                    self.error_message = f"Process terminated immediately ({reason})"
                     return False
 
                 self.state = LightshowState.PLAYING
@@ -282,8 +298,26 @@ class LightshowManager:
             env=os.environ.copy()
         )
         self._spawned_at = time.monotonic()
-        self.output_thread = Thread(target=self._read_output, daemon=True)
+        self._output_tail = deque(maxlen=self.OUTPUT_TAIL_LINES)
+        self.output_thread = Thread(target=self._read_output,
+                                    args=(self.process, self._output_tail), daemon=True)
         self.output_thread.start()
+
+    def _last_run_summary(self, proc: subprocess.Popen) -> tuple:
+        """Exit code and last output lines of a finished run.
+
+        Returns:
+            (reason, lines): a short "exit code N: <last line>" string for the
+            error message, and the captured tail for the event details.
+        """
+        reader = self.output_thread
+        if reader is not None and reader.is_alive():
+            reader.join(timeout=1.0)  # let it drain what the run printed last
+        lines = list(self._output_tail)
+        reason = f"exit code {proc.returncode}"
+        if lines:
+            reason += f": {lines[-1][:200]}"
+        return reason, lines
 
     def _supervise(self) -> None:
         """Start the next song each time a run ends, until a stop condition.
@@ -306,16 +340,19 @@ class LightshowManager:
                 log.warning(f"Lightshow run ended after {ran:.1f}s "
                             f"({fast_failures}/{self.max_fast_failures})")
                 if fast_failures >= self.max_fast_failures:
+                    reason, output = self._last_run_summary(proc)
                     with self.lock:
                         if self._stop_event.is_set():
                             return
                         self.process = None
                         self.state = LightshowState.ERROR
                         self.error_message = (f"Show exited {fast_failures} times in a row "
-                                              f"within {self.min_run_seconds:.0f}s; stopped")
+                                              f"within {self.min_run_seconds:.0f}s; stopped "
+                                              f"({reason})")
                     log.error(self.error_message)
                     record_event("error", source="api", action="playlist_loop",
-                                 message=self.error_message)
+                                 message=self.error_message, exit_code=proc.returncode,
+                                 output=output)
                     return
                 if self._stop_event.wait(self.fast_failure_pause):
                     return

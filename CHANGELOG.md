@@ -294,6 +294,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and an OSV scan of a fresh `requirements-dev.txt` install both report none.
 
 ### Fixed
+- **A root-owned show log no longer stops the show.** If
+  `logs/music_and_lights.play.dbg` can't be opened (e.g. a `sudo` run created
+  it and the API runs the show as a normal user), the show warns and logs to
+  stderr, which the API captures, instead of exiting on start. Fix the file
+  with `sudo chown -R $USER ~/lightshowpi/logs`.
+- **Show crash causes now reach Activity.** When the web UI's start fails
+  with "Show exited 3 times in a row" or "Process terminated immediately",
+  the message now ends with the show's exit code and last output line (for a
+  Python crash, the exception), and the `playlist_loop` error event stores
+  `exit_code` and the last 15 output lines in `output`.
 - **Bench runners going offline after a cold boot**: the Pis have no RTC
   battery, so the GitHub runner connected with a days-old clock, had its token
   rejected ("registration has been deleted") and exited for good. The
